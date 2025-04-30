@@ -12,8 +12,14 @@
         "laravel media manager",
         "laravel file manager"
     ],
-    "homepage": "https://github.com/FarhanShares/laravel-mediaman",
+    "homepage": "https://github.com/emaia/laravel-mediaman",
     "authors": [
+        {
+            "name": "Emaia",
+            "email": "eu@emaia.dev",
+            "homepage": "https://emaia.dev",
+            "role": "Developer"
+        },
         {
             "name": "Farhan Israq",
             "email": "farhan.israq.bd@gmail.com",
@@ -29,28 +35,40 @@
         "intervention/image": "^3.0"
     },
     "require-dev": {
-        "laravel/framework": "^12.0",
         "orchestra/testbench": "^10.0",
-        "mockery/mockery": "^1.2.3",
-        "laravel/legacy-factories": "^1.3.9"
+        "orchestra/workbench": "^10.0",
+        "laravel/legacy-factories": "^1.3.9",
+        "pestphp/pest": "^3.8",
+        "mockery/mockery": "^1.6",
+        "pestphp/pest-plugin-drift": "^3.0",
+        "larastan/larastan": "^3.0"
     },
     "autoload": {
         "psr-4": {
-            "FarhanShares\\MediaMan\\": "src/"
+            "Emaia\\MediaMan\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "FarhanShares\\MediaMan\\Tests\\": "tests/"
+            "Emaia\\MediaMan\\Tests\\": "tests/"
         }
     },
     "extra": {
         "laravel": {
             "providers": [
-                "FarhanShares\\MediaMan\\MediaManServiceProvider"
+                "Emaia\\MediaMan\\MediaManServiceProvider"
             ]
         }
     },
     "minimum-stability": "dev",
-    "prefer-stable": true
+    "prefer-stable": true,
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
+    "scripts": {
+        "test" : "./vendor/bin/pest",
+        "test-coverage": "vendor/bin/pest --coverage"
+    }
 }

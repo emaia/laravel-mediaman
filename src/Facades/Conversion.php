@@ -1,10 +1,9 @@
 <?php
 
-namespace FarhanShares\MediaMan\Facades;
+namespace Emaia\MediaMan\Facades;
 
-
+use Emaia\MediaMan\ConversionRegistry;
 use Illuminate\Support\Facades\Facade;
-use FarhanShares\MediaMan\ConversionRegistry;
 
 class Conversion extends Facade
 {
@@ -13,7 +12,7 @@ class Conversion extends Facade
      *
      * @return string
      */
-    protected static function getFacadeAccessor()
+    protected static function getFacadeAccessor(): string
     {
         return ConversionRegistry::class;
     }

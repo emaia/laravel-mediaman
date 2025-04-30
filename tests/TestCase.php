@@ -1,17 +1,16 @@
 <?php
 
-namespace FarhanShares\MediaMan\Tests;
+namespace Emaia\MediaMan\Tests;
 
-
+use Emaia\MediaMan\MediaManServiceProvider;
+use Orchestra\Testbench\TestCase as Orchestra;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Storage;
-use Orchestra\Testbench\TestCase as BaseTestCase;
-use FarhanShares\MediaMan\MediaManServiceProvider;
+use Mockery\MockInterface;
 
-class TestCase extends BaseTestCase
+class TestCase extends Orchestra
 {
-
     const DEFAULT_DISK = 'default';
 
     protected $file;

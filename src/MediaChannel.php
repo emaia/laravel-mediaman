@@ -1,6 +1,6 @@
 <?php
 
-namespace FarhanShares\MediaMan;
+namespace Emaia\MediaMan;
 
 class MediaChannel
 {
@@ -10,10 +10,10 @@ class MediaChannel
     /**
      * Register the conversions to be performed when media is attached.
      *
-     * @param string ...$conversions
+     * @param  string  ...$conversions
      * @return $this
      */
-    public function performConversions(...$conversions)
+    public function performConversions(...$conversions): MediaChannel
     {
         $this->conversions = $conversions;
 
@@ -25,9 +25,9 @@ class MediaChannel
      *
      * @return bool
      */
-    public function hasConversions()
+    public function hasConversions(): bool
     {
-        return !empty($this->conversions);
+        return ! empty($this->conversions);
     }
 
     /**
@@ -35,7 +35,7 @@ class MediaChannel
      *
      * @return array
      */
-    public function getConversions()
+    public function getConversions(): array
     {
         return $this->conversions;
     }

@@ -1,26 +1,19 @@
 <?php
 
-namespace FarhanShares\MediaMan\Traits;
+namespace Emaia\MediaMan\Traits;
 
-use Throwable;
-use FarhanShares\MediaMan\MediaChannel;
-use FarhanShares\MediaMan\Models\Media;
+use Emaia\MediaMan\Jobs\PerformConversions;
+use Emaia\MediaMan\MediaChannel;
+use Emaia\MediaMan\Models\Media;
 use Illuminate\Database\Eloquent\Collection;
-use FarhanShares\MediaMan\Jobs\PerformConversions;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
-use Illuminate\Database\Eloquent\Collection as EloquentCollection;
-use Illuminate\Support\Collection as BaseCollection;
+use Throwable;
 
 trait HasMedia
 {
-    /** @var MediaChannels[] */
+    /** @var MediaChannel[] */
     protected $mediaChannels = [];
 
-    /**
-     * Get the "media" relationship.
-     *
-     * @return MorphToMany
-     */
     public function media(): MorphToMany
     {
         return $this
@@ -31,8 +24,6 @@ trait HasMedia
     /**
      * Determine if there is any media in the specified group.
      *
-     * @param string $channel
-     * @return mixed
      */
     public function hasMedia(string $channel = 'default')
     {
@@ -42,8 +33,6 @@ trait HasMedia
     /**
      * Get all the media in the specified group.
      *
-     * @param string $group
-     * @return mixed
      */
     public function getMedia(?string $channel = 'default')
     {
@@ -57,8 +46,6 @@ trait HasMedia
     /**
      * Get the first media item in the specified channel.
      *
-     * @param string $channel
-     * @return mixed
      */
     public function getFirstMedia(?string $channel = 'default')
     {
@@ -68,13 +55,11 @@ trait HasMedia
     /**
      * Get the url of the first media item in the specified channel.
      *
-     * @param string $channel
-     * @param string $conversion
      * @return string
      */
     public function getFirstMediaUrl(?string $channel = 'default', string $conversion = '')
     {
-        if (!$media = $this->getFirstMedia($channel)) {
+        if (! $media = $this->getFirstMedia($channel)) {
             return '';
         }
 
@@ -84,9 +69,7 @@ trait HasMedia
     /**
      * Attach media to the specified channel.
      *
-     * @param mixed $media
-     * @param string $channel
-     * @param array $conversions
+     * @param  mixed  $media
      * @return int|null
      */
     public function attachMedia($media, string $channel = 'default', array $conversions = [])
@@ -94,10 +77,12 @@ trait HasMedia
         // Utilize syncMedia with detaching set to false to achieve the attach behavior
         $syncResult = $this->syncMedia($media, $channel, $conversions, false);
 
-        if (!isset($syncResult['attached'])) return null;
+        if (! isset($syncResult['attached'])) {
+            return null;
+        }
 
         // Count the number of attached media from the sync result
-        $attached  = count($syncResult['attached'] ?? []);
+        $attached = count($syncResult['attached'] ?? []);
 
         // Return the count of attached media if there's any, otherwise return null
         return $attached > 0 ? $attached : null;
@@ -106,7 +91,7 @@ trait HasMedia
     /**
      * Parse the media id's from the mixed input.
      *
-     * @param mixed $media
+     * @param  mixed  $media
      * @return array
      */
     protected function parseMediaIds($media)
@@ -135,12 +120,11 @@ trait HasMedia
     /**
      * Register a new media group.
      *
-     * @param string $name
      * @return MediaChannel
      */
     protected function addMediaChannel(string $name)
     {
-        $channel = new MediaChannel();
+        $channel = new MediaChannel;
 
         $this->mediaChannels[$name] = $channel;
 
@@ -150,7 +134,6 @@ trait HasMedia
     /**
      * Get the media channel with the specified name.
      *
-     * @param string $name
      * @return MediaChannel|null
      */
     public function getMediaChannel(string $name)
@@ -161,12 +144,12 @@ trait HasMedia
     /**
      * Detach the specified media.
      *
-     * @param mixed $media
+     * @param  mixed  $media
      * @return int|null
      */
     public function detachMedia($media = null)
     {
-        $count =  $this->media()->detach($media);
+        $count = $this->media()->detach($media);
 
         return $count > 0 ? $count : null;
     }
@@ -174,7 +157,6 @@ trait HasMedia
     /**
      * Detach all the media in the specified channel.
      *
-     * @param string $channel
      * @return void
      */
     public function clearMediaChannel(string $channel = 'default')
@@ -182,17 +164,14 @@ trait HasMedia
         $this->media()->wherePivot('channel', $channel)->detach();
     }
 
-
     /**
      * Sync media to the specified channel.
      *
      * This will remove the media that aren't in the provided list
      * and add those which aren't already attached if $detaching is truthy.
      *
-     * @param mixed $media
-     * @param string $channel
-     * @param array $conversions
-     * @param bool $detaching
+     * @param  mixed  $media
+     * @param  bool  $detaching
      * @return array|null
      */
     public function syncMedia($media, string $channel = 'default', array $conversions = [], $detaching = true)
@@ -214,7 +193,7 @@ trait HasMedia
             );
         }
 
-        if (!empty($conversions)) {
+        if (! empty($conversions)) {
             $model = config('mediaman.models.media');
 
             $mediaInstances = $model::findMany($ids);
@@ -234,6 +213,7 @@ trait HasMedia
 
         try {
             $res = $this->media()->sync($mappedIds, $detaching);
+
             return $res; // this should give an array containing 'attached', 'detached', and 'updated'
         } catch (Throwable $th) {
             return null;
@@ -245,12 +225,12 @@ trait HasMedia
      *
      * bool|null|empty-string|empty-array to detach all media
      *
-     * @param mixed $collections
-     * @return boolean
+     * @param $media
+     * @return bool
      */
     protected function shouldDetachAll($media): bool
     {
-        if (is_bool($media) || is_null($media) || empty($media)) {
+        if (is_bool($media) || empty($media)) {
             return true;
         }
 

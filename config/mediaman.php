@@ -31,7 +31,6 @@ return [
 
     'queue' => null,
 
-
     /*
     |--------------------------------------------------------------------------
     | The fully qualified class name of the MediaMan models
@@ -40,8 +39,8 @@ return [
     */
 
     'models' => [
-        'media'      => \FarhanShares\MediaMan\Models\Media::class,
-        'collection' => \FarhanShares\MediaMan\Models\MediaCollection::class,
+        'media' => \Emaia\MediaMan\Models\Media::class,
+        'collection' => \Emaia\MediaMan\Models\MediaCollection::class,
     ],
 
     /*
@@ -52,10 +51,10 @@ return [
     */
 
     'tables' => [
-        'media'            => 'mediaman_media',
-        'collections'      => 'mediaman_collections',
+        'media' => 'mediaman_media',
+        'collections' => 'mediaman_collections',
         'collection_media' => 'mediaman_collection_media',
-        'mediables'        => 'mediaman_mediables',
+        'mediables' => 'mediaman_mediables',
     ],
 
     /*

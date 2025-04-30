@@ -1,47 +1,36 @@
 <?php
 
-namespace FarhanShares\MediaMan;
+namespace Emaia\MediaMan;
 
-use FarhanShares\MediaMan\Exceptions\InvalidConversion;
+use Emaia\MediaMan\Exceptions\InvalidConversion;
 
 class ConversionRegistry
 {
-    /** @var array */
-    protected $conversions = [];
+    protected array $conversions = [];
 
     /**
      * Get all the registered conversions.
-     *
-     * @return array
      */
-    public function all()
+    public function all(): array
     {
         return $this->conversions;
     }
 
     /**
      * Register a new conversion.
-     *
-     * @param string $name
-     * @param callable $conversion
-     * @return void
      */
-    public function register(string $name, callable $conversion)
+    public function register(string $name, callable $conversion): void
     {
         $this->conversions[$name] = $conversion;
     }
 
     /**
      * Get the conversion with the specified name.
-     *
-     * @param string $name
-     * @return mixed
-     *
      * @throws InvalidConversion
      */
-    public function get(string $name)
+    public function get(string $name): mixed
     {
-        if (!$this->exists($name)) {
+        if (! $this->exists($name)) {
             throw InvalidConversion::doesNotExist($name);
         }
 
@@ -50,11 +39,8 @@ class ConversionRegistry
 
     /**
      * Determine if a conversion with the specified name exists.
-     *
-     * @param string $name
-     * @return bool
      */
-    public function exists(string $name)
+    public function exists(string $name): bool
     {
         return isset($this->conversions[$name]);
     }

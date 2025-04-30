@@ -1,10 +1,10 @@
 <?php
 
-namespace FarhanShares\MediaMan;
+namespace Emaia\MediaMan;
 
+use Emaia\MediaMan\Console\Commands\MediamanPublishConfigCommand;
+use Emaia\MediaMan\Console\Commands\MediamanPublishMigrationCommand;
 use Illuminate\Support\ServiceProvider;
-use FarhanShares\MediaMan\Console\Commands\MediamanPublishConfigCommand;
-use FarhanShares\MediaMan\Console\Commands\MediamanPublishMigrationCommand;
 
 class MediaManServiceProvider extends ServiceProvider
 {
@@ -13,10 +13,10 @@ class MediaManServiceProvider extends ServiceProvider
      *
      * @return void
      */
-    public function register()
+    public function register(): void
     {
         $this->mergeConfigFrom(
-            __DIR__ . '/../config/mediaman.php',
+            __DIR__.'/../config/mediaman.php',
             'mediaman'
         );
 
@@ -28,7 +28,7 @@ class MediaManServiceProvider extends ServiceProvider
      *
      * @return void
      */
-    public function boot()
+    public function boot(): void
     {
         // Migrations
         $this->publishes([
@@ -38,7 +38,7 @@ class MediaManServiceProvider extends ServiceProvider
 
         // Config
         $this->publishes([
-            __DIR__ . '/../config/mediaman.php' => config_path('mediaman.php'),
+            __DIR__.'/../config/mediaman.php' => config_path('mediaman.php'),
         ], 'config');
 
         if ($this->app->runningInConsole()) {
