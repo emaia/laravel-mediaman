@@ -1,7 +1,7 @@
 <?php
 
 use Faker\Generator as Faker;
-use FarhanShares\MediaMan\Models\Media;
+use Emaia\MediaMan\Models\Media;
 
 $factory->define(Media::class, function (Faker $faker) {
     return [

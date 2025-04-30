@@ -1,45 +1,35 @@
 <?php
 
-namespace FarhanShares\MediaMan\Models;
+namespace Emaia\MediaMan\Models;
 
-use Illuminate\Support\Str;
-use FarhanShares\MediaMan\Casts\Json;
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Database\Eloquent\Collection;
+use Emaia\MediaMan\Casts\Json;
 use Illuminate\Contracts\Filesystem\Filesystem;
-use FarhanShares\MediaMan\Models\MediaCollection;
-use Illuminate\Support\Collection as BaseCollection;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
-use Illuminate\Database\Eloquent\Collection as EloquentCollection;
+use Illuminate\Support\Collection as BaseCollection;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
+/**
+ * @property int $id
+ * @property string $file_name
+ * @property string $mime_type
+ * @property string $disk
+ * @property string $type
+ * @property float|int $size
+ */
 class Media extends Model
 {
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var array
-     */
     protected $fillable = [
-        'name', 'file_name', 'mime_type', 'size', 'disk', 'data'
+        'name', 'file_name', 'mime_type', 'size', 'disk', 'data',
     ];
 
-    /**
-     * The attributes that need casting.
-     *
-     * @var array
-     */
     protected $casts = [
-        'data' => Json::class
+        'data' => Json::class,
     ];
 
-    /**
-     * The accessors to append to the model's array form.
-     *
-     * @var array
-     */
     protected $appends = ['friendly_size',  'media_uri', 'media_url', 'type', 'extension'];
-
 
     public static function booted()
     {
@@ -47,7 +37,7 @@ class Media extends Model
             // delete the media directory
             $deleted = Storage::disk($media->disk)->deleteDirectory($media->getDirectory());
             // if failed, try deleting the file then
-            !$deleted && Storage::disk($media->disk)->delete($media->getPath());
+            ! $deleted && Storage::disk($media->disk)->delete($media->getPath());
         });
 
         static::updating(function ($media) {
@@ -69,7 +59,7 @@ class Media extends Model
 
             // If the disk has changed, move the file to the new disk first
             if ($media->isDirty('disk')) {
-                $filePathOnOriginalDisk = $path . '/' . $originalFileName;
+                $filePathOnOriginalDisk = $path.'/'.$originalFileName;
                 $fileContent = Storage::disk($originalDisk)->get($filePathOnOriginalDisk);
 
                 // Store the file to the new disk
@@ -82,7 +72,7 @@ class Media extends Model
             // If the filename has changed, rename the file on the disk it currently resides
             if ($media->isDirty('file_name')) {
                 // Rename the file in the storage
-                Storage::disk($newDisk)->move($path . '/' . $originalFileName, $path . '/' . $newFileName);
+                Storage::disk($newDisk)->move($path.'/'.$originalFileName, $path.'/'.$newFileName);
             }
         });
     }
@@ -90,7 +80,6 @@ class Media extends Model
     /**
      * The table associated with the model.
      *
-     * @var string
      */
     public function getTable()
     {
@@ -100,9 +89,8 @@ class Media extends Model
     /**
      * Get the file extension.
      *
-     * @return string
      */
-    public function getExtensionAttribute()
+    public function getExtensionAttribute(): string
     {
         return pathinfo($this->file_name, PATHINFO_EXTENSION);
     }
@@ -110,50 +98,45 @@ class Media extends Model
     /**
      * Get the file type.
      *
-     * @return string|null
      */
-    public function getTypeAttribute()
+    public function getTypeAttribute(): string
     {
-        return Str::before($this->mime_type, '/') ?? null;
+        return Str::before($this->mime_type, '/');
     }
 
     /**
      * Determine if the file is of the specified type.
      *
-     * @param string $type
-     * @return bool
      */
-    public function isOfType(string $type)
+    public function isOfType(string $type): bool
     {
         return $this->type === $type;
     }
 
     /**
-     * Get the file size in human readable format.
+     * Get the file size in human-readable format.
      *
-     * @return string|null
      */
-    public function getFriendlySizeAttribute()
+    public function getFriendlySizeAttribute(): ?string
     {
         $units = ['B', 'KB', 'MB', 'GB', 'TB'];
 
         if ($this->size == 0) {
-            return '0 ' . $units[1];
+            return '0 '.$units[1];
         }
 
         for ($i = 0; $this->size > 1024; $i++) {
             $this->size /= 1024;
         }
 
-        return round($this->size, 2) . ' ' . $units[$i];
+        return round($this->size, 2).' '.$units[$i];
     }
 
     /**
      * Get the original media url.
      *
-     * @return string
      */
-    public function getMediaUrlAttribute()
+    public function getMediaUrlAttribute(): string
     {
         return asset($this->filesystem()->url($this->getPath()));
     }
@@ -161,9 +144,8 @@ class Media extends Model
     /**
      * Get the original media uri.
      *
-     * @return string
      */
-    public function getMediaUriAttribute()
+    public function getMediaUriAttribute(): string
     {
         return $this->filesystem()->url($this->getPath());
     }
@@ -171,10 +153,8 @@ class Media extends Model
     /**
      * Get the url to the file.
      *
-     * @param string $conversion
-     * @return mixed
      */
-    public function getUrl(string $conversion = '')
+    public function getUrl(string $conversion = ''): string
     {
         return $this->filesystem()->url(
             $this->getPath($conversion)
@@ -184,10 +164,8 @@ class Media extends Model
     /**
      * Get the full path to the file.
      *
-     * @param string $conversion
-     * @return mixed
      */
-    public function getFullPath(string $conversion = '')
+    public function getFullPath(string $conversion = ''): string
     {
         return $this->filesystem()->path(
             $this->getPath($conversion)
@@ -197,50 +175,41 @@ class Media extends Model
     /**
      * Get the path to the file on disk.
      *
-     * @param string $conversion
-     * @return string
      */
-    public function getPath(string $conversion = '')
+    public function getPath(string $conversion = ''): string
     {
         $directory = $this->getDirectory();
 
         if ($conversion) {
-            $directory .= '/conversions/' . $conversion;
+            $directory .= '/conversions/'.$conversion;
         }
 
-        return $directory . '/' . $this->file_name;
+        return $directory.'/'.$this->file_name;
     }
 
     /**
      * Get the directory for files on disk.
      *
-     * @return mixed
      */
-    public function getDirectory()
+    public function getDirectory(): string
     {
-        return $this->getKey() . '-' . md5($this->getKey() . config('app.key'));
+        return $this->getKey().'-'.md5($this->getKey().config('app.key'));
     }
 
     /**
      * Get the filesystem where the associated file is stored.
      *
-     * @return Filesystem
      */
     public function filesystem()
     {
         return Storage::disk($this->disk);
     }
 
-
     /**
      * Find a media by media name
      *
-     * @param $query
-     * @param string $names
-     * @param array $columns
-     * @return Collection|Media|null
      */
-    public  function scopeFindByName($query, $names, array $columns = ['*'])
+    public function scopeFindByName($query, $names, array $columns = ['*'])
     {
         if (is_array($names)) {
             return $query->select($columns)->whereIn('name', $names)->get();
@@ -249,24 +218,21 @@ class Media extends Model
         return $query->select($columns)->where('name', $names)->first();
     }
 
-
     /**
-     * A media belongs to many collection
-     *
-     * @return BelongsToMany
+     * A media belongs-to-many collection
      */
     public function collections(): BelongsToMany
     {
-        return $this->belongsToMany(MediaCollection::class, config('mediaman.tables.collection_media'), 'collection_id', 'media_id');
+        return $this->belongsToMany(
+            MediaCollection::class,
+            config('mediaman.tables.collection_media'),
+            'collection_id',
+            'media_id');
     }
-
 
     /**
      * Sync collections of a media
      *
-     * @param null|int|string|array|MediaCollection|Collection $collections
-     * @param boolean $detaching
-     * @return array of synced status
      */
     public function syncCollections($collections, $detaching = true)
     {
@@ -275,48 +241,46 @@ class Media extends Model
         }
 
         $fetch = $this->fetchCollections($collections);
+
         if (is_countable($fetch)) {
+            /** @var Collection $fetch */
             $ids = $fetch->pluck('id')->all();
-            return ($this->collections()->sync($ids, $detaching));
+
+            return $this->collections()->sync($ids, $detaching);
         } else {
-            return ($this->collections()->sync($fetch->id, $detaching));
+            return $this->collections()->sync($fetch->id, $detaching);
         }
 
-        return false;
     }
 
-
     /**
-     * Attach a media to collections
+     * Attach media to collections
      *
-     * @param null|int|string|array|MediaCollection|Collection $collections
-     * @return int|null
      */
     public function attachCollections($collections)
     {
         $fetch = $this->fetchCollections($collections);
-        if (is_countable($fetch)) {
+        if ($fetch->count()) {
+
             $ids = $fetch->pluck('id');
             $res = $this->collections()->sync($ids, false);
-            $attached  = count($res['attached']);
+            $attached = count($res['attached']);
+
             return $attached > 0 ? $attached : null;
         } else {
             $res = $this->collections()->sync($fetch->id, false);
-            $attached  = count($res['attached']);
+            $attached = count($res['attached']);
+
             return $attached > 0 ? $attached : null;
         }
 
-        return null;
     }
 
-
     /**
-     * Detach a media from collections
+     * Detach media from collections
      *
-     * @param null|int|string|array|MediaCollection|Collection $collections
-     * @return int|null
      */
-    public function detachCollections($collections)
+    public function detachCollections(Collection|int|bool|array|string|MediaCollection|null $collections): ?int
     {
         if ($this->shouldDetachAll($collections)) {
             return $this->collections()->detach();
@@ -324,14 +288,16 @@ class Media extends Model
 
         // todo: check if null is returned on failure
         $fetch = $this->fetchCollections($collections);
-        if (is_countable($fetch)) {
+
+        if ($fetch->count()) {
             $ids = $fetch->pluck('id')->all();
+
             return $this->collections()->detach($ids);
         } else {
+            /* @var $fetch Media */
             return $this->collections()->detach($fetch->id);
         }
 
-        return null;
     }
 
     /**
@@ -341,29 +307,28 @@ class Media extends Model
      * filesystems configuration. Next, it ensures that the disk is accessible
      * by attempting to write and then delete a temporary file.
      *
-     * @param  string  $diskName  The name of the disk as defined in the filesystems configuration.
-     *
-     * @throws \InvalidArgumentException  If the disk is not defined in the filesystems configuration.
-     * @throws \Exception  If there's an error writing to or deleting from the disk.
-     *
+     * @param string $diskName  The name of the disk as defined in the filesystems configuration.
      * @return void
+     *
+     * @throws \InvalidArgumentException If the disk is not defined in the filesystems configuration.
+     * @throws \Exception If there's an error writing to or deleting from the disk.
      */
-    protected static function ensureDiskUsability($diskName)
+    protected static function ensureDiskUsability(string $diskName): void
     {
         $allDisks = config('filesystems.disks');
 
-        if (!array_key_exists($diskName, $allDisks)) {
+        if (! array_key_exists($diskName, $allDisks)) {
             throw new \InvalidArgumentException("Disk [{$diskName}] is not defined in the filesystems configuration.");
         }
 
-        // Early return if accessibility check is disabled
-        if (!config('mediaman.check_disk_accessibility', false)) {
+        // Early return if the accessibility check is disabled
+        if (! config('mediaman.check_disk_accessibility', false)) {
             return;
         }
 
         // Accessibility checks for read-write operations
         $disk = Storage::disk($diskName);
-        $tempFileName = 'temp_check_file_' . uniqid();
+        $tempFileName = 'temp_check_file_'.uniqid();
 
         try {
             // Attempt to write to the disk
@@ -372,22 +337,17 @@ class Media extends Model
             // Now, attempt to delete the temporary file
             $disk->delete($tempFileName);
         } catch (\Exception $e) {
-            throw new \Exception("Failed to write or delete on the disk [{$diskName}]. Error: " . $e->getMessage(), 0, $e);
+            throw new \Exception("Failed to write or delete on the disk [{$diskName}]. Error: ".$e->getMessage(), 0, $e);
         }
     }
-
 
     /**
      * Check if all collections should be detached
      *
-     * bool|null|empty-string|empty-array to detach all collections
-     *
-     * @param mixed $collections
-     * @return boolean
      */
-    private function shouldDetachAll($collections)
+    private function shouldDetachAll(mixed $collections): bool
     {
-        if (is_bool($collections) || is_null($collections) || empty($collections)) {
+        if (is_bool($collections) || empty($collections)) {
             return true;
         }
 
@@ -398,27 +358,24 @@ class Media extends Model
         return false;
     }
 
-
     /**
      * Fetch collections
      *
      * returns single collection for single item
      * and multiple collections for multiple items
      * todo: exception / strict return types
-     *
-     * @param int|string|array|MediaCollection|Collection $collections
-     * @return Collection|Model|Object|null
      */
     private function fetchCollections($collections)
     {
-        // eloquent collection doesn't need to be fetched again
+        // an eloquent collection doesn't need to be fetched again;
         // it's treated as a valid source of MediaCollection resource
-        if ($collections instanceof EloquentCollection) {
+        if ($collections instanceof Collection) {
             return $collections;
         }
         // todo: check for instance of media model / collection instead?
         if ($collections instanceof BaseCollection) {
             $ids = $collections->pluck('id')->all();
+
             return MediaCollection::find($ids);
         }
 
@@ -434,8 +391,8 @@ class Media extends Model
             return MediaCollection::findByName($collections);
         }
 
-        // all array items should be of same type
-        // find by id or name based on the type of first item in the array
+        // all array items should be of the same type
+        // find by id or name based on the type of the first item in the array
         if (is_array($collections) && isset($collections[0])) {
             if (is_numeric($collections[0])) {
                 return MediaCollection::find($collections);

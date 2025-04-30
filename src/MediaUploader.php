@@ -1,8 +1,8 @@
 <?php
 
-namespace FarhanShares\MediaMan;
+namespace Emaia\MediaMan;
 
-use FarhanShares\MediaMan\Models\MediaCollection;
+use Emaia\MediaMan\Models\MediaCollection;
 use Illuminate\Http\UploadedFile;
 
 class MediaUploader
@@ -22,36 +22,24 @@ class MediaUploader
     /** @var string */
     protected $disk;
 
-    /** @var string */
+    /** @var array */
     protected $data = [];
 
-    /**
-     * Create a new uploader instance.
-     *
-     * @param UploadedFile $file
-     * @return void
-     */
     public function __construct(UploadedFile $file)
     {
         $this->setFile($file);
     }
 
-    /**
-     * @param UploadedFile $file
-     * @return MediaUploader
-     */
-    public static function source(UploadedFile $file)
+    public static function source(UploadedFile $file): MediaUploader
     {
-        return new static($file);
+        return new self($file);
     }
 
     /**
      * Set the file to be uploaded.
      *
-     * @param UploadedFile $file
-     * @return MediaUploader
      */
-    public function setFile(UploadedFile $file)
+    public function setFile(UploadedFile $file): MediaUploader
     {
         $this->file = $file;
 
@@ -66,135 +54,93 @@ class MediaUploader
 
     /**
      * Set the name of the media item.
-     *
-     * @param string $name
-     * @return MediaUploader
      */
-    public function setName(string $name)
+    public function setName(string $name): MediaUploader
     {
         $this->name = $name;
 
         return $this;
     }
 
-    /**
-     * @param string $name
-     * @return MediaUploader
-     */
-    public function useName(string $name)
+    public function useName(string $name): MediaUploader
     {
         return $this->setName($name);
     }
 
     /**
      * Set the name of the media item.
-     *
-     * @param string $name
-     * @return MediaUploader
      */
-    public function setCollection(string $name)
+    public function setCollection(string $name): MediaUploader
     {
         $this->collections[] = $name;
 
         return $this;
     }
 
-    /**
-     * @param string $name
-     * @return MediaUploader
-     */
-    public function useCollection(string $name)
+    public function useCollection(string $name): MediaUploader
     {
         return $this->setCollection($name);
     }
 
-    /**
-     * @param string $name
-     * @return MediaUploader
-     */
-    public function toCollection(string $name)
+    public function toCollection(string $name): MediaUploader
     {
         return $this->setCollection($name);
     }
 
     /**
      * Set the name of the file.
-     *
-     * @param string $fileName
-     * @return MediaUploader
      */
-    public function setFileName(string $fileName)
+    public function setFileName(string $fileName): MediaUploader
     {
         $this->fileName = $this->sanitizeFileName($fileName);
 
         return $this;
     }
 
-    /**
-     * @param string $fileName
-     * @return MediaUploader
-     */
-    public function useFileName(string $fileName)
+    public function useFileName(string $fileName): MediaUploader
     {
         return $this->setFileName($fileName);
     }
 
     /**
      * Sanitize the file name.
-     *
-     * @param string $fileName
-     * @return string
      */
-    protected function sanitizeFileName(string $fileName)
+    protected function sanitizeFileName(string $fileName): string
     {
         return str_replace(['#', '/', '\\', ' '], '-', $fileName);
     }
 
     /**
      * Specify the disk where the file will be stored.
-     *
-     * @param string $disk
-     * @return MediaUploader
      */
-    public function setDisk(string $disk)
+    public function setDisk(string $disk): MediaUploader
     {
         $this->disk = $disk;
 
         return $this;
     }
 
-    /**
-     * @param string $disk
-     * @return MediaUploader
-     */
-    public function toDisk(string $disk)
+    public function toDisk(string $disk): MediaUploader
     {
         return $this->setDisk($disk);
     }
 
-    /**
-     * @param string $disk
-     * @return MediaUploader
-     */
-    public function useDisk(string $disk)
+    public function useDisk(string $disk): MediaUploader
     {
         return $this->setDisk($disk);
     }
 
     /**
      * Set any custom data to be saved to the media item.
-     *
-     * @param array $data
-     * @return MediaUploader
      */
-    public function withData(array $data)
+    public function withData(array $data): MediaUploader
     {
         $this->data = $data;
 
         return $this;
     }
 
-    public function useData(array $data)
+    public function useData(array $data): MediaUploader
     {
         return $this->withData($data);
     }
@@ -202,13 +148,12 @@ class MediaUploader
     /**
      * Upload the file to the specified disk.
      *
-     * @return mixed
      */
     public function upload()
     {
         $model = config('mediaman.models.media');
 
-        $media = new $model();
+        $media = new $model;
 
         $media->name = $this->name;
         $media->file_name = $this->fileName;
@@ -228,13 +173,15 @@ class MediaUploader
         if (count($this->collections) > 0) {
             // todo: support multiple collections
             $collection = MediaCollection::firstOrCreate([
-                'name' => $this->collections[0]
+                'name' => $this->collections[0],
             ]);
 
             $media->collections()->attach($collection->id);
         } else {
             // add to the default collection
             // todo: allow not to add in the default collection
+
+            /** @var MediaCollection|null $collection */
             $collection = MediaCollection::findByName(config('mediaman.collection'));
             if ($collection) {
                 $media->collections()->attach($collection->id);

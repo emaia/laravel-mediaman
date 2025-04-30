@@ -1,33 +1,27 @@
 <?php
 
-namespace FarhanShares\MediaMan\Jobs;
+namespace Emaia\MediaMan\Jobs;
 
-
+use Emaia\MediaMan\Exceptions\InvalidConversion;
+use Emaia\MediaMan\ImageManipulator;
+use Emaia\MediaMan\Models\Media;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Filesystem\FileNotFoundException;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use FarhanShares\MediaMan\ImageManipulator;
-use FarhanShares\MediaMan\Models\Media;
 
 class PerformConversions implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     /** @var Media */
-    protected $media;
+    protected Media $media;
 
     /** @var array */
-    protected $conversions;
+    protected array $conversions;
 
-    /**
-     * Create a new job instance.
-     *
-     * @param Media $media
-     * @param array $conversions
-     * @return void
-     */
     public function __construct(Media $media, array $conversions)
     {
         $this->media = $media;
@@ -36,11 +30,10 @@ class PerformConversions implements ShouldQueue
     }
 
     /**
-     * Execute the job.
-     *
-     * @return void
+     * @throws InvalidConversion
+     * @throws FileNotFoundException
      */
-    public function handle()
+    public function handle(): void
     {
         app(ImageManipulator::class)->manipulate(
             $this->media,
@@ -49,13 +42,13 @@ class PerformConversions implements ShouldQueue
     }
 
     /** @return media */
-    public function getMedia()
+    public function getMedia(): Media
     {
         return $this->media;
     }
 
     /** @return array */
-    public function getConversions()
+    public function getConversions(): array
     {
         return $this->conversions;
     }

@@ -1,6 +1,6 @@
 <?php
 
-namespace FarhanShares\MediaMan\Casts;
+namespace Emaia\MediaMan\Casts;
 
 use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
 

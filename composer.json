@@ -1,5 +1,5 @@
 {
-    "name": "farhanshares/laravel-mediaman",
+    "name": "emaia/laravel-mediaman",
     "license": "MIT",
     "description": "MediaMan - The most elegant & powerful media management package for Laravel!",
     "keywords": [
@@ -12,8 +12,14 @@
         "laravel media manager",
         "laravel file manager"
     ],
-    "homepage": "https://github.com/FarhanShares/laravel-mediaman",
+    "homepage": "https://github.com/emaia/laravel-mediaman",
     "authors": [
+        {
+            "name": "Emaia",
+            "email": "eu@emaia.dev",
+            "homepage": "https://emaia.dev",
+            "role": "Developer"
+        },
         {
             "name": "Farhan Israq",
             "email": "farhan.israq.bd@gmail.com",
@@ -22,35 +28,48 @@
         }
     ],
     "require": {
-        "php": "^8.0|^7.3",
-        "illuminate/support": "^7.0|^8.0|^9.0|^10.0|^11.0",
-        "illuminate/database": "^7.0|^8.0|^9.0|^10.0|^11.0",
-        "illuminate/validation": "^7.0|^8.0|^9.0|^10.0|^11.0",
-        "intervention/image": "^2.5"
+        "php": "^8.2",
+        "illuminate/support": "^12.0",
+        "illuminate/database": "^12.0",
+        "illuminate/validation": "^12.0",
+        "intervention/image": "^3.0"
     },
     "require-dev": {
-        "laravel/framework": "^7.0|^8.0|^9.0|^10.0|^11.0",
-        "orchestra/testbench": "^5.0|^6.0|^7.0|^8.0|^9.0",
-        "mockery/mockery": "^1.2.3",
-        "laravel/legacy-factories": "^1.3.9"
+        "orchestra/testbench": "^10.0",
+        "orchestra/workbench": "^10.0",
+        "laravel/legacy-factories": "^1.3.9",
+        "pestphp/pest": "^3.8",
+        "mockery/mockery": "^1.6",
+        "pestphp/pest-plugin-drift": "^3.0",
+        "larastan/larastan": "^3.0"
     },
     "autoload": {
         "psr-4": {
-            "FarhanShares\\MediaMan\\": "src/"
+            "Emaia\\MediaMan\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "FarhanShares\\MediaMan\\Tests\\": "tests/"
+            "Emaia\\MediaMan\\Tests\\": "tests/"
         }
     },
     "extra": {
         "laravel": {
             "providers": [
-                "FarhanShares\\MediaMan\\MediaManServiceProvider"
+                "Emaia\\MediaMan\\MediaManServiceProvider"
             ]
         }
     },
     "minimum-stability": "dev",
-    "prefer-stable": true
+    "prefer-stable": true,
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
+    "scripts": {
+        "analyse": "./vendor/bin/phpstan analyse",
+        "test" : "./vendor/bin/pest",
+        "test-coverage": "vendor/bin/pest --coverage"
+    }
 }

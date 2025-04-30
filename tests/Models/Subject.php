@@ -1,10 +1,10 @@
 <?php
 
-namespace FarhanShares\MediaMan\Tests\Models;
+namespace Emaia\MediaMan\Tests\Models;
 
 
 use Illuminate\Database\Eloquent\Model;
-use FarhanShares\MediaMan\Traits\HasMedia;
+use Emaia\MediaMan\Traits\HasMedia;
 
 class Subject extends Model
 {

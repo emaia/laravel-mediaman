@@ -1,17 +1,13 @@
 <?php
 
-namespace FarhanShares\MediaMan\Exceptions;
+namespace Emaia\MediaMan\Exceptions;
 
 use Exception;
 
 class InvalidConversion extends Exception
 {
-    /**
-     * @param string $name
-     * @return InvalidConversion
-     */
-    public static function doesNotExist($name)
+    public static function doesNotExist(string $name): InvalidConversion
     {
-        return new static("Conversion `{$name}` does not exist");
+        return new InvalidConversion("Conversion `{$name}` does not exist");
     }
 }

@@ -9,3 +9,5 @@ yarn.lock
 package.lock
 npm-debug.log
 yarn-error.log
+phpstan.neon
+/build

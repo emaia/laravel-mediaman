@@ -1,17 +1,8 @@
-<p align="center"><a href="https://farhanshares.com/projects/laravel-mediaman" target="_blank" title="Laravel MediaMan"><img src="https://raw.githubusercontent.com/FarhanShares/laravel-mediaman/main/docs/assets/mediaman-banner.png" /></a></p>
+# Laravel MediaMan
 
-<p align="center">
-<a href="https://github.com/farhanshares/laravel-mediaman/actions/workflows/ci.yml"><img src="https://github.com/farhanshares/laravel-mediaman/actions/workflows/ci.yml/badge.svg" alt="Github CI"></a>
-<a href="https://packagist.org/packages/farhanshares/laravel-mediaman"><img src="https://img.shields.io/packagist/dt/farhanshares/laravel-mediaman" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/farhanshares/laravel-mediaman"><img src="https://img.shields.io/packagist/v/farhanshares/laravel-mediaman" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/farhanshares/laravel-mediaman"><img src="https://img.shields.io/packagist/l/farhanshares/laravel-mediaman" alt="License"></a>
-</p>
+MediaMan is an elegant and powerful media management package for Laravel Apps with support for painless `uploader`, virtual `collection` & automatic `conversion` plus an on demand `association` with specific broadcasting `channel`s of your app models.
 
-# Laravel MediaMan</h1>
-
-MediaMan is an elegant & powerful media management package for Laravel Apps with support for painless `uploader`, virtual `collection` & automatic `conversion` plus an on demand `association` with specific broadcasting `channel`s of your app models.
-
-MediaMan is UI agnostic & provides a fluent API to manage your app's media, which means you've total control over your media, the look & feel & a hassle free dev experience. It's a perfect suit for your App or API server.
+MediaMan is UI agnostic and provides a fluent API to manage your app's media, which means you've total control over your media, the look & feel & a hassle-free dev experience. It's a perfect suit for your App or API server.
 
 ## In a hurry? Here's a quick example
 
@@ -48,15 +39,15 @@ There are a few key concepts that need to be understood before continuing:
 
 * **Media**: It can be any type of file. You should specify file restrictions in your application's validation logic before you attempt to upload a file.
 
-* **MediaUploader**: Media items are uploaded as its own entity. It does not belong to any other model in the system when it's being created, so items can be managed independently (which makes it the perfect engine for a media manager). MediaMan provides "MediaUploader" for creating records in the database & storing in the filesystem as well.
+* **MediaUploader**: Media items are uploaded as their own entity. It does not belong to any other model in the system when it's being created, so items can be managed independently (which makes it the perfect engine for a media manager). MediaMan provides "MediaUploader" for creating records in the database & storing in the filesystem as well.
 
-* **MediaCollection**: It can be also referred to as a group of files. Media items can be bundled to any "collection". Media & Collections will form many-to-many relation. You can create collections / virtual directories / groups of media & later on retrieve a group to check what it contains or do.
+* **MediaCollection**: It can be also referred to as a group of files. Media items can be bundled to any "collection." Media & Collections will form many-to-many relation. You can create collections / virtual directories / groups of media & later on retrieve a group to check what it contains or do.
 
-* **Association**: Media items need be attached to a model for an association to be made. MediaMan exposes helpers to easily get the job done. Many-to-many polymorphic relationships allow any number of media to be associated to any number of other models without the need of modifying the existing database schema.
+* **Association**: Media items need to be attached to a model for an association to be made. MediaMan exposes helpers to easily get the job done. Many-to-many polymorphic relationships allow any number of media to be associated with any number of other models without the need of modifying the existing database schema.
 
-* **Channel**: It can be also referred to as a tag of files. Media items are bound to a "channel" of a model during association. Thus you can easily associate multiple types of media to a model. For example, a "User" model might have an "avatar" and a "documents" media channel. If your head is spinning, simply think of "channels" as :tags" for a specific model. Channels are also needed to perform conversions.
+* **Channel**: It can be also referred to as a tag of files. Media items are bound to a "channel" of a model during association. Thus, you can associate multiple types of media with a model. For example, a "User" model might have an "avatar" and a "documents" media channel. If your head is spinning, simply think of "channels" as :tags" for a specific model. Channels are also needed to perform conversions.
 
-* **Conversion**: You can manipulate images using conversions, conversions will be performed when a media item is associated to a model. For example, you can register a "thumbnail" conversion to run when images are attached to the "gallery" channel of a model.
+* **Conversion**: You can manipulate images using conversions, conversions will be performed when a media item is associated with a model. For example, you can register a "thumbnail" conversion to run when images are attached to the "gallery" channel of a model.
 
 ## Table of Contents
 
@@ -88,12 +79,12 @@ Note: From version 2.x of the Laravel Mediaman package, only Laravel 10 and high
 You can install the package via composer:
 
 ```bash
-composer require farhanshares/laravel-mediaman
+composer require Emaia/laravel-mediaman
 ```
 
-The package should be auto discovered by Laravel unless you've disabled auto-discovery mode. In that case, add the service provider to your config/app.php:
+Laravel should auto discover the package unless you've disabled auto-discovery mode. In that case, add the service provider to your config/app.php:
 
-`FarhanShares\MediaMan\MediaManServiceProvider::class`
+`Emaia\MediaMan\MediaManServiceProvider::class`
 
 Once installed, you should publish the provided assets to create the necessary migration and config files.
 
@@ -118,7 +109,7 @@ php artisan migrate
 
 MediaMan works out of the box. If you want to tweak it, MediaMan ships with a `config/mediaman.php`. One common need of tweaking could be to store media in a dedicated Storage.
 
-MediaMan supports all of the storage drivers that are supported by Laravel (for i.e. Local, S3, SFTP, FTP, Dropbox & so on).
+MediaMan supports all the storage drivers that Laravel supports (for i.e., Local, S3, SFTP, FTP, Dropbox & so on).
 
 Here's an example configuration to use a dedicated local media disk for MediaMan.
 
@@ -153,7 +144,7 @@ Now, run `php artisan storage:link` to create the symbolic link of our newly cre
 
 ### Upload media
 
-You should use the `FarhanShares\MediaMan\MediaUploader` class to handle file uploads. You can upload, create a record in the database & store the file in the filesystem in one go.
+You should use the `Emaia\MediaMan\MediaUploader` class to handle file uploads. You can upload, create a record in the database & store the file in the filesystem in one go.
 
 ```php
 $file  = $request->file('file')
@@ -178,21 +169,21 @@ $media = MediaUploader::source($file)
             ->upload();
 ```
 
-If the collection doesn't exist, it'll be created on the fly. You can read more about collections below.
+If the collection doesn't exist, it'll be created on the fly. You can read more about the collections below.
 
 **Q: What happens if I don't provide a unique file name in the above process?**
 
-A: Don't worry, MediaMan manages uploading in a smart & safe way. Files are stored in the disk in a way that conflicts are barely going to happen. When storing in the disk, MediaMan will create a directory in the disk with a format of: `mediaId-hash` & put the file inside of it. Anything related to the file will have it's own little house.
+A: Don't worry, MediaMan manages uploading in a smart & safe way. Files are stored in the disk in a way that conflicts are barely going to happen. When storing in the disk, MediaMan will create a directory in the disk with a format of: `mediaId-hash` & put the file inside of it. Anything related to the file will have its own little house.
 
 **Q: But why? Won't I get a bunch of directories?**
 
-A: Yes, you'll. If you want, extend the `FarhanShares\MediaMan\Models\Media` model & you can customize however you like. Finally point your customized model in the mediaman config. But we recommend sticking to the default, thus you don't need to worry about file conflicts. A hash is added along with the mediaId, hence users won't be able to guess & retrieve a random file. More on customization will be added later.
+A: Yes, you'll. If you want, extend the `Emaia\MediaMan\Models\Media` model & you can customize however you like. Finally, point your customized model in the mediaman config. But we recommend sticking to the default, thus you don't need to worry about file conflicts. A hash is added along with the mediaId, hence users won't be able to guess & retrieve a random file. More on customization will be added later.
 
-**Reminder: MediaMan treats any file (instance of `Illuminate\Http\UploadedFile`) as a media source. If you want a certain file types can be uploaded, you can use Laravel's validator.**
+**Reminder: MediaMan treats any file (instance of `Illuminate\Http\UploadedFile`) as a media source. If you want a certain file type can be uploaded, you can use Laravel's validator.**
 
 ### Retrieve media
 
-You can use any Eloquent operation to retrieve a media plus we've added findByName().
+You can use any Eloquent operation to retrieve a media, plus we've added findByName().
 
 ```php
 // by id
@@ -215,11 +206,11 @@ An instance of Media has the following attributes:
 'type' => string
 'mime_type' => string
 'size' =>  int // in bytes
-'friendly_size' => string // in human readable format
+'friendly_size' => string // in human-readable format
 'media_uri' => string  // media URI for the original file. Usage in Blade: {{ asset($media->media_uri) }}.
 'media_url' => string  // direct URL for the original file.
 'disk' =>  string
-'data' => array // casts as array
+'data' => array // casts as an array
 'created_at' =>  string
 'updated_at' => string
 'collections' => object // eloquent collection
@@ -300,11 +291,11 @@ $media->save();
 
 * *Cons*: Can introduce performance delays.
 
-**Tip**: Enabling this check can preemptively spot storage issues, but may add minor operational delays. Consider your system's needs and decide accordingly.
+**Tip**: Enabling this check can preemptively spot storage issues but may add minor operational delays. Consider your system's needs and decide accordingly.
 
 ### Delete media
 
-You can delete a media by calling delete() method on an instance of Media.
+You can delete a media by calling the delete () method on an instance of Media.
 
 ```php
 $media = Media::first();
@@ -318,7 +309,7 @@ Media::destroy(1);
 Media::destroy([1, 2, 3]);
 ```
 
-**Note:** When a Media instance gets deleted, file will be removed from the filesystem, all the association with your App Models & MediaCollection will be removed as well.
+**Note:** When a Media instance gets deleted, a file will be removed from the filesystem, all the association with your App Models & MediaCollection will be removed as well.
 
 **Heads Up!:** You should not delete media using queries, e.g. `Media::where('name', 'the-file')->delete()`, this will not trigger deleted event & the file won't be deleted from the filesystem. Read more about it in the [official documentation](https://laravel.com/docs/master/eloquent#deleting-models-using-queries).
 
@@ -328,11 +319,11 @@ Media::destroy([1, 2, 3]);
 
 ### Associate media
 
-MediaMan exposes easy to use API via `FarhanShares\MediaMan\HasMedia` trait for associating media items to models. Use the trait in your App Model & you are good to go.
+MediaMan exposes easy-to-use API via `Emaia\MediaMan\HasMedia` trait for associating media items with models. Use the trait in your App Model & you are good to go.
 
 ```php
 use Illuminate\Database\Eloquent\Model;
-use FarhanShares\MediaMan\Traits\HasMedia;
+use Emaia\MediaMan\Traits\HasMedia;
 
 class Post extends Model
 {
@@ -342,7 +333,7 @@ class Post extends Model
 
 This will establish the relationship between your App Model and the Media Model.
 
-Once done, you can associate media to the model as demonstrated below.
+Once done, you can associate media with the model as demonstrated below.
 
 The first parameter of the `attachMedia()` method can either be a media model / id or an iterable collection of models / ids.
 
@@ -374,12 +365,12 @@ Though the original media URL is appended with the Media model, it's nice to kno
 
 ```php
 $media =  $post->getMedia('featured-image');
-// getUrl() accepts only one optional argument: name of the conversion
-// leave it empty to get the original media URL
+// getUrl() accepts only one optional argument: the name of the conversion
+// leaves it empty to get the original media URL
 $mediaOneUrl = $media[0]->getUrl();
 ```
 
-It might be a common scenario for most of the Laravel apps to use the first media item more often, hence MediaMan has dedicated methods to retrieve the first item among all associated media.
+It might be a common scenario for most of the Laravel apps to use the first media item more often; hence MediaMan has dedicated methods to retrieve the first item among all associated media.
 
 ```php
 // First media item from the default channel
@@ -399,7 +390,7 @@ $post->getFirstMediaUrl('featured-image');
 
 ### Disassociate media
 
-You can use `detachMedia()` method which is also shipped with HasMedia trait to disassociate media from model.
+You can use `detachMedia()` method which is also shipped with HasMedia trait to disassociate media from a model.
 
 ```php
 // Detach the specified media
@@ -425,23 +416,23 @@ This will remove the media that aren't in the provided list and add those which 
 
 ```php
 $post = Post::first();
-$media = Media::find(1); // model instance or just an media id: 1, or array of id: [1, 2, 3] or a collection of media models
+$media = Media::find(1); // model instance or just a media id: 1, or array of id: [1, 2, 3] or a collection of media models
 
 // Sync media in the default channel (the $post will have only $media and others will be removed)
 $post->syncMedia($media);
 ```
 
-**Heads Up!:** None of the attachMedia, detachMedia or syncMedia methods deletes the file, it just does as it means. Refer to delete media section to know how to delete a media.
+**Heads Up!:** None of the attachMedia, detachMedia, or syncMedia methods deletes the file, it just does as it means. Refer to delete a media section to know how to delete a media.
 
 -----
 
 ## Collections
 
-MediaMan provides collections to bundle your media for better media management. Use `FarhanShares\MediaMan\Models\MediaCollection` to deal with media collections.
+MediaMan provides collections to bundle your media for better media management. Use `Emaia\MediaMan\Models\MediaCollection` to deal with media collections.
 
-### Create collection
+### Create a collection
 
-Collections are created on thy fly if it doesn't exist while uploading file.
+Collections are created on thy fly if it doesn't exist while uploading a file.
 
 ```php
 $media = MediaUploader::source($request->file('file'))
@@ -449,15 +440,15 @@ $media = MediaUploader::source($request->file('file'))
             ->upload();
 ```
 
-If you wish to create collection without uploading a file, you can do it, after all, it's an Eloquent model.
+If you wish to create a collection without uploading a file, you can do it; after all, it's an Eloquent model.
 
 ```php
 MediaCollection::create(['name' => 'My Collection']);
 ```
 
-### Retrieve collection
+### Retrieve a collection
 
-You can retrieve a collection by it's id or name.
+You can retrieve a collection by its id or name.
 
 ```php
 MediaCollection::find(1);
@@ -487,7 +478,7 @@ $collection = MediaCollection::find(1);
 $collection->delete()
 ```
 
-This won't delete the media from disk but the bindings will be removed from database.
+This won't delete the media from the disk, but the bindings will be removed from a database.
 
 *Heads Up!* deleteWithMedia() is a conceptual method that hasn't implemented yet, create a feature request if you need this. PRs are very much appreciated.
 
@@ -501,21 +492,21 @@ The relationship between `Media` & `MediaCollection` are already configured. You
 
 ```php
 $collection = MediaCollection::first();
-// You can just pass a media model / id / name or an iterable collection of those
-// e.g. 1 or [1, 2] or $media or [$mediaOne, $mediaTwo] or 'media-name' or ['media-name', 'another-media-name']
+// You can pass a media model / id / name or an iterable collection of those
+// e.g., 1 or [1, 2] or $media or [$mediaOne, $mediaTwo] or 'media-name' or ['media-name', 'another-media-name']
 $collection->attachMedia($media);
 ```
 
 `attachMedia()` returns number of media attached (int) on success & null on failure. Alternatively, you can use `Media::attachCollections()` to bind to collections from a media model instance.
 
-*Heads Up!* Unlike `HasMedia` trait, you can not have channels on media collections.
+*Heads Up!* Unlike `HasMedia` trait, you cannot have channels on media collections.
 
 ### Unbind media
 
 ```php
 $collection = MediaCollection::first();
-// You can just pass a media model / id / name or an iterable collection of those
-// e.g. 1 or [1, 2] or $media or [$mediaOne, $mediaTwo] or 'media-name' or ['media-name', 'another-media-name']
+// You can pass a media model / id / name or an iterable collection of those
+// e.g., 1 or [1, 2] or $media or [$mediaOne, $mediaTwo] or 'media-name' or ['media-name', 'another-media-name']
 $collection->detachMedia($media);
 
 // Detach all media by passing null / bool / empty-string / empty-array
@@ -528,7 +519,7 @@ $collection->detachMedia([]);
 
 ```php
 $collection = MediaCollection::first();
-// You can just pass media model / id / name
+// You can pass media model / id / name
 $collection->syncMedia($media);
 
 // You can even pass iterable list / collection
@@ -549,20 +540,20 @@ You can specify a model to perform "conversions" when a media is attached to a c
 
 MediaMan provides a fluent api to manipulate images. It uses the popular [intervention/image](https://github.com/Intervention/image) library under the hood. Resizing, adding watermark, converting to a different format or anything that is supported can be done. In short, You can utilize all functionalities from the library.
 
-Conversions are registered globally. This means that they can be reused across your application, for i.e a Post and a User both can have the same sized thumbnail without having to register the same conversion twice.
+Conversions are registered globally. This means that they can be reused across your application, for i.e., a Post and a User both can have the same sized thumbnail without having to register the same conversion twice.
 
 To get started, you should first register a conversion in one of your application's service providers:
 
 ```php
 use Intervention\Image\Image;
-use FarhanShares\MediaMan\Facades\Conversion;
+use Emaia\MediaMan\Facades\Conversion;
 
 class AppServiceProvider extends ServiceProvider
 {
     public function boot()
     {
         Conversion::register('thumb', function (Image $image) {
-            // you have access to intervention/image library,
+            // you have access to an intervention/image library,
             // perform your desired conversions here
             return $image->fit(64, 64);
         });
@@ -596,7 +587,7 @@ $post->getFirstMediaUrl('gallery', 'thumb');
 *Tip:* The default channel name is `default`.
 
 ```php
-// if you have multiple media associated & need to retrieve URLs you can do it with getUrl():
+// if you have multiple media associated & need to retrieve URLs, you can do it with getUrl():
 $media = $post->getMedia();
 // getUrl() accepts only one optional argument: name of the conversion
 // you should provide the conversion name to get the url
@@ -627,7 +618,7 @@ If you're upgrading from a previous version of MediaMan, rest assured that the t
    Run the composer update command to get the latest version.
 
    ```bash
-   composer update farhanshares/laravel-mediaman
+   composer update Emaia/laravel-mediaman
    ```
 
 2. **Review Your Blade Files**:
@@ -646,12 +637,12 @@ If you're upgrading from a previous version of MediaMan, rest assured that the t
    If you used `media_url` without `asset()`, there's no change required.
 
 3. **Run Any New Migrations** (if applicable):
-   Always check for new migrations and run them to ensure your database schema is up-to-date.
+   Always check for new migrations and run them to ensure your database schema is up to date.
 
 4. **Test Your Application**:
    As always, after an upgrade, ensure you test your application thoroughly, especially the parts where media files are used, to make sure everything works as expected.
 
-Thank you for using MediaMan and we hope you enjoy the improvements in v1.0.0! If you face any issues, feel free to open a ticket on GitHub.
+Thank you for using MediaMan, and we hope you enjoy the improvements in v1.0.0! If you face any issues, feel free to open a ticket on GitHub.
 
 ## Contribution and License
 
