@@ -555,7 +555,8 @@ class AppServiceProvider extends ServiceProvider
         Conversion::register('thumb', function (Image $image) {
             // you have access to an intervention/image library,
             // perform your desired conversions here
-            return $image->fit(64, 64);
+            // check https://image.intervention.io/v3/modifying-images/resizing
+            return $image->cover(64, 64);
         });
     }
 }

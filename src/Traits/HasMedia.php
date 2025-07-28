@@ -53,11 +53,9 @@ trait HasMedia
     }
 
     /**
-     * Get the url of the first media item in the specified channel.
-     *
-     * @return string
+     * Get the URL of the first media item with automatic format detection.
      */
-    public function getFirstMediaUrl(?string $channel = 'default', string $conversion = '')
+    public function getFirstMediaUrl(?string $channel = 'default', string $conversion = ''): string
     {
         if (! $media = $this->getFirstMedia($channel)) {
             return '';
@@ -239,5 +237,41 @@ trait HasMedia
         }
 
         return false;
+    }
+
+    /**
+     * Get the URL with fallback for the first media item.
+     */
+    public function getFirstMediaUrlWithFallback(?string $channel = 'default', string $conversion = ''): string
+    {
+        if (! $media = $this->getFirstMedia($channel)) {
+            return '';
+        }
+
+        return $media->getUrlWithFallback($conversion);
+    }
+
+    /**
+     * Get conversion URL only if it exists for the first media item.
+     */
+    public function getFirstMediaConversionUrl(?string $channel = 'default', string $conversion = ''): ?string
+    {
+        if (! $media = $this->getFirstMedia($channel)) {
+            return null;
+        }
+
+        return $media->getConversionUrl($conversion);
+    }
+
+    /**
+     * Check if the first media item has a specific conversion.
+     */
+    public function hasMediaConversion(?string $channel = 'default', string $conversion = ''): bool
+    {
+        if (! $media = $this->getFirstMedia($channel)) {
+            return false;
+        }
+
+        return $media->hasConversion($conversion);
     }
 }

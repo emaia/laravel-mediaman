@@ -29,10 +29,6 @@ class PerformConversions implements ShouldQueue
         $this->conversions = $conversions;
     }
 
-    /**
-     * @throws InvalidConversion
-     * @throws FileNotFoundException
-     */
     public function handle(): void
     {
         app(ImageManipulator::class)->manipulate(
