@@ -2,8 +2,11 @@
 
 namespace Emaia\MediaMan;
 
+use Emaia\MediaMan\Console\Commands\ClearResponsiveImagesCommand;
+use Emaia\MediaMan\Console\Commands\GenerateResponsiveImagesCommand;
 use Emaia\MediaMan\Console\Commands\MediamanPublishConfigCommand;
 use Emaia\MediaMan\Console\Commands\MediamanPublishMigrationCommand;
+use Emaia\MediaMan\Console\Commands\ResponsiveImagesStatsCommand;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\WidthCalculator;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\BreakpointWidthCalculator;
@@ -52,6 +55,9 @@ class MediaManServiceProvider extends ServiceProvider
             $this->commands([
                 MediamanPublishConfigCommand::class,
                 MediamanPublishMigrationCommand::class,
+                GenerateResponsiveImagesCommand::class,
+                ClearResponsiveImagesCommand::class,
+                ResponsiveImagesStatsCommand::class,
             ]);
         }
 
@@ -67,11 +73,11 @@ class MediaManServiceProvider extends ServiceProvider
     protected function registerResponsiveImageServices(): void
     {
         // Register width calculators
-        $this->app->bind('mediaman.width_calculator.breakpoint', function () {
+        $this->app->bind('mediaman.width_calculator.breakpoint', function ($app) {
             return new BreakpointWidthCalculator();
         });
 
-        $this->app->bind('mediaman.width_calculator.file_size_optimized', function () {
+        $this->app->bind('mediaman.width_calculator.file_size_optimized', function ($app) {
             return new FileSizeOptimizedWidthCalculator();
         });
 
@@ -79,7 +85,7 @@ class MediaManServiceProvider extends ServiceProvider
         $this->app->bind(WidthCalculator::class, function ($app) {
             $calculator = config('mediaman.responsive_images.width_calculator', 'breakpoint');
 
-            return match($calculator) {
+            return match ($calculator) {
                 'file_size_optimized' => $app->make('mediaman.width_calculator.file_size_optimized'),
                 default => $app->make('mediaman.width_calculator.breakpoint'),
             };
