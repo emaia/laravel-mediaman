@@ -34,7 +34,7 @@ class CreateMediaManTables extends Migration
             $table->string('file_name');
             $table->string('mime_type');
             $table->unsignedInteger('size');
-            $table->json('data')->nullable();
+            $table->json('custom_properties')->nullable();
             $table->timestamps();
         });
 

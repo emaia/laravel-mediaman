@@ -70,13 +70,13 @@ it('can save data to the media model', function () {
     $file = UploadedFile::fake()->image('image.jpg');
 
     $media = MediaUploader::source($file)
-        ->withData([
+        ->withCustomProperties([
             'test-01' => 'test data 01',
             'test-02' => 'test data 02'
         ])
         ->upload();
 
     expect($media)->toBeInstanceOf(Media::class)
-        ->and($media->data['test-01'])->toEqual('test data 01')
-        ->and($media->data['test-02'])->toEqual('test data 02');
+        ->and($media->custom_properties['test-01'])->toEqual('test data 01')
+        ->and($media->custom_properties['test-02'])->toEqual('test data 02');
 });
