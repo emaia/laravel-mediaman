@@ -18,7 +18,7 @@ it('can create a media record with media uploader', function () {
         ->useCollection('one')
         ->useCollection('two')
         ->useDisk('default')
-        ->useData([
+        ->useCustomProperties([
             'extraData'       => 'extra data value',
             'additional_data' => 'additional data value',
             'something-else'  => 'anything else?'
@@ -32,9 +32,9 @@ it('can create a media record with media uploader', function () {
         ->and($mediaOne->file_name)->toEqual('image.jpg')
         ->and($mediaOne->disk)->toEqual('default')
         ->and($mediaOne->collections->first()->name)->toEqual('one')
-        ->and($fetch->data['extraData'])->toEqual('extra data value')
-        ->and($fetch->data['additional_data'])->toEqual('additional data value')
-        ->and($fetch->data['something-else'])->toEqual('anything else?');
+        ->and($fetch->custom_properties['extraData'])->toEqual('extra data value')
+        ->and($fetch->custom_properties['additional_data'])->toEqual('additional data value')
+        ->and($fetch->custom_properties['something-else'])->toEqual('anything else?');
 
     // test disks
 
@@ -49,25 +49,25 @@ it('can update a media record', function () {
     expect($mediaOne->name)->toEqual('image');
 
     $mediaOne->name = 'new-name';
-    $mediaOne->data = ['metadata' => 'file metadata'];
+    $mediaOne->custom_properties = ['metadata' => 'file metadata'];
     $mediaOne->save();
 
     expect($mediaOne->name)->toEqual('new-name')
-        ->and($mediaOne->data)->toEqual(['metadata' => 'file metadata']);
+        ->and($mediaOne->custom_properties)->toEqual(['metadata' => 'file metadata']);
 
     // update data
-    $mediaOne->data = [
+    $mediaOne->custom_properties = [
         'metadata'         => 'updated existing key data',
         'extra_data'       => 'new extra data',
     ];
     $mediaOne->save();
 
-    expect($mediaOne->data['extra_data'])->toEqual('new extra data')
-        ->and($mediaOne->data['metadata'])->toEqual('updated existing key data');
+    expect($mediaOne->custom_properties['extra_data'])->toEqual('new extra data')
+        ->and($mediaOne->custom_properties['metadata'])->toEqual('updated existing key data');
 
-    $mediaOne->data = [];
+    $mediaOne->custom_properties = [];
     $mediaOne->save();
-    expect(count($mediaOne->data))->toEqual(0);
+    expect(count($mediaOne->custom_properties))->toEqual(0);
 
     // todo: make a fluent api like the following?
     // $mediaOne->rename('new-file')
@@ -672,3 +672,29 @@ it('can remove collections if its bool null empty string or empty array with det
     $media->detachCollections([]);
     expect($media->collections()->count())->toEqual(0);
 });
+
+
+it('can check custom data existence', function () {
+    $media = factory(Media::class)->create();
+    expect($media->hasCustomProperty('color'))->tobeFalse();
+});
+
+it('can set custom data', function () {
+    $media = factory(Media::class)->create();
+    $media->setCustomProperty('color', 'blue');
+    expect($media->hasCustomProperty('color'))->toBeTrue()
+        ->and($media->getCustomProperty('color'))->toEqual('blue');
+});
+
+it('can forget custom data', function () {
+    $media = factory(Media::class)->create();
+    $media->setCustomProperty('color', 'blue');
+    $media->setCustomProperty('size', 'small');
+    $media->forgetCustomProperty('color');
+    expect($media->hasCustomProperty('color'))->toBeFalse()
+        ->and($media->hasCustomProperty('size'))->toBeTrue()
+        ->and($media->getCustomProperty('size'))->toEqual('small');
+});
+
+
+

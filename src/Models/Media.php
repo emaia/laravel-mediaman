@@ -7,6 +7,7 @@ use Emaia\MediaMan\ConversionRegistry;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Collection as BaseCollection;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -23,11 +24,11 @@ use ReflectionFunction;
 class Media extends Model
 {
     protected $fillable = [
-        'name', 'file_name', 'mime_type', 'size', 'disk', 'data',
+        'name', 'file_name', 'mime_type', 'size', 'disk', 'custom_properties',
     ];
 
     protected $casts = [
-        'data' => Json::class,
+        'custom_properties' => Json::class,
     ];
 
     protected $appends = ['friendly_size',  'media_uri', 'media_url', 'type', 'extension'];
@@ -653,5 +654,37 @@ class Media extends Model
         }
 
         return null;
+    }
+
+    public function hasCustomProperty(string $propertyName): bool
+    {
+        return Arr::has($this->custom_properties, $propertyName);
+    }
+
+    public function getCustomProperty(string $propertyName, ?string $default = null): mixed
+    {
+        return Arr::get($this->custom_properties, $propertyName, $default);
+    }
+
+    public function setCustomProperty(string $name, mixed $value): self
+    {
+        $customProperties = $this->custom_properties;
+
+        Arr::set($customProperties, $name, $value);
+
+        $this->custom_properties = $customProperties;
+
+        return $this;
+    }
+
+    public function forgetCustomProperty(string $name): self
+    {
+        $customProperties = $this->custom_properties;
+
+        Arr::forget($customProperties, $name);
+
+        $this->custom_properties = $customProperties;
+
+        return $this;
     }
 }

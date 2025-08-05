@@ -23,7 +23,7 @@ class MediaUploader
     protected $disk;
 
     /** @var array */
-    protected $data = [];
+    protected $custom_properties = [];
 
     public function __construct(UploadedFile $file)
     {
@@ -131,18 +131,18 @@ class MediaUploader
     }
 
     /**
-     * Set any custom data to be saved to the media item.
+     * Set any custom custom_properties to be saved to the media item.
      */
-    public function withData(array $data): MediaUploader
+    public function withCustomProperties(array $custom_properties): MediaUploader
     {
-        $this->data = $data;
+        $this->custom_properties = $custom_properties;
 
         return $this;
     }
 
-    public function useData(array $data): MediaUploader
+    public function useCustomProperties(array $custom_properties): MediaUploader
     {
-        return $this->withData($data);
+        return $this->withCustomProperties($custom_properties);
     }
 
     /**
@@ -160,7 +160,7 @@ class MediaUploader
         $media->disk = $this->disk ?: config('mediaman.disk');
         $media->mime_type = $this->file->getMimeType();
         $media->size = $this->file->getSize();
-        $media->data = $this->data;
+        $media->custom_properties = $this->custom_properties;
 
         $media->save();
 
