@@ -4,6 +4,8 @@ namespace Emaia\MediaMan\Models;
 
 use Emaia\MediaMan\Casts\Json;
 use Emaia\MediaMan\ConversionRegistry;
+use Emaia\MediaMan\Jobs\GenerateResponsiveImages;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -686,5 +688,187 @@ class Media extends Model
         $this->custom_properties = $customProperties;
 
         return $this;
+    }
+
+    /**
+     * Generate responsive images for this media item.
+     */
+    public function generateResponsiveImages(array $options = []): self
+    {
+        if (config('mediaman.responsive_images.queue', true)) {
+            GenerateResponsiveImages::dispatch($this, $options);
+        } else {
+            app(ResponsiveImageGenerator::class)
+                ->generateResponsiveImages($this, $options);
+        }
+
+        return $this;
+    }
+
+    /**
+     * Get responsive images data.
+     */
+    public function getResponsiveImages(): BaseCollection
+    {
+        $responsiveData = $this->data['responsive_images'] ?? [];
+
+        return collect($responsiveData)->map(function ($item) {
+            return (object) $item;
+        });
+    }
+
+    /**
+     * Get responsive images by format.
+     */
+    public function getResponsiveImagesByFormat(string $format): BaseCollection
+    {
+        return $this->getResponsiveImages()->where('format', $format);
+    }
+
+    /**
+     * Generate srcset string for HTML.
+     */
+    public function getSrcset(string $format = 'webp'): string
+    {
+        $images = $this->getResponsiveImagesByFormat($format);
+
+        if ($images->isEmpty()) {
+            // Fallback to original image
+            return $this->getUrl() . ' ' . $this->getImageWidth() . 'w';
+        }
+
+        return $images
+            ->sortByDesc('width')
+            ->map(fn($img) => $img->url . ' ' . $img->width . 'w')
+            ->implode(', ');
+    }
+
+    /**
+     * Get picture element HTML with multiple formats.
+     */
+    public function getPictureHtml(array $attributes = []): string
+    {
+        $formats = config('mediaman.responsive_images.formats', ['webp', 'jpg']);
+        $sources = [];
+
+        foreach ($formats as $format) {
+            if ($format === 'jpg' || $format === 'jpeg') {
+                continue; // Skip fallback format for sources
+            }
+
+            $srcset = $this->getSrcset($format);
+            if ($srcset) {
+                $mimeType = 'image/' . ($format === 'jpg' ? 'jpeg' : $format);
+                $sources[] = "<source type=\"{$mimeType}\" srcset=\"{$srcset}\">";
+            }
+        }
+
+        // Fallback img tag
+        $fallbackFormat = in_array('jpg', $formats) ? 'jpg' : $formats[0] ?? 'jpg';
+        $fallbackSrcset = $this->getSrcset($fallbackFormat);
+
+        $imgAttributes = array_merge([
+            'src' => $this->getUrl(),
+            'srcset' => $fallbackSrcset ?: $this->getUrl() . ' ' . $this->getImageWidth() . 'w',
+            'alt' => $this->name,
+        ], $attributes);
+
+        $imgAttributesString = collect($imgAttributes)
+            ->map(fn($value, $key) => $key . '="' . htmlspecialchars($value) . '"')
+            ->implode(' ');
+
+        $sourcesString = implode("\n    ", $sources);
+
+        return "<picture>\n    {$sourcesString}\n    <img {$imgAttributesString}>\n</picture>";
+    }
+
+    /**
+     * Check if responsive images have been generated.
+     */
+    public function hasResponsiveImages(): bool
+    {
+        return !empty($this->data['responsive_images'] ?? []);
+    }
+
+    /**
+     * Clear responsive images.
+     */
+    public function clearResponsiveImages(): self
+    {
+        app(ResponsiveImageGenerator::class)
+            ->clearResponsiveImages($this);
+
+        return $this;
+    }
+
+    /**
+     * Get the optimal responsive image for a given width.
+     */
+    public function getResponsiveImageForWidth(int $targetWidth, string $format = 'webp'): ?object
+    {
+        return $this->getResponsiveImagesByFormat($format)
+            ->where('width', '>=', $targetWidth)
+            ->sortBy('width')
+            ->first();
+    }
+
+    /**
+     * Get image width (for images only).
+     */
+    public function getImageWidth(): int
+    {
+        if (!$this->isOfType('image')) {
+            return 0;
+        }
+
+        // Try to get from responsive images data first
+        $responsiveImages = $this->getResponsiveImages();
+        if ($responsiveImages->isNotEmpty()) {
+            return $responsiveImages->max('width');
+        }
+
+        // Fallback: read from original file
+        try {
+            $tempFile = tempnam(sys_get_temp_dir(), 'mediaman_width');
+            file_put_contents($tempFile, $this->filesystem()->get($this->getOriginalPath()));
+
+            $image = \Intervention\Image\ImageManager::gd()->read($tempFile);
+            $width = $image->width();
+
+            unlink($tempFile);
+            return $width;
+        } catch (\Exception $e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Get image height (for images only).
+     */
+    public function getImageHeight(): int
+    {
+        if (!$this->isOfType('image')) {
+            return 0;
+        }
+
+        // Try to get from responsive images data first
+        $responsiveImages = $this->getResponsiveImages();
+        if ($responsiveImages->isNotEmpty()) {
+            return $responsiveImages->where('width', $this->getImageWidth())->first()->height ?? 0;
+        }
+
+        // Fallback: read from original file
+        try {
+            $tempFile = tempnam(sys_get_temp_dir(), 'mediaman_height');
+            file_put_contents($tempFile, $this->filesystem()->get($this->getOriginalPath()));
+
+            $image = \Intervention\Image\ImageManager::gd()->read($tempFile);
+            $height = $image->height();
+
+            unlink($tempFile);
+            return $height;
+        } catch (\Exception $e) {
+            return 0;
+        }
     }
 }
