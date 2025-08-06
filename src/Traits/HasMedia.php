@@ -12,7 +12,7 @@ use Throwable;
 trait HasMedia
 {
     /** @var MediaChannel[] */
-    protected $mediaChannels = [];
+    protected array $mediaChannels = [];
 
     public function media(): MorphToMany
     {
@@ -25,7 +25,7 @@ trait HasMedia
      * Determine if there is any media in the specified group.
      *
      */
-    public function hasMedia(string $channel = 'default')
+    public function hasMedia(string $channel = 'default'): bool
     {
         return $this->getMedia($channel)->isNotEmpty();
     }

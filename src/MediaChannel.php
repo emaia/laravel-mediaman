@@ -5,7 +5,7 @@ namespace Emaia\MediaMan;
 class MediaChannel
 {
     /** @var array */
-    protected $conversions = [];
+    protected array $conversions = [];
 
     /**
      * Register the conversions to be performed when media is attached.

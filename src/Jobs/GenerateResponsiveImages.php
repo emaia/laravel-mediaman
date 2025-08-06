@@ -22,10 +22,6 @@ class GenerateResponsiveImages implements ShouldQueue
         $this->media = $media;
         $this->options = $options;
 
-        // Set queue if configured
-        if ($queue = config('mediaman.queue')) {
-            $this->onQueue($queue);
-        }
     }
 
     public function handle(): void

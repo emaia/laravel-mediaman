@@ -6,7 +6,6 @@ use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\WidthCalculator;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\BreakpointWidthCalculator;
 use Intervention\Image\ImageManager;
-use Illuminate\Support\Collection;
 
 class ResponsiveImageGenerator
 {
@@ -15,7 +14,7 @@ class ResponsiveImageGenerator
 
     public function __construct(?ImageManager $imageManager = null, ?WidthCalculator $widthCalculator = null)
     {
-        $this->imageManager = $imageManager ?? ImageManager::gd();
+        $this->imageManager = $imageManager ?? ImageManager::imagick() ?? ImageManager::gd();
         $this->widthCalculator = $widthCalculator ?? new BreakpointWidthCalculator();
     }
 
@@ -62,7 +61,7 @@ class ResponsiveImageGenerator
             foreach ($formats as $format) {
                 $responsiveData[] = $this->generateSingleResponsiveImage(
                     $media,
-                    $originalImage->clone(),
+                    clone $originalImage,
                     $targetWidth,
                     $format,
                     $quality
@@ -70,7 +69,6 @@ class ResponsiveImageGenerator
             }
         }
 
-        // Update media data with responsive images info
         $media->setCustomProperty('responsive_images', $responsiveData);
         $media->save();
     }
@@ -78,33 +76,21 @@ class ResponsiveImageGenerator
     /**
      * Generate a single responsive image variant.
      */
-    protected function generateSingleResponsiveImage(
-        Media $media,
-              $image,
-        int $targetWidth,
-        string $format,
-        int $quality
-    ): array {
-        // Resize image
-        $image->resize($targetWidth, null, function($constraint) {
-            $constraint->aspectRatio();
-            $constraint->upsize(); // Prevent upsizing
-        });
+    protected function generateSingleResponsiveImage(Media $media, $image, int $targetWidth, string $format, int $quality): array
+    {
+        $image->scaleDown($targetWidth, null);
 
-        // Encode to target format
-        $encodedImage = match($format) {
+        $encodedImage = match ($format) {
             'webp' => $image->toWebp($quality),
             'avif' => $image->toAvif($quality),
             'png' => $image->toPng(),
             default => $image->toJpeg($quality),
         };
 
-        // Generate file path
         $directory = $media->getDirectory() . '/responsive';
         $fileName = $this->generateResponsiveFileName($media->file_name, $targetWidth, $format);
         $path = $directory . '/' . $fileName;
 
-        // Save to filesystem
         $media->filesystem()->put($path, $encodedImage->toFilePointer());
 
         return [
@@ -125,7 +111,7 @@ class ResponsiveImageGenerator
         $pathInfo = pathinfo($originalFileName);
         $baseName = $pathInfo['filename'];
 
-        return "{$baseName}_{$width}w.{$format}";
+        return "{$baseName}_{$width}w.$format";
     }
 
     /**

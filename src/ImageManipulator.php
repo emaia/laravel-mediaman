@@ -2,9 +2,7 @@
 
 namespace Emaia\MediaMan;
 
-use Emaia\MediaMan\Exceptions\InvalidConversion;
 use Emaia\MediaMan\Models\Media;
-use Illuminate\Contracts\Filesystem\FileNotFoundException;
 use Intervention\Image\EncodedImage;
 use Intervention\Image\Image;
 use Intervention\Image\ImageManager;
@@ -19,7 +17,7 @@ class ImageManipulator
     {
         $this->conversionRegistry = $conversionRegistry;
 
-        $this->imageManager = $imageManager ?? ImageManager::gd();
+        $this->imageManager = $imageManager ?? ImageManager::imagick() ?? ImageManager::gd();
     }
 
     /**

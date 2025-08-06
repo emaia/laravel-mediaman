@@ -4,8 +4,8 @@ namespace Emaia\MediaMan\Models;
 
 use Emaia\MediaMan\Casts\Json;
 use Emaia\MediaMan\ConversionRegistry;
-use Emaia\MediaMan\Jobs\GenerateResponsiveImages;
-use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
+use Emaia\MediaMan\Traits\ResponsiveImages;
+use Exception;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -13,7 +13,9 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Collection as BaseCollection;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 use ReflectionFunction;
+use SplFileObject;
 
 /**
  * @property int $id
@@ -25,6 +27,8 @@ use ReflectionFunction;
  */
 class Media extends Model
 {
+    use ResponsiveImages;
+
     protected $fillable = [
         'name', 'file_name', 'mime_type', 'size', 'disk', 'custom_properties',
     ];
@@ -201,10 +205,10 @@ class Media extends Model
 
         if ($conversion) {
             $directory .= '/conversions/'.$conversion;
-            
+
             // Try to detect the correct format for this conversion
             $detectedExtension = $this->detectConversionFormat($conversion);
-            
+
             if ($detectedExtension) {
                 $fileName = $this->replaceFileExtension($this->file_name, $detectedExtension);
             }
@@ -225,7 +229,7 @@ class Media extends Model
 
         try {
             $conversionRegistry = app(ConversionRegistry::class);
-            
+
             if (!$conversionRegistry->exists($conversion)) {
                 return null;
             }
@@ -236,10 +240,10 @@ class Media extends Model
             }
 
             $converter = $conversionRegistry->get($conversion);
-            
+
             // Attempt 1: try to detect a format with Reflection
             $detectedFormat = $this->detectFormatWithReflection($converter);
-            
+
             if ($detectedFormat) {
                 $this->conversionFormatCache[$conversion] = $detectedFormat;
                 return $detectedFormat;
@@ -247,7 +251,7 @@ class Media extends Model
 
             // Attempt 2: try to detect a format from conversion name
             $formatFromName = $this->detectFormatFromConversionName($conversion);
-            
+
             if ($formatFromName) {
                 $this->conversionFormatCache[$conversion] = $formatFromName;
                 return $formatFromName;
@@ -255,21 +259,21 @@ class Media extends Model
 
             // Attempt 3: infers the format based on an existing file
             $existingFormat = $this->detectFormatFromExistingFile($conversion);
-            
+
             if ($existingFormat) {
                 $this->conversionFormatCache[$conversion] = $existingFormat;
                 return $existingFormat;
             }
-            
-        } catch (\Exception $e) {
+
+        } catch (Exception $e) {
             return null;
         }
-        
+
         // Cache null result to avoid repeated processing
         $this->conversionFormatCache[$conversion] = null;
         return null;
     }
-    
+
     /**
      * Get a format from conversion code using Reflection
      */
@@ -302,26 +306,26 @@ class Media extends Model
                         'toHeif(' => 'heif',
                         '->toHeif(' => 'heif',
                     ];
-                    
+
                     foreach ($formatMethods as $method => $format) {
                         if (stripos($code, $method) !== false) {
                             return $format;
                         }
                     }
-                    
+
                     // check for specific encoding
                     if (preg_match('/encode\w*\([\'"]([^\'\"]+)[\'"]/', $code, $matches)) {
                         return $this->getExtensionFromMimeType($matches[1]);
                     }
                 }
             }
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             // If fails, go to the next method.
         }
-        
+
         return null;
     }
-    
+
     /**
      * Extract the closure code using Reflection.
      */
@@ -331,35 +335,35 @@ class Media extends Model
             $filename = $reflection->getFileName();
             $startLine = $reflection->getStartLine();
             $endLine = $reflection->getEndLine();
-            
+
             if (!$filename || !$startLine || !$endLine) {
                 return null;
             }
-            
+
             // read only the necessary lines
-            $file = new \SplFileObject($filename);
+            $file = new SplFileObject($filename);
             $file->seek($startLine - 1);
-            
+
             $code = '';
             for ($i = $startLine; $i <= $endLine; $i++) {
                 $code .= $file->current();
                 $file->next();
             }
-            
+
             return $code;
-            
-        } catch (\Exception $e) {
+
+        } catch (Exception $e) {
             return null;
         }
     }
-    
+
     /**
      * Detect the format based on conversion name.
      */
     protected function detectFormatFromConversionName(string $conversion): ?string
     {
         $conversion = strtolower($conversion);
-        
+
         $patterns = [
             '/webp/' => 'webp',
             '/avif/' => 'avif',
@@ -371,16 +375,16 @@ class Media extends Model
             '/heic/' => 'heic',
             '/heif/' => 'heif',
         ];
-        
+
         foreach ($patterns as $pattern => $format) {
             if (preg_match($pattern, $conversion)) {
                 return $format;
             }
         }
-        
+
         return null;
     }
-    
+
     /**
      * Detects the format by checking if the file already exists with different extensions.
      */
@@ -389,14 +393,14 @@ class Media extends Model
         $formats = ['webp', 'avif', 'png', 'jpg', 'gif', 'bmp', 'tiff', 'heic', 'heif'];
         $baseDirectory = $this->getDirectory() . '/conversions/' . $conversion;
         $baseFileName = pathinfo($this->file_name, PATHINFO_FILENAME);
-        
+
         foreach ($formats as $format) {
             $testPath = $baseDirectory . '/' . $baseFileName . '.' . $format;
             if ($this->filesystem()->exists($testPath)) {
                 return $format;
             }
         }
-        
+
         return null;
     }
 
@@ -422,7 +426,7 @@ class Media extends Model
             'image/webp' => 'webp',
             'image/bmp' => 'bmp',
             'image/svg+xml' => 'svg',
-            
+
             // Extended formats supported by Intervention Image
             'image/avif' => 'avif',
             'image/tiff' => 'tiff',
@@ -432,14 +436,14 @@ class Media extends Model
             'image/jpm' => 'jpm',     // JPEG 2000 Part 6
             'image/heic' => 'heic',   // HEIC (High-Efficiency Image Format)
             'image/heif' => 'heif',   // HEIF (High-Efficiency Image Format)
-            
+
             // Alternative mime types
             'image/x-ms-bmp' => 'bmp',
             'image/vnd.adobe.photoshop' => 'psd',
             'image/x-photoshop' => 'psd',
             'image/x-windows-bmp' => 'bmp',
         ];
-        
+
         return $map[$mimeType] ?? 'jpg';
     }
 
@@ -575,7 +579,7 @@ class Media extends Model
         $allDisks = config('filesystems.disks');
 
         if (! array_key_exists($diskName, $allDisks)) {
-            throw new \InvalidArgumentException("Disk [{$diskName}] is not defined in the filesystems configuration.");
+            throw new InvalidArgumentException("Disk [$diskName] is not defined in the filesystems configuration.");
         }
 
         // Early return if the accessibility check is disabled
@@ -593,8 +597,8 @@ class Media extends Model
 
             // Now, attempt to delete the temporary file
             $disk->delete($tempFileName);
-        } catch (\Exception $e) {
-            throw new \Exception("Failed to write or delete on the disk [{$diskName}]. Error: ".$e->getMessage(), 0, $e);
+        } catch (Exception $e) {
+            throw new Exception("Failed to write or delete on the disk [$diskName]. Error: ".$e->getMessage(), 0, $e);
         }
     }
 
@@ -690,185 +694,4 @@ class Media extends Model
         return $this;
     }
 
-    /**
-     * Generate responsive images for this media item.
-     */
-    public function generateResponsiveImages(array $options = []): self
-    {
-        if (config('mediaman.responsive_images.queue', true)) {
-            GenerateResponsiveImages::dispatch($this, $options);
-        } else {
-            app(ResponsiveImageGenerator::class)
-                ->generateResponsiveImages($this, $options);
-        }
-
-        return $this;
-    }
-
-    /**
-     * Get responsive images data.
-     */
-    public function getResponsiveImages(): BaseCollection
-    {
-        $responsiveData = $this->data['responsive_images'] ?? [];
-
-        return collect($responsiveData)->map(function ($item) {
-            return (object) $item;
-        });
-    }
-
-    /**
-     * Get responsive images by format.
-     */
-    public function getResponsiveImagesByFormat(string $format): BaseCollection
-    {
-        return $this->getResponsiveImages()->where('format', $format);
-    }
-
-    /**
-     * Generate srcset string for HTML.
-     */
-    public function getSrcset(string $format = 'webp'): string
-    {
-        $images = $this->getResponsiveImagesByFormat($format);
-
-        if ($images->isEmpty()) {
-            // Fallback to original image
-            return $this->getUrl() . ' ' . $this->getImageWidth() . 'w';
-        }
-
-        return $images
-            ->sortByDesc('width')
-            ->map(fn($img) => $img->url . ' ' . $img->width . 'w')
-            ->implode(', ');
-    }
-
-    /**
-     * Get picture element HTML with multiple formats.
-     */
-    public function getPictureHtml(array $attributes = []): string
-    {
-        $formats = config('mediaman.responsive_images.formats', ['webp', 'jpg']);
-        $sources = [];
-
-        foreach ($formats as $format) {
-            if ($format === 'jpg' || $format === 'jpeg') {
-                continue; // Skip fallback format for sources
-            }
-
-            $srcset = $this->getSrcset($format);
-            if ($srcset) {
-                $mimeType = 'image/' . ($format === 'jpg' ? 'jpeg' : $format);
-                $sources[] = "<source type=\"{$mimeType}\" srcset=\"{$srcset}\">";
-            }
-        }
-
-        // Fallback img tag
-        $fallbackFormat = in_array('jpg', $formats) ? 'jpg' : $formats[0] ?? 'jpg';
-        $fallbackSrcset = $this->getSrcset($fallbackFormat);
-
-        $imgAttributes = array_merge([
-            'src' => $this->getUrl(),
-            'srcset' => $fallbackSrcset ?: $this->getUrl() . ' ' . $this->getImageWidth() . 'w',
-            'alt' => $this->name,
-        ], $attributes);
-
-        $imgAttributesString = collect($imgAttributes)
-            ->map(fn($value, $key) => $key . '="' . htmlspecialchars($value) . '"')
-            ->implode(' ');
-
-        $sourcesString = implode("\n    ", $sources);
-
-        return "<picture>\n    {$sourcesString}\n    <img {$imgAttributesString}>\n</picture>";
-    }
-
-    /**
-     * Check if responsive images have been generated.
-     */
-    public function hasResponsiveImages(): bool
-    {
-        return !empty($this->data['responsive_images'] ?? []);
-    }
-
-    /**
-     * Clear responsive images.
-     */
-    public function clearResponsiveImages(): self
-    {
-        app(ResponsiveImageGenerator::class)
-            ->clearResponsiveImages($this);
-
-        return $this;
-    }
-
-    /**
-     * Get the optimal responsive image for a given width.
-     */
-    public function getResponsiveImageForWidth(int $targetWidth, string $format = 'webp'): ?object
-    {
-        return $this->getResponsiveImagesByFormat($format)
-            ->where('width', '>=', $targetWidth)
-            ->sortBy('width')
-            ->first();
-    }
-
-    /**
-     * Get image width (for images only).
-     */
-    public function getImageWidth(): int
-    {
-        if (!$this->isOfType('image')) {
-            return 0;
-        }
-
-        // Try to get from responsive images data first
-        $responsiveImages = $this->getResponsiveImages();
-        if ($responsiveImages->isNotEmpty()) {
-            return $responsiveImages->max('width');
-        }
-
-        // Fallback: read from original file
-        try {
-            $tempFile = tempnam(sys_get_temp_dir(), 'mediaman_width');
-            file_put_contents($tempFile, $this->filesystem()->get($this->getOriginalPath()));
-
-            $image = \Intervention\Image\ImageManager::gd()->read($tempFile);
-            $width = $image->width();
-
-            unlink($tempFile);
-            return $width;
-        } catch (\Exception $e) {
-            return 0;
-        }
-    }
-
-    /**
-     * Get image height (for images only).
-     */
-    public function getImageHeight(): int
-    {
-        if (!$this->isOfType('image')) {
-            return 0;
-        }
-
-        // Try to get from responsive images data first
-        $responsiveImages = $this->getResponsiveImages();
-        if ($responsiveImages->isNotEmpty()) {
-            return $responsiveImages->where('width', $this->getImageWidth())->first()->height ?? 0;
-        }
-
-        // Fallback: read from original file
-        try {
-            $tempFile = tempnam(sys_get_temp_dir(), 'mediaman_height');
-            file_put_contents($tempFile, $this->filesystem()->get($this->getOriginalPath()));
-
-            $image = \Intervention\Image\ImageManager::gd()->read($tempFile);
-            $height = $image->height();
-
-            unlink($tempFile);
-            return $height;
-        } catch (\Exception $e) {
-            return 0;
-        }
-    }
 }

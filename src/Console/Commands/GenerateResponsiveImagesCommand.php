@@ -2,6 +2,7 @@
 
 namespace Emaia\MediaMan\Console\Commands;
 
+use Emaia\MediaMan\Jobs\GenerateResponsiveImages;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Illuminate\Console\Command;
@@ -55,7 +56,7 @@ class GenerateResponsiveImagesCommand extends Command
         foreach ($mediaItems as $media) {
             try {
                 if ($useQueue) {
-                    \Emaia\MediaMan\Jobs\GenerateResponsiveImages::dispatch($media);
+                    GenerateResponsiveImages::dispatch($media);
                     $this->line(" Queued: {$media->name}");
                 } else {
                     $generator->generateResponsiveImages($media);

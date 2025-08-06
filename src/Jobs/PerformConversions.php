@@ -2,11 +2,9 @@
 
 namespace Emaia\MediaMan\Jobs;
 
-use Emaia\MediaMan\Exceptions\InvalidConversion;
 use Emaia\MediaMan\ImageManipulator;
 use Emaia\MediaMan\Models\Media;
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Filesystem\FileNotFoundException;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
