@@ -23,7 +23,7 @@ class GenerateResponsiveImagesCommand extends Command
 
         // Filter by collection if specified
         if ($collection = $this->option('collection')) {
-            $query->whereHas('collections', function($q) use ($collection) {
+            $query->whereHas('collections', function ($q) use ($collection) {
                 $q->where('name', $collection);
             });
         }

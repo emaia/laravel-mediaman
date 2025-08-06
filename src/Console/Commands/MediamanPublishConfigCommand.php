@@ -19,10 +19,10 @@ class MediamanPublishConfigCommand extends Command
     protected function publishConfig()
     {
         $destinationConfigPath = config_path('mediaman.php');
-        $sourceConfigPath = __DIR__.'/../../../config/mediaman.php';
+        $sourceConfigPath = __DIR__ . '/../../../config/mediaman.php';
 
         if (File::exists($destinationConfigPath)) {
-            if (! $this->confirm('The mediaman config file already exists. Do you want to overwrite it?')) {
+            if (!$this->confirm('The mediaman config file already exists. Do you want to overwrite it?')) {
                 $this->info('Migration file was not overwritten.');
 
                 return;
@@ -30,7 +30,7 @@ class MediamanPublishConfigCommand extends Command
         }
 
         File::copy($sourceConfigPath, $destinationConfigPath);
-        $relativePath = str_replace(base_path().'/', '', $destinationConfigPath);
-        $this->info('Published mediaman config file to: '.$relativePath);
+        $relativePath = str_replace(base_path() . '/', '', $destinationConfigPath);
+        $this->info('Published mediaman config file to: ' . $relativePath);
     }
 }
