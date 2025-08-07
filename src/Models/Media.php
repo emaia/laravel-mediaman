@@ -461,16 +461,6 @@ class Media extends Model
     }
 
     /**
-     * Get the url to the file with automatic format detection for conversions.
-     */
-    public function getUrl(string $conversion = ''): string
-    {
-        return $this->filesystem()->url(
-            $this->getPathWithCorrectExtension($conversion)
-        );
-    }
-
-    /**
      * Get the full path to the file with automatic format detection for conversions.
      */
     public function getFullPath(string $conversion = ''): string
@@ -495,12 +485,50 @@ class Media extends Model
     }
 
     /**
+     * Get conversion URL only if the conversion exists.
+     */
+    public function getConversionUrl(string $conversion): ?string
+    {
+        if (!$this->hasConversion($conversion)) {
+            return null;
+        }
+
+        return $this->getUrl($conversion);
+    }
+
+    /**
      * Check if a conversion file exists with automatic format detection.
      */
     public function hasConversion(string $conversion): bool
     {
         $path = $this->getPathWithCorrectExtension($conversion);
         return $this->filesystem()->exists($path);
+    }
+
+    /**
+     * Get the url to the file with automatic format detection for conversions.
+     */
+    public function getUrl(string $conversion = ''): string
+    {
+        return $this->filesystem()->url(
+            $this->getPathWithCorrectExtension($conversion)
+        );
+    }
+
+    /**
+     * Get URL with fallback - returns conversion URL if exists, otherwise original.
+     */
+    public function getUrlWithFallback(string $conversion = ''): string
+    {
+        if (empty($conversion)) {
+            return $this->getUrl();
+        }
+
+        if ($this->hasConversion($conversion)) {
+            return $this->getUrl($conversion);
+        }
+
+        return $this->getUrl();
     }
 
     /**
