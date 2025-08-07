@@ -26,7 +26,7 @@ trait ResponsiveImages
     /**
      * Get picture element HTML with multiple formats.
      */
-    public function getPictureHtml(array $attributes = []): string
+    public function getPictureHtml(array $attributes = [], $sizes = null): string
     {
         if (!$this->isOfType('image')) {
             return '';
@@ -36,8 +36,10 @@ trait ResponsiveImages
 
         // If no responsive images, return simple img tag
         if (empty($availableFormats) || $availableFormats === ['original']) {
-            return $this->getSimpleImgHtml($attributes);
+            return $this->getSimpleImgHtml($attributes, $sizes);
         }
+
+        $defaultAttributes = $this->setDefaultImgAttributes($sizes);
 
         $sources = [];
 
@@ -65,28 +67,18 @@ trait ResponsiveImages
             $srcset = $this->getSrcset($format);
             if ($srcset) {
                 $mimeType = $this->formatToMimeType($format);
-                $sources[] = "<source type=\"$mimeType\" srcset=\"$srcset\">";
+                $sourceHtml = "<source type=\"{$mimeType}\" srcset=\"{$srcset}\"";
+                if (!empty($defaultAttributes['sizes'])) {
+                    $sourceHtml .= " sizes=\"{$defaultAttributes['sizes']}\"";
+                }
+                $sourceHtml .= ">";
+                $sources[] = $sourceHtml;
             }
         }
 
         // Use the last format as fallback (or original if no responsive images)
         $fallbackFormat = end($sortedFormats);
         $fallbackSrcset = $this->getSrcset($fallbackFormat);
-
-        $sizes = $this->getResponsiveImages();
-        $minWidth = $sizes->pluck('width')->min();
-        $minHeight = $sizes->pluck('height')->min();
-
-        // Generate img attributes
-        $defaultAttributes = [
-            'src' => $this->getUrl(),
-            'alt' => $this->name ?? '',
-            'width' => $minWidth,
-            'height' => $minHeight,
-            'sizes' => $sizes->pluck('width')->slice(0, -1)->map(function ($w) {
-                return '(min-width: ' . $w * 0.7 . 'px) ' . $w . 'px';
-            })->push($sizes->pluck('width')->last() * 0.7 . 'px')->implode(', '),
-        ];
 
         if ($fallbackSrcset) {
             $defaultAttributes['srcset'] = $fallbackSrcset;
@@ -145,21 +137,49 @@ trait ResponsiveImages
     /**
      * Get simple img tag HTML.
      */
-    public function getSimpleImgHtml(array $attributes = []): string
+    public function getSimpleImgHtml(array $attributes = [], $sizes = null): string
     {
         if (!$this->isOfType('image')) {
             return '';
         }
 
+        $imgAttributes = array_merge($this->setDefaultImgAttributes($sizes), $attributes);
+        $imgAttributesString = $this->attributesToString($imgAttributes);
+
+        return "<img $imgAttributesString>";
+    }
+
+    /**
+     * @param mixed $sizes
+     * @return array
+     */
+    public function setDefaultImgAttributes(mixed $sizes): array
+    {
         $defaultAttributes = [
             'src' => $this->getUrl(),
             'alt' => $this->name ?? '',
         ];
 
-        $imgAttributes = array_merge($defaultAttributes, $attributes);
-        $imgAttributesString = $this->attributesToString($imgAttributes);
+        if (!empty($sizes)) {
+            if ($sizes === 'auto') {
 
-        return "<img $imgAttributesString>";
+                $sizesFromGeneratedResponsiveImages = $this->getResponsiveImages();
+
+                $minWidth = $sizesFromGeneratedResponsiveImages->pluck('width')->min();
+                $minHeight = $sizesFromGeneratedResponsiveImages->pluck('height')->min();
+
+                $defaultAttributes['width'] = $minWidth;
+                $defaultAttributes['height'] = $minHeight;
+
+                $sizes = $sizesFromGeneratedResponsiveImages->pluck('width')->slice(0, -1)->map(function ($w) {
+                    return '(min-width: ' . $w * 0.7 . 'px) ' . $w . 'px';
+                })->push($sizesFromGeneratedResponsiveImages->pluck('width')->last() * 0.7 . 'px')->implode(', ');
+            }
+
+            $defaultAttributes['sizes'] = $sizes;
+        }
+
+        return $defaultAttributes;
     }
 
     /**
@@ -306,22 +326,18 @@ trait ResponsiveImages
             return $this->getUrl();
         }
 
-        // If no responsive images available, return original
         if (!$this->hasResponsiveImages()) {
             return $this->getUrl();
         }
 
-        // Use best format if none specified
         if (empty($format)) {
             $format = $this->getBestResponsiveFormat();
         }
 
-        // Return original if format is 'original' or not found
         if ($format === 'original') {
             return $this->getUrl();
         }
 
-        // If no specific width requested, get the largest available
         if ($width <= 0) {
             $largest = $this->getResponsiveImagesByFormat($format)
                 ->sortByDesc('width')
@@ -330,7 +346,6 @@ trait ResponsiveImages
             return $largest ? $largest->url : $this->getUrl();
         }
 
-        // Find optimal image for requested width
         $optimal = $this->getResponsiveImageForWidth($width, $format);
 
         return $optimal ? $optimal->url : $this->getUrl();
@@ -348,7 +363,6 @@ trait ResponsiveImages
             return 'original';
         }
 
-        // Priority order: AVIF > WebP > JPEG > PNG > others
         $preferredOrder = ['avif', 'webp', 'jpg', 'jpeg', 'png'];
 
         foreach ($preferredOrder as $preferredFormat) {
@@ -357,7 +371,6 @@ trait ResponsiveImages
             }
         }
 
-        // Return first available if no preferred format found
         return $availableFormats[0];
     }
 
