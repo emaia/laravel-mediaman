@@ -6,6 +6,7 @@ use Emaia\MediaMan\Casts\Json;
 use Emaia\MediaMan\ConversionRegistry;
 use Emaia\MediaMan\Traits\ResponsiveImages;
 use Exception;
+use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -356,6 +357,7 @@ class Media extends Model
 
     /**
      * Get the filesystem where the associated file is stored.
+     * @return Filesystem
      */
     public function filesystem()
     {
@@ -554,7 +556,7 @@ class Media extends Model
     /**
      * Sync collections of a media
      */
-    public function syncCollections($collections, $detaching = true)
+    public function syncCollections($collections, $detaching = true): array
     {
         if ($this->shouldDetachAll($collections)) {
             return $this->collections()->sync([]);
@@ -648,7 +650,7 @@ class Media extends Model
     /**
      * Attach media to collections
      */
-    public function attachCollections($collections)
+    public function attachCollections($collections): ?int
     {
         $fetch = $this->fetchCollections($collections);
         if ($fetch->count()) {
