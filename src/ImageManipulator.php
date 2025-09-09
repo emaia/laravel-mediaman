@@ -2,9 +2,7 @@
 
 namespace Emaia\MediaMan;
 
-use Emaia\MediaMan\Exceptions\InvalidConversion;
 use Emaia\MediaMan\Models\Media;
-use Illuminate\Contracts\Filesystem\FileNotFoundException;
 use Intervention\Image\EncodedImage;
 use Intervention\Image\Image;
 use Intervention\Image\ImageManager;
@@ -19,7 +17,7 @@ class ImageManipulator
     {
         $this->conversionRegistry = $conversionRegistry;
 
-        $this->imageManager = $imageManager ?? ImageManager::gd();
+        $this->imageManager = $imageManager ?? ImageManager::imagick() ?? ImageManager::gd();
     }
 
     /**
@@ -49,6 +47,7 @@ class ImageManipulator
                 }
 
                 $filesystem->put($path, $image->toFilePointer());
+
                 continue;
             }
 
@@ -71,10 +70,10 @@ class ImageManipulator
      */
     protected function getConversionPathWithExtension(Media $media, string $conversion, string $extension): string
     {
-        $directory = $media->getDirectory() . '/conversions/' . $conversion;
+        $directory = $media->getDirectory().'/conversions/'.$conversion;
         $fileName = $media->replaceFileExtension($media->file_name, $extension);
-        
-        return $directory . '/' . $fileName;
+
+        return $directory.'/'.$fileName;
     }
 
     protected function getExtensionFromMimeType(string $mimeType): string
@@ -107,7 +106,7 @@ class ImageManipulator
     protected function updatePathExtension(string $path, string $newExtension): string
     {
         $pathInfo = pathinfo($path);
-        
-        return $pathInfo['dirname'] . '/' . $pathInfo['filename'] . '.' . $newExtension;
+
+        return $pathInfo['dirname'].'/'.$pathInfo['filename'].'.'.$newExtension;
     }
 }

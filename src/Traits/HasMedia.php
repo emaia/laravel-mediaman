@@ -12,27 +12,18 @@ use Throwable;
 trait HasMedia
 {
     /** @var MediaChannel[] */
-    protected $mediaChannels = [];
-
-    public function media(): MorphToMany
-    {
-        return $this
-            ->morphToMany(config('mediaman.models.media'), 'mediable', config('mediaman.tables.mediables'))
-            ->withPivot('channel');
-    }
+    protected array $mediaChannels = [];
 
     /**
      * Determine if there is any media in the specified group.
-     *
      */
-    public function hasMedia(string $channel = 'default')
+    public function hasMedia(string $channel = 'default'): bool
     {
         return $this->getMedia($channel)->isNotEmpty();
     }
 
     /**
      * Get all the media in the specified group.
-     *
      */
     public function getMedia(?string $channel = 'default')
     {
@@ -41,15 +32,6 @@ trait HasMedia
         }
 
         return $this->media;
-    }
-
-    /**
-     * Get the first media item in the specified channel.
-     *
-     */
-    public function getFirstMedia(?string $channel = 'default')
-    {
-        return $this->getMedia($channel)->first();
     }
 
     /**
@@ -65,101 +47,23 @@ trait HasMedia
     }
 
     /**
-     * Attach media to the specified channel.
-     *
-     * @param  mixed  $media
-     * @return int|null
+     * Get the first media item in the specified channel.
      */
-    public function attachMedia($media, string $channel = 'default', array $conversions = [])
+    public function getFirstMedia(?string $channel = 'default')
     {
-        // Utilize syncMedia with detaching set to false to achieve the attach behavior
+        return $this->getMedia($channel)->first();
+    }
+
+    /**
+     * Attach media to the specified channel.
+     */
+    public function attachMedia($media, string $channel = 'default', array $conversions = []): ?int
+    {
         $syncResult = $this->syncMedia($media, $channel, $conversions, false);
 
-        if (! isset($syncResult['attached'])) {
-            return null;
-        }
+        $attachedCount = count($syncResult['attached'] ?? []);
 
-        // Count the number of attached media from the sync result
-        $attached = count($syncResult['attached'] ?? []);
-
-        // Return the count of attached media if there's any, otherwise return null
-        return $attached > 0 ? $attached : null;
-    }
-
-    /**
-     * Parse the media id's from the mixed input.
-     *
-     * @param  mixed  $media
-     * @return array
-     */
-    protected function parseMediaIds($media)
-    {
-        if ($media instanceof Collection) {
-            return $media->modelKeys();
-        }
-
-        if ($media instanceof Media) {
-            return [$media->getKey()];
-        }
-
-        return (array) $media;
-    }
-
-    /**
-     * Register all the model's media channels.
-     *
-     * @return void
-     */
-    public function registerMediaChannels()
-    {
-        //
-    }
-
-    /**
-     * Register a new media group.
-     *
-     * @return MediaChannel
-     */
-    protected function addMediaChannel(string $name)
-    {
-        $channel = new MediaChannel;
-
-        $this->mediaChannels[$name] = $channel;
-
-        return $channel;
-    }
-
-    /**
-     * Get the media channel with the specified name.
-     *
-     * @return MediaChannel|null
-     */
-    public function getMediaChannel(string $name)
-    {
-        return $this->mediaChannels[$name] ?? null;
-    }
-
-    /**
-     * Detach the specified media.
-     *
-     * @param  mixed  $media
-     * @return int|null
-     */
-    public function detachMedia($media = null)
-    {
-        $count = $this->media()->detach($media);
-
-        return $count > 0 ? $count : null;
-    }
-
-    /**
-     * Detach all the media in the specified channel.
-     *
-     * @return void
-     */
-    public function clearMediaChannel(string $channel = 'default')
-    {
-        $this->media()->wherePivot('channel', $channel)->detach();
+        return $attachedCount > 0 ? $attachedCount : null;
     }
 
     /**
@@ -169,10 +73,9 @@ trait HasMedia
      * and add those which aren't already attached if $detaching is truthy.
      *
      * @param  mixed  $media
-     * @param  bool  $detaching
      * @return array|null
      */
-    public function syncMedia($media, string $channel = 'default', array $conversions = [], $detaching = true)
+    public function syncMedia($media, string $channel = 'default', array $conversions = [], bool $detaching = true)
     {
         $this->registerMediaChannels();
 
@@ -210,21 +113,26 @@ trait HasMedia
         }
 
         try {
-            $res = $this->media()->sync($mappedIds, $detaching);
-
-            return $res; // this should give an array containing 'attached', 'detached', and 'updated'
+            return $this->media()->sync($mappedIds, $detaching); // this should give an array containing 'attached', 'detached', and 'updated'
         } catch (Throwable $th) {
             return null;
         }
     }
 
     /**
+     * Register all the model's media channels.
+     *
+     * @return void
+     */
+    public function registerMediaChannels()
+    {
+        //
+    }
+
+    /**
      * Check if all media should be detached
      *
      * bool|null|empty-string|empty-array to detach all media
-     *
-     * @param $media
-     * @return bool
      */
     protected function shouldDetachAll($media): bool
     {
@@ -237,6 +145,60 @@ trait HasMedia
         }
 
         return false;
+    }
+
+    public function media(): MorphToMany
+    {
+        return $this
+            ->morphToMany(config('mediaman.models.media'), 'mediable', config('mediaman.tables.mediables'))
+            ->withPivot('channel');
+    }
+
+    /**
+     * Parse the media id's from the mixed input.
+     *
+     * @param  mixed  $media
+     * @return array
+     */
+    protected function parseMediaIds($media)
+    {
+        if ($media instanceof Collection) {
+            return $media->modelKeys();
+        }
+
+        if ($media instanceof Media) {
+            return [$media->getKey()];
+        }
+
+        return (array) $media;
+    }
+
+    /**
+     * Get the media channel with the specified name.
+     *
+     * @return MediaChannel|null
+     */
+    public function getMediaChannel(string $name)
+    {
+        return $this->mediaChannels[$name] ?? null;
+    }
+
+    /**
+     * Detach the specified media.
+     */
+    public function detachMedia(mixed $media = null): ?int
+    {
+        $count = $this->media()->detach($media);
+
+        return $count > 0 ? $count : null;
+    }
+
+    /**
+     * Detach all the media in the specified channel.
+     */
+    public function clearMediaChannel(string $channel = 'default'): void
+    {
+        $this->media()->wherePivot('channel', $channel)->detach();
     }
 
     /**
@@ -273,5 +235,19 @@ trait HasMedia
         }
 
         return $media->hasConversion($conversion);
+    }
+
+    /**
+     * Register a new media group.
+     *
+     * @return MediaChannel
+     */
+    protected function addMediaChannel(string $name)
+    {
+        $channel = new MediaChannel;
+
+        $this->mediaChannels[$name] = $channel;
+
+        return $channel;
     }
 }

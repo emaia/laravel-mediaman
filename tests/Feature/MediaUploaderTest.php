@@ -72,7 +72,7 @@ it('can save data to the media model', function () {
     $media = MediaUploader::source($file)
         ->withCustomProperties([
             'test-01' => 'test data 01',
-            'test-02' => 'test data 02'
+            'test-02' => 'test data 02',
         ])
         ->upload();
 

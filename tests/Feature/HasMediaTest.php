@@ -9,7 +9,6 @@ use Illuminate\Database\Eloquent\Relations\MorphToMany;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 
-
 beforeEach(function () {
     $this->subject = Subject::create();
 });
@@ -88,7 +87,7 @@ it('returns number of detached media or null while disassociating', function () 
     expect($detached)->toEqual(null);
 });
 
-it('can_attach_media_and_returns_number_of_media_attached', function() {
+it('can_attach_media_and_returns_number_of_media_attached', function () {
     $media = factory(Media::class)->create();
 
     $attachedCount = $this->subject->attachMedia($media);

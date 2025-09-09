@@ -2,34 +2,34 @@
 
 namespace Emaia\MediaMan\Jobs;
 
-use Emaia\MediaMan\ImageManipulator;
 use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 
-class PerformConversions implements ShouldQueue
+class GenerateResponsiveImages implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     protected Media $media;
 
-    protected array $conversions;
+    protected array $options;
 
-    public function __construct(Media $media, array $conversions)
+    public function __construct(Media $media, array $options = [])
     {
         $this->media = $media;
+        $this->options = $options;
 
-        $this->conversions = $conversions;
     }
 
     public function handle(): void
     {
-        app(ImageManipulator::class)->manipulate(
+        app(ResponsiveImageGenerator::class)->generateResponsiveImages(
             $this->media,
-            $this->conversions
+            $this->options
         );
     }
 
@@ -38,8 +38,8 @@ class PerformConversions implements ShouldQueue
         return $this->media;
     }
 
-    public function getConversions(): array
+    public function getOptions(): array
     {
-        return $this->conversions;
+        return $this->options;
     }
 }

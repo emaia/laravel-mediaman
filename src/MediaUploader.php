@@ -25,6 +25,16 @@ class MediaUploader
     /** @var array */
     protected $custom_properties = [];
 
+    /**
+     * Enable automatic responsive image generation.
+     */
+    protected bool $generateResponsive = false;
+
+    /**
+     * Options for responsive image generation.
+     */
+    protected array $responsiveOptions = [];
+
     public function __construct(UploadedFile $file)
     {
         $this->setFile($file);
@@ -37,7 +47,6 @@ class MediaUploader
 
     /**
      * Set the file to be uploaded.
-     *
      */
     public function setFile(UploadedFile $file): MediaUploader
     {
@@ -147,7 +156,6 @@ class MediaUploader
 
     /**
      * Upload the file to the specified disk.
-     *
      */
     public function upload()
     {
@@ -188,6 +196,54 @@ class MediaUploader
             }
         }
 
+        // Generate responsive images if requested or auto-enabled
+        if ($this->generateResponsive || config('mediaman.responsive_images.auto_generate', false)) {
+            if (config('mediaman.responsive_images.enabled', true) && $media->isOfType('image')) {
+                $media->generateResponsiveImages($this->responsiveOptions);
+            }
+        }
+
         return $media;
+    }
+
+    /**
+     * Enable responsive image generation.
+     */
+    public function generateResponsive(array $options = []): MediaUploader
+    {
+        $this->generateResponsive = true;
+        $this->responsiveOptions = $options;
+
+        return $this;
+    }
+
+    /**
+     * Set responsive image breakpoints.
+     */
+    public function withBreakpoints(array $breakpoints): MediaUploader
+    {
+        $this->responsiveOptions['widths'] = $breakpoints;
+
+        return $this;
+    }
+
+    /**
+     * Set responsive image formats.
+     */
+    public function withFormats(array $formats): MediaUploader
+    {
+        $this->responsiveOptions['formats'] = $formats;
+
+        return $this;
+    }
+
+    /**
+     * Set responsive image quality.
+     */
+    public function withQuality(int $quality): MediaUploader
+    {
+        $this->responsiveOptions['quality'] = $quality;
+
+        return $this;
     }
 }

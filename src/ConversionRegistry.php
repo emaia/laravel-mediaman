@@ -26,6 +26,7 @@ class ConversionRegistry
 
     /**
      * Get the conversion with the specified name.
+     *
      * @throws InvalidConversion
      */
     public function get(string $name): mixed

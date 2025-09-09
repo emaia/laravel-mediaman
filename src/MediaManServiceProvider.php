@@ -2,16 +2,22 @@
 
 namespace Emaia\MediaMan;
 
+use Emaia\MediaMan\Console\Commands\ClearResponsiveImagesCommand;
+use Emaia\MediaMan\Console\Commands\GenerateResponsiveImagesCommand;
 use Emaia\MediaMan\Console\Commands\MediamanPublishConfigCommand;
 use Emaia\MediaMan\Console\Commands\MediamanPublishMigrationCommand;
+use Emaia\MediaMan\Console\Commands\ResponsiveImagesStatsCommand;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveConversions;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
+use Emaia\MediaMan\ResponsiveImages\WidthCalculator\BreakpointWidthCalculator;
+use Emaia\MediaMan\ResponsiveImages\WidthCalculator\FileSizeOptimizedWidthCalculator;
+use Emaia\MediaMan\ResponsiveImages\WidthCalculator\WidthCalculator;
 use Illuminate\Support\ServiceProvider;
 
 class MediaManServiceProvider extends ServiceProvider
 {
     /**
      * Register any application services.
-     *
-     * @return void
      */
     public function register(): void
     {
@@ -21,19 +27,18 @@ class MediaManServiceProvider extends ServiceProvider
         );
 
         $this->app->singleton(ConversionRegistry::class);
+
+        $this->registerResponsiveImageServices();
     }
 
     /**
      * Bootstrap any application services.
-     *
-     * @return void
      */
     public function boot(): void
     {
         // Migrations
         $this->publishes([
-            __DIR__ . '/../database/migrations/create_mediaman_tables.php.stub' =>
-            database_path('migrations/' . date('Y_m_d_His', time()) . '_create_mediaman_tables.php')
+            __DIR__.'/../database/migrations/create_mediaman_tables.php.stub' => database_path('migrations/'.date('Y_m_d_His', time()).'_create_mediaman_tables.php'),
         ], 'migrations');
 
         // Config
@@ -45,7 +50,48 @@ class MediaManServiceProvider extends ServiceProvider
             $this->commands([
                 MediamanPublishConfigCommand::class,
                 MediamanPublishMigrationCommand::class,
+                GenerateResponsiveImagesCommand::class,
+                ClearResponsiveImagesCommand::class,
+                ResponsiveImagesStatsCommand::class,
             ]);
         }
+
+        // Register responsive conversions if enabled
+        if (config('mediaman.responsive_images.enabled', true)) {
+            ResponsiveConversions::register();
+        }
+    }
+
+    /**
+     * Register responsive image related services.
+     */
+    protected function registerResponsiveImageServices(): void
+    {
+        // Register width calculators
+        $this->app->bind('mediaman.width_calculator.breakpoint', function ($app) {
+            return new BreakpointWidthCalculator;
+        });
+
+        $this->app->bind('mediaman.width_calculator.file_size_optimized', function ($app) {
+            return new FileSizeOptimizedWidthCalculator;
+        });
+
+        // Register width calculator based on config
+        $this->app->bind(WidthCalculator::class, function ($app) {
+            $calculator = config('mediaman.responsive_images.width_calculator', 'breakpoint');
+
+            return match ($calculator) {
+                'file_size_optimized' => $app->make('mediaman.width_calculator.file_size_optimized'),
+                default => $app->make('mediaman.width_calculator.breakpoint'),
+            };
+        });
+
+        // Register responsive image generator
+        $this->app->singleton(ResponsiveImageGenerator::class, function ($app) {
+            return new ResponsiveImageGenerator(
+                null, // ImageManager will use default
+                $app->make(WidthCalculator::class)
+            );
+        });
     }
 }

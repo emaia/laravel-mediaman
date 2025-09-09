@@ -20,7 +20,7 @@ beforeEach(function () {
 });
 
 it('it will apply registered conversions', function () {
-    $conversionRegistry = new ConversionRegistry();
+    $conversionRegistry = new ConversionRegistry;
 
     $conversionRegistry->register('resize', function (Image $image) {
         return $image->resize(64, 50);
@@ -34,7 +34,7 @@ it('it will apply registered conversions', function () {
 
     $manipulator = new ImageManipulator($conversionRegistry, $manager);
 
-    $media = new Media();
+    $media = new Media;
     $media->name = 'test image';
     $media->file_name = 'original.png';
     $media->mime_type = 'image/png';
@@ -51,66 +51,66 @@ it('it will apply registered conversions', function () {
 });
 
 it('will only apply conversions to an image', function () {
-//    $conversionRegistry = new ConversionRegistry();
-//
-//    $conversionRegistry->register('resize', function ($image) {
-//        return $image->resize(64);
-//    });
-//
-//    $imageManager = Mockery::mock(ImageManager::class);
-//
-//    // Assert that the conversion was not applied...
-//    $imageManager->shouldNotReceive('make');
-//
-//    $manipulator = new ImageManipulator($conversionRegistry, $imageManager);
-//
-//    $media = new Media(['mime_type' => 'text/html']);
-//
-//    $manipulator->manipulate($media, ['resize'], $onlyIfMissing = false);
+    //    $conversionRegistry = new ConversionRegistry();
+    //
+    //    $conversionRegistry->register('resize', function ($image) {
+    //        return $image->resize(64);
+    //    });
+    //
+    //    $imageManager = Mockery::mock(ImageManager::class);
+    //
+    //    // Assert that the conversion was not applied...
+    //    $imageManager->shouldNotReceive('make');
+    //
+    //    $manipulator = new ImageManipulator($conversionRegistry, $imageManager);
+    //
+    //    $media = new Media(['mime_type' => 'text/html']);
+    //
+    //    $manipulator->manipulate($media, ['resize'], $onlyIfMissing = false);
 })->todo();
 
 it('will ignore unregistered conversions', function () {
-//    $this->expectException(InvalidConversion::class);
-//
-//    $conversionRegistry = new ConversionRegistry();
-//
-//    $imageManager = Mockery::mock(ImageManager::class);
-//
-//    // Assert that the conversion was not applied...
-//    $imageManager->shouldNotReceive('make');
-//
-//    $manipulator = new ImageManipulator($conversionRegistry, $imageManager);
-//
-//    $media = new Media(['mime_type' => 'image/png']);
-//
-//    $manipulator->manipulate($media, ['unknown'], $onlyIfMissing = false);
+    //    $this->expectException(InvalidConversion::class);
+    //
+    //    $conversionRegistry = new ConversionRegistry();
+    //
+    //    $imageManager = Mockery::mock(ImageManager::class);
+    //
+    //    // Assert that the conversion was not applied...
+    //    $imageManager->shouldNotReceive('make');
+    //
+    //    $manipulator = new ImageManipulator($conversionRegistry, $imageManager);
+    //
+    //    $media = new Media(['mime_type' => 'image/png']);
+    //
+    //    $manipulator->manipulate($media, ['unknown'], $onlyIfMissing = false);
 })->todo();
 
-it('will skip conversions if the converted image already exists', function() {
-//    $conversionRegistry = new ConversionRegistry();
-//
-//    $conversionRegistry->register('resize', function (Image $image) use (&$conversionApplied) {
-//        return $image;
-//    });
-//
-//    $imageManager = Mockery::mock(ImageManager::class);
-//
-//    // Assert that the conversion was not applied...
-//    $imageManager->shouldNotReceive('make');
-//
-//    $manipulator = new ImageManipulator($conversionRegistry, $imageManager);
-//
-//    /** @var \FarhanShares\MediaMan\Models\Media|MockInterface $media */
-//    $media = Mockery::mock(Media::class)->makePartial();
-//    $media->file_name = 'file-name.png';
-//    $media->mime_type = 'image/png';
-//
-//    $filesystem = Mockery::mock(Filesystem::class);
-//
-//    // Mock that the file already exists...
-//    $filesystem->shouldReceive('exists')->with($media->getPath('resize'))->once()->andReturn(true);
-//
-//    $media->shouldReceive('filesystem')->once()->andReturn($filesystem);
-//
-//    $manipulator->manipulate($media, ['resize']);
+it('will skip conversions if the converted image already exists', function () {
+    //    $conversionRegistry = new ConversionRegistry();
+    //
+    //    $conversionRegistry->register('resize', function (Image $image) use (&$conversionApplied) {
+    //        return $image;
+    //    });
+    //
+    //    $imageManager = Mockery::mock(ImageManager::class);
+    //
+    //    // Assert that the conversion was not applied...
+    //    $imageManager->shouldNotReceive('make');
+    //
+    //    $manipulator = new ImageManipulator($conversionRegistry, $imageManager);
+    //
+    //    /** @var \FarhanShares\MediaMan\Models\Media|MockInterface $media */
+    //    $media = Mockery::mock(Media::class)->makePartial();
+    //    $media->file_name = 'file-name.png';
+    //    $media->mime_type = 'image/png';
+    //
+    //    $filesystem = Mockery::mock(Filesystem::class);
+    //
+    //    // Mock that the file already exists...
+    //    $filesystem->shouldReceive('exists')->with($media->getPath('resize'))->once()->andReturn(true);
+    //
+    //    $media->shouldReceive('filesystem')->once()->andReturn($filesystem);
+    //
+    //    $manipulator->manipulate($media, ['resize']);
 })->todo();
