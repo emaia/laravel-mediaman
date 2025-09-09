@@ -15,14 +15,14 @@ class ResponsiveConversions
         Conversion::register('responsive', function ($image) {
             return new ResponsiveConversion($image, [
                 'type' => 'breakpoint',
-                'breakpoints' => config('mediaman.responsive_images.breakpoints', [320, 640, 1024, 1366, 1920])
+                'breakpoints' => config('mediaman.responsive_images.breakpoints', [320, 640, 1024, 1366, 1920]),
             ]);
         });
 
         // Responsive with file size optimization
         Conversion::register('responsive-optimized', function ($image) {
             return new ResponsiveConversion($image, [
-                'type' => 'file_size_optimized'
+                'type' => 'file_size_optimized',
             ]);
         });
 
@@ -30,7 +30,7 @@ class ResponsiveConversions
         Conversion::register('responsive-custom', function ($image) {
             return new ResponsiveConversion($image, [
                 'type' => 'custom',
-                'widths' => [400, 800, 1200]
+                'widths' => [400, 800, 1200],
             ]);
         });
 
@@ -38,7 +38,7 @@ class ResponsiveConversions
         Conversion::register('responsive-webp', function ($image) {
             return new ResponsiveConversion($image, [
                 'type' => 'breakpoint',
-                'formats' => ['webp']
+                'formats' => ['webp'],
             ]);
         });
 
@@ -47,9 +47,8 @@ class ResponsiveConversions
             return new ResponsiveConversion($image, [
                 'type' => 'breakpoint',
                 'quality' => 95,
-                'formats' => ['webp', 'jpg']
+                'formats' => ['webp', 'jpg'],
             ]);
         });
     }
 }
-

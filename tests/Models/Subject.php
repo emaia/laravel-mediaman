@@ -2,9 +2,8 @@
 
 namespace Emaia\MediaMan\Tests\Models;
 
-
-use Illuminate\Database\Eloquent\Model;
 use Emaia\MediaMan\Traits\HasMedia;
+use Illuminate\Database\Eloquent\Model;
 
 class Subject extends Model
 {

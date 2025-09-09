@@ -7,6 +7,7 @@ use Intervention\Image\Image;
 class ResponsiveConversion
 {
     protected Image $image;
+
     protected array $options;
 
     public function __construct(Image $image, array $options = [])

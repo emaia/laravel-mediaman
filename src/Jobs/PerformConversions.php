@@ -14,10 +14,8 @@ class PerformConversions implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    /** @var Media */
     protected Media $media;
 
-    /** @var array */
     protected array $conversions;
 
     public function __construct(Media $media, array $conversions)
@@ -35,13 +33,11 @@ class PerformConversions implements ShouldQueue
         );
     }
 
-    /** @return media */
     public function getMedia(): Media
     {
         return $this->media;
     }
 
-    /** @return array */
     public function getConversions(): array
     {
         return $this->conversions;

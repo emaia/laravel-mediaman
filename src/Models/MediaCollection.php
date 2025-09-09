@@ -5,16 +5,15 @@ namespace Emaia\MediaMan\Models;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Collection as BaseCollection;
 
 /**
  * @property int $id
- * @method  findByName($name)
-  */
+ *
+ * @method findByName($name)
+ */
 class MediaCollection extends Model
 {
-
     protected $fillable = [
         'name', 'created_at', 'updated_at',
     ];
@@ -40,7 +39,6 @@ class MediaCollection extends Model
 
     /**
      * Sync media of a collection
-     *
      */
     public function syncMedia($media, bool $detaching = true): ?array
     {
@@ -69,7 +67,7 @@ class MediaCollection extends Model
     /**
      * Attach media to a collection
      *
-     * @param  null|int|string|array|Media|EloquentCollection $media
+     * @param  null|int|string|array|Media|EloquentCollection  $media
      * @return int|null number of attached media or null
      */
     public function attachMedia($media): ?int
@@ -105,7 +103,6 @@ class MediaCollection extends Model
 
     /**
      * Detach media from a collection
-     *
      */
     public function detachMedia($media)
     {
@@ -133,7 +130,6 @@ class MediaCollection extends Model
 
     /**
      * Check if all media should be detached
-     *
      */
     private function shouldDetachAll($media): bool
     {
@@ -154,7 +150,6 @@ class MediaCollection extends Model
      * returns single collection for single item
      * and multiple collections for multiple items
      * todo: exception / strict return types
-     *
      */
     private function fetchMedia($media)
     {

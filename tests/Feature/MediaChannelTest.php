@@ -3,7 +3,7 @@
 use Emaia\MediaMan\MediaChannel;
 
 it('can register and retrieve conversions', function () {
-    $mediaChannel = new MediaChannel();
+    $mediaChannel = new MediaChannel;
 
     $mediaChannel->performConversions('one', 'two');
 
@@ -14,7 +14,7 @@ it('can register and retrieve conversions', function () {
 });
 
 it('can determine if any conversions have been registered', function () {
-    $mediaChannel = new MediaChannel();
+    $mediaChannel = new MediaChannel;
 
     expect($mediaChannel->hasConversions())->toBeFalse();
 

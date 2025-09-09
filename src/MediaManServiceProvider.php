@@ -7,24 +7,22 @@ use Emaia\MediaMan\Console\Commands\GenerateResponsiveImagesCommand;
 use Emaia\MediaMan\Console\Commands\MediamanPublishConfigCommand;
 use Emaia\MediaMan\Console\Commands\MediamanPublishMigrationCommand;
 use Emaia\MediaMan\Console\Commands\ResponsiveImagesStatsCommand;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveConversions;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
-use Emaia\MediaMan\ResponsiveImages\WidthCalculator\WidthCalculator;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\BreakpointWidthCalculator;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\FileSizeOptimizedWidthCalculator;
-use Emaia\MediaMan\ResponsiveImages\ResponsiveConversions;
+use Emaia\MediaMan\ResponsiveImages\WidthCalculator\WidthCalculator;
 use Illuminate\Support\ServiceProvider;
 
 class MediaManServiceProvider extends ServiceProvider
 {
     /**
      * Register any application services.
-     *
-     * @return void
      */
     public function register(): void
     {
         $this->mergeConfigFrom(
-            __DIR__ . '/../config/mediaman.php',
+            __DIR__.'/../config/mediaman.php',
             'mediaman'
         );
 
@@ -35,20 +33,17 @@ class MediaManServiceProvider extends ServiceProvider
 
     /**
      * Bootstrap any application services.
-     *
-     * @return void
      */
     public function boot(): void
     {
         // Migrations
         $this->publishes([
-            __DIR__ . '/../database/migrations/create_mediaman_tables.php.stub' =>
-                database_path('migrations/' . date('Y_m_d_His', time()) . '_create_mediaman_tables.php')
+            __DIR__.'/../database/migrations/create_mediaman_tables.php.stub' => database_path('migrations/'.date('Y_m_d_His', time()).'_create_mediaman_tables.php'),
         ], 'migrations');
 
         // Config
         $this->publishes([
-            __DIR__ . '/../config/mediaman.php' => config_path('mediaman.php'),
+            __DIR__.'/../config/mediaman.php' => config_path('mediaman.php'),
         ], 'config');
 
         if ($this->app->runningInConsole()) {
@@ -74,11 +69,11 @@ class MediaManServiceProvider extends ServiceProvider
     {
         // Register width calculators
         $this->app->bind('mediaman.width_calculator.breakpoint', function ($app) {
-            return new BreakpointWidthCalculator();
+            return new BreakpointWidthCalculator;
         });
 
         $this->app->bind('mediaman.width_calculator.file_size_optimized', function ($app) {
-            return new FileSizeOptimizedWidthCalculator();
+            return new FileSizeOptimizedWidthCalculator;
         });
 
         // Register width calculator based on config

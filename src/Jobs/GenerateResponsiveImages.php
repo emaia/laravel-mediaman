@@ -15,6 +15,7 @@ class GenerateResponsiveImages implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     protected Media $media;
+
     protected array $options;
 
     public function __construct(Media $media, array $options = [])

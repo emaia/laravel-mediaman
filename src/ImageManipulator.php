@@ -47,6 +47,7 @@ class ImageManipulator
                 }
 
                 $filesystem->put($path, $image->toFilePointer());
+
                 continue;
             }
 
@@ -69,10 +70,10 @@ class ImageManipulator
      */
     protected function getConversionPathWithExtension(Media $media, string $conversion, string $extension): string
     {
-        $directory = $media->getDirectory() . '/conversions/' . $conversion;
+        $directory = $media->getDirectory().'/conversions/'.$conversion;
         $fileName = $media->replaceFileExtension($media->file_name, $extension);
-        
-        return $directory . '/' . $fileName;
+
+        return $directory.'/'.$fileName;
     }
 
     protected function getExtensionFromMimeType(string $mimeType): string
@@ -105,7 +106,7 @@ class ImageManipulator
     protected function updatePathExtension(string $path, string $newExtension): string
     {
         $pathInfo = pathinfo($path);
-        
-        return $pathInfo['dirname'] . '/' . $pathInfo['filename'] . '.' . $newExtension;
+
+        return $pathInfo['dirname'].'/'.$pathInfo['filename'].'.'.$newExtension;
     }
 }

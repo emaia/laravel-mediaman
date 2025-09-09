@@ -22,7 +22,7 @@ class ResponsiveImagesStatsCommand extends Command
         $this->line('================================');
         $this->line("Total image files: {$totalImages}");
         $this->line("With responsive images: {$withResponsive}");
-        $this->line("Without responsive images: " . ($totalImages - $withResponsive));
+        $this->line('Without responsive images: '.($totalImages - $withResponsive));
 
         if ($totalImages > 0) {
             $percentage = round(($withResponsive / $totalImages) * 100, 2);
@@ -33,12 +33,12 @@ class ResponsiveImagesStatsCommand extends Command
         $this->newLine();
         $this->info('Current Configuration');
         $this->line('=====================');
-        $this->line('Enabled: ' . (config('mediaman.responsive_images.enabled') ? 'Yes' : 'No'));
-        $this->line('Auto generate: ' . (config('mediaman.responsive_images.auto_generate') ? 'Yes' : 'No'));
-        $this->line('Queue: ' . (config('mediaman.responsive_images.queue') ? 'Yes' : 'No'));
-        $this->line('Quality: ' . config('mediaman.responsive_images.quality', 85));
-        $this->line('Formats: ' . implode(', ', config('mediaman.responsive_images.formats', ['webp', 'jpg'])));
-        $this->line('Breakpoints: ' . implode(', ', config('mediaman.responsive_images.breakpoints', [])));
+        $this->line('Enabled: '.(config('mediaman.responsive_images.enabled') ? 'Yes' : 'No'));
+        $this->line('Auto generate: '.(config('mediaman.responsive_images.auto_generate') ? 'Yes' : 'No'));
+        $this->line('Queue: '.(config('mediaman.responsive_images.queue') ? 'Yes' : 'No'));
+        $this->line('Quality: '.config('mediaman.responsive_images.quality', 85));
+        $this->line('Formats: '.implode(', ', config('mediaman.responsive_images.formats', ['webp', 'jpg'])));
+        $this->line('Breakpoints: '.implode(', ', config('mediaman.responsive_images.breakpoints', [])));
 
         return 0;
     }

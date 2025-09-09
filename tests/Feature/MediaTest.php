@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Storage;
 
 function getMediaPath($mediaId): string
 {
-    return $mediaId . '-' . md5($mediaId . config('app.key'));
+    return $mediaId.'-'.md5($mediaId.config('app.key'));
 }
 
 it('can create a media record with media uploader', function () {
@@ -19,9 +19,9 @@ it('can create a media record with media uploader', function () {
         ->useCollection('two')
         ->useDisk('default')
         ->useCustomProperties([
-            'extraData'       => 'extra data value',
+            'extraData' => 'extra data value',
             'additional_data' => 'additional data value',
-            'something-else'  => 'anything else?'
+            'something-else' => 'anything else?',
         ])
         ->upload();
 
@@ -57,8 +57,8 @@ it('can update a media record', function () {
 
     // update data
     $mediaOne->custom_properties = [
-        'metadata'         => 'updated existing key data',
-        'extra_data'       => 'new extra data',
+        'metadata' => 'updated existing key data',
+        'extra_data' => 'new extra data',
     ];
     $mediaOne->save();
 
@@ -159,10 +159,10 @@ it('throws exception for invalid disk in disk usability check', function () {
 });
 
 it('has an extension accessor', function () {
-    $image = new Media();
+    $image = new Media;
     $image->file_name = 'image.png';
 
-    $video = new Media();
+    $video = new Media;
     $video->file_name = 'video.mov';
 
     expect($image->extension)->toEqual('png')
@@ -170,10 +170,10 @@ it('has an extension accessor', function () {
 });
 
 it('has a type accessor', function () {
-    $image = new Media();
+    $image = new Media;
     $image->mime_type = 'image/png';
 
-    $video = new Media();
+    $video = new Media;
     $video->mime_type = 'video/mov';
 
     expect($image->type)->toEqual('image')
@@ -181,7 +181,7 @@ it('has a type accessor', function () {
 });
 
 it('can determine its type', function () {
-    $media = new Media();
+    $media = new Media;
     $media->mime_type = 'image/png';
 
     expect($media->isOfType('image'))->toBeTrue()
@@ -189,21 +189,21 @@ it('can determine its type', function () {
 });
 
 it('can get the path on disk to the file', function () {
-    $media = new Media();
+    $media = new Media;
     $media->id = 1;
     $media->file_name = 'image.jpg';
 
     $path = getMediaPath($media->id);
-    expect($media->getPath())->toEqual($path . '/image.jpg');
+    expect($media->getPath())->toEqual($path.'/image.jpg');
 });
 
 it('can get the path on disk to a converted image', function () {
-    $media = new Media();
+    $media = new Media;
     $media->id = 1;
     $media->file_name = 'image.jpg';
 
     $path = getMediaPath($media->id);
-    expect($media->getPath('thumbnail'))->toEqual($path . '/conversions/thumbnail/image.jpg');
+    expect($media->getPath('thumbnail'))->toEqual($path.'/conversions/thumbnail/image.jpg');
 });
 
 it('can get the full path to the file', function () {
@@ -260,7 +260,7 @@ it('can get the url to a converted image', function () {
 
 it('can sync a collection by id', function () {
     $collection = $this->mediaCollection::firstOrCreate([
-        'name' => 'Test Collection'
+        'name' => 'Test Collection',
     ]);
 
     $media = $this->media;
@@ -273,7 +273,7 @@ it('can sync a collection by id', function () {
 
 it('can sync a collection by name', function () {
     $collection = $this->mediaCollection::firstOrCreate([
-        'name' => 'Test Collection'
+        'name' => 'Test Collection',
     ]);
 
     $media = $this->media;
@@ -286,7 +286,7 @@ it('can sync a collection by name', function () {
 
 it('can sync multiple collections by name', function () {
     $this->mediaCollection::firstOrCreate([
-        'name' => 'Test Collection'
+        'name' => 'Test Collection',
     ]);
 
     $media = $this->media;
@@ -300,7 +300,7 @@ it('can sync multiple collections by name', function () {
 
 it('can sync multiple collections by id', function () {
     $this->mediaCollection::firstOrCreate([
-        'name' => 'Test Collection'
+        'name' => 'Test Collection',
     ]);
 
     $media = $this->media;
@@ -673,7 +673,6 @@ it('can remove collections if its bool null empty string or empty array with det
     expect($media->collections()->count())->toEqual(0);
 });
 
-
 it('can check custom data existence', function () {
     $media = factory(Media::class)->create();
     expect($media->hasCustomProperty('color'))->tobeFalse();
@@ -695,6 +694,3 @@ it('can forget custom data', function () {
         ->and($media->hasCustomProperty('size'))->toBeTrue()
         ->and($media->getCustomProperty('size'))->toEqual('small');
 });
-
-
-

@@ -8,9 +8,10 @@ use Intervention\Image\ImageManager;
 class BreakpointWidthCalculator implements WidthCalculator
 {
     protected ImageManager $imageManager;
+
     protected array $breakpoints;
 
-    public function __construct(array $breakpoints = null, ?ImageManager $imageManager = null)
+    public function __construct(?array $breakpoints = null, ?ImageManager $imageManager = null)
     {
         $this->breakpoints = $breakpoints ?? config('mediaman.responsive_images.breakpoints', [320, 640, 1024, 1366, 1920]);
         $this->imageManager = $imageManager ?? ImageManager::gd();
@@ -36,7 +37,7 @@ class BreakpointWidthCalculator implements WidthCalculator
     public function calculateWidths(int $fileSize, int $width, int $height): Collection
     {
         return collect($this->breakpoints)
-            ->filter(fn($breakpoint) => $breakpoint <= $width)
+            ->filter(fn ($breakpoint) => $breakpoint <= $width)
             ->push($width) // Always include original width
             ->unique()
             ->sort()
@@ -50,6 +51,7 @@ class BreakpointWidthCalculator implements WidthCalculator
     public function setBreakpoints(array $breakpoints): self
     {
         $this->breakpoints = $breakpoints;
+
         return $this;
     }
 

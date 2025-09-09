@@ -3,19 +3,20 @@
 namespace Emaia\MediaMan\ResponsiveImages;
 
 use Emaia\MediaMan\Models\Media;
-use Emaia\MediaMan\ResponsiveImages\WidthCalculator\WidthCalculator;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\BreakpointWidthCalculator;
+use Emaia\MediaMan\ResponsiveImages\WidthCalculator\WidthCalculator;
 use Intervention\Image\ImageManager;
 
 class ResponsiveImageGenerator
 {
     protected ImageManager $imageManager;
+
     protected WidthCalculator $widthCalculator;
 
     public function __construct(?ImageManager $imageManager = null, ?WidthCalculator $widthCalculator = null)
     {
         $this->imageManager = $imageManager ?? ImageManager::imagick() ?? ImageManager::gd();
-        $this->widthCalculator = $widthCalculator ?? new BreakpointWidthCalculator();
+        $this->widthCalculator = $widthCalculator ?? new BreakpointWidthCalculator;
     }
 
     /**
@@ -23,14 +24,14 @@ class ResponsiveImageGenerator
      */
     public function generateResponsiveImages(Media $media, array $options = []): void
     {
-        if (!$media->isOfType('image')) {
+        if (! $media->isOfType('image')) {
             return;
         }
 
         $originalPath = $media->getOriginalPath();
         $filesystem = $media->filesystem();
 
-        if (!$filesystem->exists($originalPath)) {
+        if (! $filesystem->exists($originalPath)) {
             return;
         }
 
@@ -40,7 +41,7 @@ class ResponsiveImageGenerator
         $widths = $options['widths'] ?? null;
 
         // Calculate widths if not provided
-        if (!$widths) {
+        if (! $widths) {
             $tempFile = tempnam(sys_get_temp_dir(), 'mediaman_responsive');
             file_put_contents($tempFile, $filesystem->get($originalPath));
             $widths = $this->widthCalculator->calculateWidthsFromFile($tempFile);
@@ -87,9 +88,9 @@ class ResponsiveImageGenerator
             default => $image->toJpeg($quality),
         };
 
-        $directory = $media->getDirectory() . '/responsive';
+        $directory = $media->getDirectory().'/responsive';
         $fileName = $this->generateResponsiveFileName($media->file_name, $targetWidth, $format);
-        $path = $directory . '/' . $fileName;
+        $path = $directory.'/'.$fileName;
 
         $media->filesystem()->put($path, $encodedImage->toFilePointer());
 
@@ -119,7 +120,7 @@ class ResponsiveImageGenerator
      */
     public function clearResponsiveImages(Media $media): void
     {
-        $responsiveDir = $media->getDirectory() . '/responsive';
+        $responsiveDir = $media->getDirectory().'/responsive';
         $filesystem = $media->filesystem();
 
         if ($filesystem->exists($responsiveDir)) {
@@ -136,6 +137,7 @@ class ResponsiveImageGenerator
     public function setWidthCalculator(WidthCalculator $calculator): self
     {
         $this->widthCalculator = $calculator;
+
         return $this;
     }
 }

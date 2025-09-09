@@ -10,7 +10,6 @@ use Intervention\Image\ImageManager;
 
 trait ResponsiveImages
 {
-
     public function generateResponsiveImages(array $options = []): self
     {
         if (config('mediaman.responsive_images.queue', true)) {
@@ -28,7 +27,7 @@ trait ResponsiveImages
      */
     public function getPictureHtml(array $attributes = [], $sizes = null): string
     {
-        if (!$this->isOfType('image')) {
+        if (! $this->isOfType('image')) {
             return '';
         }
 
@@ -56,7 +55,7 @@ trait ResponsiveImages
 
         // Add any remaining formats
         foreach ($availableFormats as $format) {
-            if (!in_array($format, $sortedFormats)) {
+            if (! in_array($format, $sortedFormats)) {
                 $sortedFormats[] = $format;
             }
         }
@@ -68,10 +67,10 @@ trait ResponsiveImages
             if ($srcset) {
                 $mimeType = $this->formatToMimeType($format);
                 $sourceHtml = "<source type=\"{$mimeType}\" srcset=\"{$srcset}\"";
-                if (!empty($defaultAttributes['sizes'])) {
+                if (! empty($defaultAttributes['sizes'])) {
                     $sourceHtml .= " sizes=\"{$defaultAttributes['sizes']}\"";
                 }
-                $sourceHtml .= ">";
+                $sourceHtml .= '>';
                 $sources[] = $sourceHtml;
             }
         }
@@ -102,7 +101,7 @@ trait ResponsiveImages
      */
     public function getAvailableResponsiveFormats(): array
     {
-        if (!$this->hasResponsiveImages()) {
+        if (! $this->hasResponsiveImages()) {
             return ['original'];
         }
 
@@ -119,7 +118,7 @@ trait ResponsiveImages
      */
     public function hasResponsiveImages(): bool
     {
-        return !empty($this->getCustomProperty('responsive_images') ?? []);
+        return ! empty($this->getCustomProperty('responsive_images') ?? []);
     }
 
     /**
@@ -130,7 +129,7 @@ trait ResponsiveImages
         $responsiveData = $this->getCustomProperty('responsive_images') ?? [];
 
         return collect($responsiveData)->map(function ($item) {
-            return (object)$item;
+            return (object) $item;
         });
     }
 
@@ -139,7 +138,7 @@ trait ResponsiveImages
      */
     public function getSimpleImgHtml(array $attributes = [], $sizes = null): string
     {
-        if (!$this->isOfType('image')) {
+        if (! $this->isOfType('image')) {
             return '';
         }
 
@@ -149,10 +148,6 @@ trait ResponsiveImages
         return "<img $imgAttributesString>";
     }
 
-    /**
-     * @param mixed $sizes
-     * @return array
-     */
     public function setDefaultImgAttributes(mixed $sizes): array
     {
         $defaultAttributes = [
@@ -160,7 +155,7 @@ trait ResponsiveImages
             'alt' => $this->name ?? '',
         ];
 
-        if (!empty($sizes)) {
+        if (! empty($sizes)) {
             if ($sizes === 'auto') {
 
                 $sizesFromGeneratedResponsiveImages = $this->getResponsiveImages();
@@ -172,8 +167,8 @@ trait ResponsiveImages
                 $defaultAttributes['height'] = $minHeight;
 
                 $sizes = $sizesFromGeneratedResponsiveImages->pluck('width')->slice(0, -1)->map(function ($w) {
-                    return '(min-width: ' . $w * 0.7 . 'px) ' . $w . 'px';
-                })->push($sizesFromGeneratedResponsiveImages->pluck('width')->last() * 0.7 . 'px')->implode(', ');
+                    return '(min-width: '.$w * 0.7.'px) '.$w.'px';
+                })->push($sizesFromGeneratedResponsiveImages->pluck('width')->last() * 0.7.'px')->implode(', ');
             }
 
             $defaultAttributes['sizes'] = $sizes;
@@ -188,8 +183,8 @@ trait ResponsiveImages
     protected function attributesToString(array $attributes): string
     {
         return collect($attributes)
-            ->filter(fn($value) => $value !== null && $value !== '')
-            ->map(fn($value, $key) => $key . '="' . htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8') . '"')
+            ->filter(fn ($value) => $value !== null && $value !== '')
+            ->map(fn ($value, $key) => $key.'="'.htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8').'"')
             ->implode(' ');
     }
 
@@ -198,7 +193,7 @@ trait ResponsiveImages
      */
     public function getSrcset(string $format = ''): string
     {
-        if (!$this->isOfType('image')) {
+        if (! $this->isOfType('image')) {
             return '';
         }
 
@@ -209,9 +204,10 @@ trait ResponsiveImages
         }
 
         // Handle original format (no responsive images)
-        if ($format === 'original' || !$this->hasResponsiveImages()) {
+        if ($format === 'original' || ! $this->hasResponsiveImages()) {
             $originalWidth = $this->getImageWidth();
-            return $originalWidth > 0 ? $this->getUrl() . ' ' . $originalWidth . 'w' : $this->getUrl();
+
+            return $originalWidth > 0 ? $this->getUrl().' '.$originalWidth.'w' : $this->getUrl();
         }
 
         // Get responsive images for the specified format
@@ -220,12 +216,13 @@ trait ResponsiveImages
         if ($images->isEmpty()) {
             // Fallback to original
             $originalWidth = $this->getImageWidth();
-            return $originalWidth > 0 ? $this->getUrl() . ' ' . $originalWidth . 'w' : $this->getUrl();
+
+            return $originalWidth > 0 ? $this->getUrl().' '.$originalWidth.'w' : $this->getUrl();
         }
 
         return $images
             ->sortByDesc('width')
-            ->map(fn($img) => $img->url . ' ' . $img->width . 'w')
+            ->map(fn ($img) => $img->url.' '.$img->width.'w')
             ->implode(', ');
     }
 
@@ -234,7 +231,7 @@ trait ResponsiveImages
      */
     public function getImageWidth(): int
     {
-        if (!$this->isOfType('image')) {
+        if (! $this->isOfType('image')) {
             return 0;
         }
 
@@ -246,7 +243,7 @@ trait ResponsiveImages
 
         // Check if we have dimensions stored in data
         if ($this->getCustomProperty('width') !== null) {
-            return (int)$this->getCustomProperty('width');
+            return (int) $this->getCustomProperty('width');
         }
 
         // Fallback: read from original file
@@ -266,7 +263,7 @@ trait ResponsiveImages
             $image = $imageManager->read($tempFile);
             $dimensions = [
                 'width' => $image->width(),
-                'height' => $image->height()
+                'height' => $image->height(),
             ];
 
             unlink($tempFile);
@@ -302,7 +299,7 @@ trait ResponsiveImages
             'bmp' => 'image/bmp',
             'tiff', 'tif' => 'image/tiff',
             'svg' => 'image/svg+xml',
-            default => 'image/' . $format,
+            default => 'image/'.$format,
         };
     }
 
@@ -322,11 +319,11 @@ trait ResponsiveImages
      */
     public function getResponsiveUrl(int $width = 0, string $format = ''): string
     {
-        if (!$this->isOfType('image')) {
+        if (! $this->isOfType('image')) {
             return $this->getUrl();
         }
 
-        if (!$this->hasResponsiveImages()) {
+        if (! $this->hasResponsiveImages()) {
             return $this->getUrl();
         }
 
@@ -379,7 +376,7 @@ trait ResponsiveImages
      */
     public function getResponsiveImageForWidth(int $targetWidth, string $format = ''): ?object
     {
-        if (!$this->hasResponsiveImages()) {
+        if (! $this->hasResponsiveImages()) {
             return null;
         }
 
@@ -394,7 +391,7 @@ trait ResponsiveImages
         }
 
         return $this->getResponsiveImagesByFormat($format)
-            ->filter(fn($img) => $img->width >= $targetWidth)
+            ->filter(fn ($img) => $img->width >= $targetWidth)
             ->sortBy('width')
             ->first();
     }
@@ -412,7 +409,7 @@ trait ResponsiveImages
      */
     public function getResponsiveImagesByFormatGrouped(): array
     {
-        if (!$this->hasResponsiveImages()) {
+        if (! $this->hasResponsiveImages()) {
             return [];
         }
 
@@ -426,7 +423,7 @@ trait ResponsiveImages
      */
     public function getImageHeight(): int
     {
-        if (!$this->isOfType('image')) {
+        if (! $this->isOfType('image')) {
             return 0;
         }
 
@@ -435,12 +432,13 @@ trait ResponsiveImages
         if ($responsiveImages->isNotEmpty()) {
             // Find the original dimensions (largest width)
             $largestImage = $responsiveImages->where('width', $this->getImageWidth())->first();
+
             return $largestImage ? $largestImage->height : 0;
         }
 
         // Check if we have dimensions stored in data
         if ($this->getCustomProperty('height') !== null) {
-            return (int)$this->getCustomProperty('height');
+            return (int) $this->getCustomProperty('height');
         }
 
         // Fallback: read from original file

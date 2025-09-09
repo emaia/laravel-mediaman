@@ -5,7 +5,7 @@ use Emaia\MediaMan\Models\Media;
 
 it('can create a collection', function () {
     $collection = $this->mediaCollection::firstOrCreate([
-        'name' => 'test-collection'
+        'name' => 'test-collection',
     ]);
 
     expect($collection->id)->toEqual(2)
@@ -14,7 +14,7 @@ it('can create a collection', function () {
 
 it('can update a collection', function () {
     $collection = $this->mediaCollection::firstOrCreate([
-        'name' => 'test-collection'
+        'name' => 'test-collection',
     ]);
 
     $collection->name = 'new name';
@@ -329,18 +329,18 @@ it('returns detailed array when synchronizing with existing non existing and alr
     // all are non-existing
     $a1 = $imageCollection->syncMedia([10, 15]);
     $b1 = [
-        "attached" => [],
-        "detached" => [1],
-        "updated" => []
+        'attached' => [],
+        'detached' => [1],
+        'updated' => [],
     ];
     expect($b1)->toEqual($a1);
 
     // existing / already attached media
     $a1 = $imageCollection->syncMedia([1, 2]);
     $b1 = [
-        "attached" => [1],
-        "detached" => [],
-        "updated" => []
+        'attached' => [1],
+        'detached' => [],
+        'updated' => [],
     ];
     expect($a1)->toEqual($b1);
 });

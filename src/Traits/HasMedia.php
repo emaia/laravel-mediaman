@@ -16,7 +16,6 @@ trait HasMedia
 
     /**
      * Determine if there is any media in the specified group.
-     *
      */
     public function hasMedia(string $channel = 'default'): bool
     {
@@ -25,7 +24,6 @@ trait HasMedia
 
     /**
      * Get all the media in the specified group.
-     *
      */
     public function getMedia(?string $channel = 'default')
     {
@@ -41,7 +39,7 @@ trait HasMedia
      */
     public function getFirstMediaUrl(?string $channel = 'default', string $conversion = ''): string
     {
-        if (!$media = $this->getFirstMedia($channel)) {
+        if (! $media = $this->getFirstMedia($channel)) {
             return '';
         }
 
@@ -50,7 +48,6 @@ trait HasMedia
 
     /**
      * Get the first media item in the specified channel.
-     *
      */
     public function getFirstMedia(?string $channel = 'default')
     {
@@ -59,7 +56,6 @@ trait HasMedia
 
     /**
      * Attach media to the specified channel.
-     *
      */
     public function attachMedia($media, string $channel = 'default', array $conversions = []): ?int
     {
@@ -76,8 +72,7 @@ trait HasMedia
      * This will remove the media that aren't in the provided list
      * and add those which aren't already attached if $detaching is truthy.
      *
-     * @param mixed $media
-     * @param bool $detaching
+     * @param  mixed  $media
      * @return array|null
      */
     public function syncMedia($media, string $channel = 'default', array $conversions = [], bool $detaching = true)
@@ -99,7 +94,7 @@ trait HasMedia
             );
         }
 
-        if (!empty($conversions)) {
+        if (! empty($conversions)) {
             $model = config('mediaman.models.media');
 
             $mediaInstances = $model::findMany($ids);
@@ -138,9 +133,6 @@ trait HasMedia
      * Check if all media should be detached
      *
      * bool|null|empty-string|empty-array to detach all media
-     *
-     * @param $media
-     * @return bool
      */
     protected function shouldDetachAll($media): bool
     {
@@ -165,7 +157,7 @@ trait HasMedia
     /**
      * Parse the media id's from the mixed input.
      *
-     * @param mixed $media
+     * @param  mixed  $media
      * @return array
      */
     protected function parseMediaIds($media)
@@ -178,7 +170,7 @@ trait HasMedia
             return [$media->getKey()];
         }
 
-        return (array)$media;
+        return (array) $media;
     }
 
     /**
@@ -193,7 +185,6 @@ trait HasMedia
 
     /**
      * Detach the specified media.
-     *
      */
     public function detachMedia(mixed $media = null): ?int
     {
@@ -204,7 +195,6 @@ trait HasMedia
 
     /**
      * Detach all the media in the specified channel.
-     *
      */
     public function clearMediaChannel(string $channel = 'default'): void
     {
@@ -216,7 +206,7 @@ trait HasMedia
      */
     public function getFirstMediaUrlWithFallback(?string $channel = 'default', string $conversion = ''): string
     {
-        if (!$media = $this->getFirstMedia($channel)) {
+        if (! $media = $this->getFirstMedia($channel)) {
             return '';
         }
 
@@ -228,7 +218,7 @@ trait HasMedia
      */
     public function getFirstMediaConversionUrl(?string $channel = 'default', string $conversion = ''): ?string
     {
-        if (!$media = $this->getFirstMedia($channel)) {
+        if (! $media = $this->getFirstMedia($channel)) {
             return null;
         }
 
@@ -240,7 +230,7 @@ trait HasMedia
      */
     public function hasMediaConversion(?string $channel = 'default', string $conversion = ''): bool
     {
-        if (!$media = $this->getFirstMedia($channel)) {
+        if (! $media = $this->getFirstMedia($channel)) {
             return false;
         }
 

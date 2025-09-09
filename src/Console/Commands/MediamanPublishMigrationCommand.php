@@ -20,20 +20,20 @@ class MediamanPublishMigrationCommand extends Command
     {
         $existingMigration = $this->getExistingMigration();
         if ($existingMigration) {
-            $this->info('Found mediaman migration: ' . $existingMigration);
-            if (!$this->confirm('The mediaman migration file already exists. Do you want to overwrite it?')) {
+            $this->info('Found mediaman migration: '.$existingMigration);
+            if (! $this->confirm('The mediaman migration file already exists. Do you want to overwrite it?')) {
                 $this->info('Config file was not overwritten.');
 
                 return;
             }
         }
 
-        $sourcePath = __DIR__ . '/../../../database/migrations/create_mediaman_tables.php.stub';
-        $targetPath = $existingMigration ?: database_path('migrations/' . date('Y_m_d_His', time()) . '_create_mediaman_tables.php');
+        $sourcePath = __DIR__.'/../../../database/migrations/create_mediaman_tables.php.stub';
+        $targetPath = $existingMigration ?: database_path('migrations/'.date('Y_m_d_His', time()).'_create_mediaman_tables.php');
         File::copy($sourcePath, $targetPath);
 
-        $relativePath = str_replace(base_path() . '/', '', $targetPath);
-        $this->info('Migration published to: ' . $relativePath);
+        $relativePath = str_replace(base_path().'/', '', $targetPath);
+        $this->info('Migration published to: '.$relativePath);
     }
 
     protected function getExistingMigration()

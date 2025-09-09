@@ -4,7 +4,7 @@ use Emaia\MediaMan\ConversionRegistry;
 use Emaia\MediaMan\Exceptions\InvalidConversion;
 
 it('can register and retrieve specific conversions', function () {
-    $conversionRegistry = new ConversionRegistry();
+    $conversionRegistry = new ConversionRegistry;
 
     $conversionRegistry->register('conversion', function () {
         return true;
@@ -16,7 +16,7 @@ it('can register and retrieve specific conversions', function () {
 });
 
 it('can retrieve all the registered conversions', function () {
-    $conversionRegistry = new ConversionRegistry();
+    $conversionRegistry = new ConversionRegistry;
 
     $conversionRegistry->register('one', function () {
         return 'one';
@@ -34,7 +34,7 @@ it('can retrieve all the registered conversions', function () {
 });
 
 test('there can only be one conversion registered with the same name', function () {
-    $conversionRegistry = new ConversionRegistry();
+    $conversionRegistry = new ConversionRegistry;
 
     $conversionRegistry->register('conversion', function () {
         return 'one';
@@ -49,7 +49,7 @@ test('there can only be one conversion registered with the same name', function 
 });
 
 it('can determine if a conversion has been registered', function () {
-    $conversionRegistry = new ConversionRegistry();
+    $conversionRegistry = new ConversionRegistry;
 
     $conversionRegistry->register('registered', function () {
         //
@@ -62,7 +62,7 @@ it('can determine if a conversion has been registered', function () {
 it('will error when attempting to retrieve an unregistered conversion', function () {
     $this->expectException(InvalidConversion::class);
 
-    $conversionRegistry = new ConversionRegistry();
+    $conversionRegistry = new ConversionRegistry;
 
     $conversionRegistry->get('unregistered');
 });

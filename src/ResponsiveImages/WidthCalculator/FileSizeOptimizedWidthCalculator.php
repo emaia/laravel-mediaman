@@ -48,9 +48,9 @@ class FileSizeOptimizedWidthCalculator implements WidthCalculator
             // Reduce file size by 30% each iteration
             $predictedFileSize *= 0.7;
 
-            $newWidth = (int)floor(sqrt(($predictedFileSize / $pixelPrice) / $ratio));
+            $newWidth = (int) floor(sqrt(($predictedFileSize / $pixelPrice) / $ratio));
 
-            if ($this->finishedCalculating((int)$predictedFileSize, $newWidth)) {
+            if ($this->finishedCalculating((int) $predictedFileSize, $newWidth)) {
                 break;
             }
 

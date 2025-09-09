@@ -8,8 +8,6 @@ class CreateMediaManTables extends Migration
 {
     /**
      * Run the migrations.
-     *
-     * @return void
      */
     public function up(): void
     {
@@ -25,7 +23,6 @@ class CreateMediaManTables extends Migration
         $collection->name = 'Default';
         $collection->save();
 
-
         // Media table
         Schema::create(config('mediaman.tables.media'), function (Blueprint $table) {
             $table->bigIncrements('id');
@@ -38,7 +35,6 @@ class CreateMediaManTables extends Migration
             $table->timestamps();
         });
 
-
         // Collection & Media pivot table
         Schema::create(config('mediaman.tables.collection_media'), function (Blueprint $table) {
             $table->unsignedBigInteger('collection_id')
@@ -47,11 +43,10 @@ class CreateMediaManTables extends Migration
 
             $table->unsignedBigInteger('media_id')
                 ->constraint(config('mediaman.tables.media'))
-                ->cascadeOnDelete();;
+                ->cascadeOnDelete();
 
             $table->primary(['collection_id', 'media_id']);
         });
-
 
         // Mediable table
         Schema::create(config('mediaman.tables.mediables'), function (Blueprint $table) {
@@ -76,8 +71,6 @@ class CreateMediaManTables extends Migration
 
     /**
      * Reverse the migrations.
-     *
-     * @return void
      */
     public function down(): void
     {

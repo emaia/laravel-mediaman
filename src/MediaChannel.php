@@ -4,7 +4,6 @@ namespace Emaia\MediaMan;
 
 class MediaChannel
 {
-    /** @var array */
     protected array $conversions = [];
 
     /**
@@ -22,8 +21,6 @@ class MediaChannel
 
     /**
      * Determine if there are any registered conversions.
-     *
-     * @return bool
      */
     public function hasConversions(): bool
     {
@@ -32,8 +29,6 @@ class MediaChannel
 
     /**
      * Get all the registered conversions.
-     *
-     * @return array
      */
     public function getConversions(): array
     {

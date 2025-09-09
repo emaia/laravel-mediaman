@@ -3,11 +3,10 @@
 namespace Emaia\MediaMan\Tests;
 
 use Emaia\MediaMan\MediaManServiceProvider;
-use Orchestra\Testbench\TestCase as Orchestra;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Storage;
-use Mockery\MockInterface;
+use Orchestra\Testbench\TestCase as Orchestra;
 
 class TestCase extends Orchestra
 {
@@ -27,8 +26,8 @@ class TestCase extends Orchestra
     {
         parent::setUp();
 
-        $this->loadMigrationsFrom(__DIR__ . '/database/migrations');
-        $this->withFactories(__DIR__ . '/database/factories');
+        $this->loadMigrationsFrom(__DIR__.'/database/migrations');
+        $this->withFactories(__DIR__.'/database/factories');
 
         // Use a test disk as the default disk...
         Config::set('mediaman.disk', self::DEFAULT_DISK);
@@ -58,12 +57,12 @@ class TestCase extends Orchestra
 
         $app['config']->set('database.default', 'testbench');
         $app['config']->set('database.connections.testbench', [
-            'driver'   => 'sqlite',
+            'driver' => 'sqlite',
             'database' => ':memory:',
-            'prefix'   => '',
+            'prefix' => '',
         ]);
 
         // Load migrations
-        $app['migrator']->path(__DIR__ . '/../database/migrations');
+        $app['migrator']->path(__DIR__.'/../database/migrations');
     }
 }

@@ -34,7 +34,7 @@ class GenerateResponsiveImagesCommand extends Command
         }
 
         // Filter out items that already have responsive images unless forced
-        if (!$this->option('force')) {
+        if (! $this->option('force')) {
             $query->whereJsonDoesntContain('custom_properties->responsive_images', []);
         }
 
@@ -42,6 +42,7 @@ class GenerateResponsiveImagesCommand extends Command
 
         if ($mediaItems->isEmpty()) {
             $this->info('No media items found to process.');
+
             return 0;
         }
 
@@ -81,4 +82,3 @@ class GenerateResponsiveImagesCommand extends Command
         return 0;
     }
 }
-

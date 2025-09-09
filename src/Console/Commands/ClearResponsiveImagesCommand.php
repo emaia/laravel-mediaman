@@ -37,12 +37,14 @@ class ClearResponsiveImagesCommand extends Command
 
         if ($mediaItems->isEmpty()) {
             $this->info('No media items with responsive images found.');
+
             return 0;
         }
 
-        if (!$this->option('confirm')) {
-            if (!$this->confirm("This will clear responsive images for {$mediaItems->count()} media items. Continue?")) {
+        if (! $this->option('confirm')) {
+            if (! $this->confirm("This will clear responsive images for {$mediaItems->count()} media items. Continue?")) {
                 $this->info('Operation cancelled.');
+
                 return 0;
             }
         }

@@ -47,7 +47,6 @@ class MediaUploader
 
     /**
      * Set the file to be uploaded.
-     *
      */
     public function setFile(UploadedFile $file): MediaUploader
     {
@@ -157,7 +156,6 @@ class MediaUploader
 
     /**
      * Upload the file to the specified disk.
-     *
      */
     public function upload()
     {
