@@ -14,6 +14,9 @@ trait HasMedia
     /** @var MediaChannel[] */
     protected array $mediaChannels = [];
 
+    /** @var array Cache para media por channel */
+    protected array $mediaCache = [];
+
     /**
      * Determine if there is any media in the specified group.
      */
@@ -27,11 +30,17 @@ trait HasMedia
      */
     public function getMedia(?string $channel = 'default')
     {
-        if ($channel) {
-            return $this->media()->wherePivot('channel', $channel)->get();
+        $cacheKey = $channel ?? 'default';
+
+        if (!isset($this->mediaCache[$cacheKey])) {
+            if ($channel === null) {
+                $this->mediaCache[$cacheKey] = $this->media()->get();
+            } else {
+                $this->mediaCache[$cacheKey] = $this->media()->wherePivot('channel', $channel)->get();
+            }
         }
 
-        return $this->media()->get();
+        return $this->mediaCache[$cacheKey];
     }
 
     public function media(): MorphToMany
@@ -144,6 +153,8 @@ trait HasMedia
                 }
             }
 
+            $this->clearMediaCache($channel);
+
             return ['attached' => $attached, 'detached' => $detached, 'updated' => $updated];
         } catch (Throwable $th) {
             return null;
@@ -184,6 +195,20 @@ trait HasMedia
     public function clearMediaChannel(string $channel = 'default'): void
     {
         $this->media()->wherePivot('channel', $channel)->detach();
+        $this->clearMediaCache($channel);
+    }
+
+    /**
+     * Limpar cache de media para um channel específico ou todos.
+     */
+    protected function clearMediaCache(?string $channel = null): void
+    {
+        if ($channel === null) {
+            $this->mediaCache = [];
+        } else {
+            $cacheKey = $channel;
+            unset($this->mediaCache[$cacheKey]);
+        }
     }
 
     /**
@@ -221,6 +246,8 @@ trait HasMedia
     public function detachMedia(mixed $media = null): ?int
     {
         $count = $this->media()->detach($media);
+
+        $this->mediaCache = [];
 
         return $count > 0 ? $count : null;
     }
