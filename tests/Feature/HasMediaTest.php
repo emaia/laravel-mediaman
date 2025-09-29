@@ -87,7 +87,7 @@ it('returns number of detached media or null while disassociating', function () 
     expect($detached)->toEqual(null);
 });
 
-it('can_attach_media_and_returns_number_of_media_attached', function () {
+it('can attach media and returns number of media attached', function () {
     $media = factory(Media::class)->create();
 
     $attachedCount = $this->subject->attachMedia($media);
@@ -343,7 +343,44 @@ it('can detach all the media in a specified channel', function () {
 
     $this->subject->clearMediaChannel('one');
 
-    expect($this->subject->hasMedia('one'))->toBeFalse();
-    expect($this->subject->getMedia('two'))->toHaveCount(1);
-    expect($this->subject->getFirstMedia('two')->id)->toEqual($mediaTwo->id);
+    expect($this->subject->hasMedia('one'))->toBeFalse()
+        ->and($this->subject->getMedia('two'))->toHaveCount(1)
+        ->and($this->subject->getFirstMedia('two')->id)->toEqual($mediaTwo->id);
+});
+
+it('syncMedia only affects the specified channel and preserves other channels', function () {
+    $featuredMedia = factory(Media::class)->create();
+    $galleryMedia1 = factory(Media::class)->create();
+    $galleryMedia2 = factory(Media::class)->create();
+    $newFeaturedMedia = factory(Media::class)->create();
+
+    $this->subject->attachMedia($featuredMedia, 'featured-image');
+    $this->subject->attachMedia([$galleryMedia1, $galleryMedia2], 'gallery');
+
+    $syncResult = $this->subject->syncMedia($newFeaturedMedia, 'featured-image');
+
+    expect($syncResult['attached'])->toEqual([$newFeaturedMedia->id])
+        ->and($syncResult['detached'])->toEqual([$featuredMedia->id])
+        ->and($this->subject->getMedia('featured-image'))->toHaveCount(1)
+        ->and($this->subject->getFirstMedia('featured-image')->id)->toEqual($newFeaturedMedia->id)
+        ->and($this->subject->getMedia('gallery'))->toHaveCount(2)
+        ->and($this->subject->getMedia('gallery')->pluck('id')->toArray())
+        ->toContain($galleryMedia1->id)
+        ->toContain($galleryMedia2->id);
+
+});
+
+it('syncMedia with empty media only clears the specified channel', function () {
+    $featuredMedia = factory(Media::class)->create();
+    $galleryMedia = factory(Media::class)->create();
+
+    $this->subject->attachMedia($featuredMedia, 'featured-image');
+    $this->subject->attachMedia($galleryMedia, 'gallery');
+
+    $this->subject->syncMedia([], 'featured-image');
+
+    expect($this->subject->hasMedia('featured-image'))->toBeFalse()
+        ->and($this->subject->hasMedia('gallery'))->toBeTrue()
+        ->and($this->subject->getFirstMedia('gallery')->id)->toEqual($galleryMedia->id);
+
 });

@@ -28,10 +28,17 @@ trait HasMedia
     public function getMedia(?string $channel = 'default')
     {
         if ($channel) {
-            return $this->media->where('pivot.channel', $channel);
+            return $this->media()->wherePivot('channel', $channel)->get();
         }
 
-        return $this->media;
+        return $this->media()->get();
+    }
+
+    public function media(): MorphToMany
+    {
+        return $this
+            ->morphToMany(config('mediaman.models.media'), 'mediable', config('mediaman.tables.mediables'))
+            ->withPivot('channel');
     }
 
     /**
@@ -39,7 +46,7 @@ trait HasMedia
      */
     public function getFirstMediaUrl(?string $channel = 'default', string $conversion = ''): string
     {
-        if (! $media = $this->getFirstMedia($channel)) {
+        if (!$media = $this->getFirstMedia($channel)) {
             return '';
         }
 
@@ -72,15 +79,20 @@ trait HasMedia
      * This will remove the media that aren't in the provided list
      * and add those which aren't already attached if $detaching is truthy.
      *
-     * @param  mixed  $media
+     * @param mixed $media
+     * @param string $channel
+     * @param array $conversions
+     * @param bool $detaching
      * @return array|null
      */
-    public function syncMedia($media, string $channel = 'default', array $conversions = [], bool $detaching = true)
+    public function syncMedia(mixed $media, string $channel = 'default', array $conversions = [], bool $detaching = true): ?array
     {
         $this->registerMediaChannels();
 
         if ($detaching === true && $this->shouldDetachAll($media)) {
-            return $this->media()->sync([]);
+            $detachedIds = $this->getMedia($channel)->pluck('id')->toArray();
+            $this->clearMediaChannel($channel);
+            return ['attached' => [], 'detached' => $detachedIds, 'updated' => []];
         }
 
         $ids = $this->parseMediaIds($media);
@@ -94,7 +106,7 @@ trait HasMedia
             );
         }
 
-        if (! empty($conversions)) {
+        if (!empty($conversions)) {
             $model = config('mediaman.models.media');
 
             $mediaInstances = $model::findMany($ids);
@@ -107,13 +119,32 @@ trait HasMedia
             });
         }
 
-        $mappedIds = [];
-        foreach ($ids as $id) {
-            $mappedIds[$id] = ['channel' => $channel];
-        }
-
         try {
-            return $this->media()->sync($mappedIds, $detaching); // this should give an array containing 'attached', 'detached', and 'updated'
+            $currentMediaIds = $this->getMedia($channel)->pluck('id')->toArray();
+
+            $attached = [];
+            $detached = [];
+            $updated = [];
+
+
+            if ($detaching) {
+                $toDetach = array_diff($currentMediaIds, $ids);
+                if (!empty($toDetach)) {
+                    $this->media()->wherePivot('channel', $channel)->detach($toDetach);
+                    $detached = array_values($toDetach);
+                }
+            }
+
+            foreach ($ids as $id) {
+                if (!in_array($id, $currentMediaIds)) {
+                    $this->media()->attach($id, ['channel' => $channel]);
+                    $attached[] = $id;
+                } else {
+                    $updated[] = $id;
+                }
+            }
+
+            return ['attached' => $attached, 'detached' => $detached, 'updated' => $updated];
         } catch (Throwable $th) {
             return null;
         }
@@ -147,17 +178,18 @@ trait HasMedia
         return false;
     }
 
-    public function media(): MorphToMany
+    /**
+     * Detach all the media in the specified channel.
+     */
+    public function clearMediaChannel(string $channel = 'default'): void
     {
-        return $this
-            ->morphToMany(config('mediaman.models.media'), 'mediable', config('mediaman.tables.mediables'))
-            ->withPivot('channel');
+        $this->media()->wherePivot('channel', $channel)->detach();
     }
 
     /**
      * Parse the media id's from the mixed input.
      *
-     * @param  mixed  $media
+     * @param mixed $media
      * @return array
      */
     protected function parseMediaIds($media)
@@ -170,7 +202,7 @@ trait HasMedia
             return [$media->getKey()];
         }
 
-        return (array) $media;
+        return (array)$media;
     }
 
     /**
@@ -194,19 +226,11 @@ trait HasMedia
     }
 
     /**
-     * Detach all the media in the specified channel.
-     */
-    public function clearMediaChannel(string $channel = 'default'): void
-    {
-        $this->media()->wherePivot('channel', $channel)->detach();
-    }
-
-    /**
      * Get the URL with fallback for the first media item.
      */
     public function getFirstMediaUrlWithFallback(?string $channel = 'default', string $conversion = ''): string
     {
-        if (! $media = $this->getFirstMedia($channel)) {
+        if (!$media = $this->getFirstMedia($channel)) {
             return '';
         }
 
@@ -218,7 +242,7 @@ trait HasMedia
      */
     public function getFirstMediaConversionUrl(?string $channel = 'default', string $conversion = ''): ?string
     {
-        if (! $media = $this->getFirstMedia($channel)) {
+        if (!$media = $this->getFirstMedia($channel)) {
             return null;
         }
 
@@ -230,7 +254,7 @@ trait HasMedia
      */
     public function hasMediaConversion(?string $channel = 'default', string $conversion = ''): bool
     {
-        if (! $media = $this->getFirstMedia($channel)) {
+        if (!$media = $this->getFirstMedia($channel)) {
             return false;
         }
 
