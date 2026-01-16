@@ -33,10 +33,19 @@ trait HasMedia
         $cacheKey = $channel ?? 'default';
 
         if (!isset($this->mediaCache[$cacheKey])) {
-            if ($channel === null) {
-                $this->mediaCache[$cacheKey] = $this->media()->get();
+            if ($this->relationLoaded('media')) {
+                $media = $this->getRelation('media');
+                if ($channel === null) {
+                    $this->mediaCache[$cacheKey] = $media;
+                } else {
+                    $this->mediaCache[$cacheKey] = $media->filter(fn($m) => $m->pivot->channel === $channel)->values();
+                }
             } else {
-                $this->mediaCache[$cacheKey] = $this->media()->wherePivot('channel', $channel)->get();
+                if ($channel === null) {
+                    $this->mediaCache[$cacheKey] = $this->media()->get();
+                } else {
+                    $this->mediaCache[$cacheKey] = $this->media()->wherePivot('channel', $channel)->get();
+                }
             }
         }
 
