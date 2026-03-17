@@ -29,14 +29,14 @@
     ],
     "require": {
         "php": "^8.2",
-        "illuminate/support": "^12.0",
-        "illuminate/database": "^12.0",
-        "illuminate/validation": "^12.0",
+        "illuminate/support": "^12.0|^13.0",
+        "illuminate/database": "^12.0|^13.0",
+        "illuminate/validation": "^12.0|^13.0",
         "intervention/image": "^3.0"
     },
     "require-dev": {
-        "orchestra/testbench": "^10.0",
-        "orchestra/workbench": "^10.0",
+        "orchestra/testbench": "^10.0|^11.0",
+        "orchestra/workbench": "^10.0|^11.0",
         "laravel/legacy-factories": "^1.3.9",
         "pestphp/pest": "^3.8",
         "mockery/mockery": "^1.6",
