@@ -4,6 +4,8 @@ namespace Emaia\MediaMan\Models;
 
 use Emaia\MediaMan\Casts\Json;
 use Emaia\MediaMan\ConversionRegistry;
+use Emaia\MediaMan\Enums\MediaFormat;
+use Emaia\MediaMan\Enums\MediaType;
 use Emaia\MediaMan\Traits\ResponsiveImages;
 use Exception;
 use Illuminate\Contracts\Filesystem\Filesystem;
@@ -12,6 +14,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection as BaseCollection;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
@@ -29,6 +32,16 @@ use SplFileObject;
 class Media extends Model
 {
     use ResponsiveImages;
+
+    const DEFAULT_CHANNEL = 'default';
+
+    const CONVERSIONS_DIR = 'conversions';
+
+    const RESPONSIVE_DIR = 'responsive';
+
+    const PROPERTY_RESPONSIVE_IMAGES = 'responsive_images';
+
+    const PROPERTY_DIMENSIONS = 'dimensions';
 
     protected $fillable = [
         'name', 'file_name', 'mime_type', 'size', 'disk', 'custom_properties',
@@ -113,7 +126,7 @@ class Media extends Model
         $fileName = $this->file_name;
 
         if ($conversion) {
-            $directory .= '/conversions/'.$conversion;
+            $directory .= '/'.self::CONVERSIONS_DIR.'/'.$conversion;
 
             // Try to detect the correct format for this conversion
             $detectedExtension = $this->detectConversionFormat($conversion);
@@ -144,7 +157,7 @@ class Media extends Model
             }
 
             // Only detect a format for image files
-            if (! $this->isOfType('image')) {
+            if (! $this->isOfType(MediaType::IMAGE)) {
                 return null;
             }
 
@@ -178,6 +191,12 @@ class Media extends Model
             }
 
         } catch (Exception $e) {
+            Log::warning('MediaMan: Failed to detect conversion format', [
+                'media_id' => $this->id,
+                'conversion' => $conversion,
+                'error' => $e->getMessage(),
+            ]);
+
             return null;
         }
 
@@ -190,9 +209,11 @@ class Media extends Model
     /**
      * Determine if the file is of the specified type.
      */
-    public function isOfType(string $type): bool
+    public function isOfType(string|MediaType $type): bool
     {
-        return $this->type === $type;
+        $typeValue = $type instanceof MediaType ? $type->value : $type;
+
+        return $this->type === $typeValue;
     }
 
     /**
@@ -208,24 +229,24 @@ class Media extends Model
                 if ($code) {
                     // Check for specific method call
                     $formatMethods = [
-                        'toWebp(' => 'webp',
-                        '->toWebp(' => 'webp',
-                        'toAvif(' => 'avif',
-                        '->toAvif(' => 'avif',
-                        'toPng(' => 'png',
-                        '->toPng(' => 'png',
-                        'toJpeg(' => 'jpg',
-                        '->toJpeg(' => 'jpg',
-                        'toGif(' => 'gif',
-                        '->toGif(' => 'gif',
-                        'toBmp(' => 'bmp',
-                        '->toBmp(' => 'bmp',
-                        'toTiff(' => 'tiff',
-                        '->toTiff(' => 'tiff',
-                        'toHeic(' => 'heic',
-                        '->toHeic(' => 'heic',
-                        'toHeif(' => 'heif',
-                        '->toHeif(' => 'heif',
+                        'toWebp(' => MediaFormat::WEBP->value,
+                        '->toWebp(' => MediaFormat::WEBP->value,
+                        'toAvif(' => MediaFormat::AVIF->value,
+                        '->toAvif(' => MediaFormat::AVIF->value,
+                        'toPng(' => MediaFormat::PNG->value,
+                        '->toPng(' => MediaFormat::PNG->value,
+                        'toJpeg(' => MediaFormat::JPG->value,
+                        '->toJpeg(' => MediaFormat::JPG->value,
+                        'toGif(' => MediaFormat::GIF->value,
+                        '->toGif(' => MediaFormat::GIF->value,
+                        'toBmp(' => MediaFormat::BMP->value,
+                        '->toBmp(' => MediaFormat::BMP->value,
+                        'toTiff(' => MediaFormat::TIFF->value,
+                        '->toTiff(' => MediaFormat::TIFF->value,
+                        'toHeic(' => MediaFormat::HEIC->value,
+                        '->toHeic(' => MediaFormat::HEIC->value,
+                        'toHeif(' => MediaFormat::HEIF->value,
+                        '->toHeif(' => MediaFormat::HEIF->value,
                     ];
 
                     foreach ($formatMethods as $method => $format) {
@@ -241,7 +262,9 @@ class Media extends Model
                 }
             }
         } catch (Exception $e) {
-            // If fails, go to the next method.
+            Log::debug('MediaMan: Reflection-based format detection failed', [
+                'error' => $e->getMessage(),
+            ]);
         }
 
         return null;
@@ -274,6 +297,10 @@ class Media extends Model
             return $code;
 
         } catch (Exception $e) {
+            Log::debug('MediaMan: Failed to extract closure code', [
+                'error' => $e->getMessage(),
+            ]);
+
             return null;
         }
     }
@@ -320,15 +347,15 @@ class Media extends Model
         $conversion = strtolower($conversion);
 
         $patterns = [
-            '/webp/' => 'webp',
-            '/avif/' => 'avif',
-            '/png/' => 'png',
-            '/jpg|jpeg/' => 'jpg',
-            '/gif/' => 'gif',
-            '/bmp/' => 'bmp',
-            '/tiff|tif/' => 'tiff',
-            '/heic/' => 'heic',
-            '/heif/' => 'heif',
+            '/webp/' => MediaFormat::WEBP->value,
+            '/avif/' => MediaFormat::AVIF->value,
+            '/png/' => MediaFormat::PNG->value,
+            '/jpg|jpeg/' => MediaFormat::JPG->value,
+            '/gif/' => MediaFormat::GIF->value,
+            '/bmp/' => MediaFormat::BMP->value,
+            '/tiff|tif/' => MediaFormat::TIFF->value,
+            '/heic/' => MediaFormat::HEIC->value,
+            '/heif/' => MediaFormat::HEIF->value,
         ];
 
         foreach ($patterns as $pattern => $format) {
@@ -345,8 +372,8 @@ class Media extends Model
      */
     protected function detectFormatFromExistingFile(string $conversion): ?string
     {
-        $formats = ['webp', 'avif', 'png', 'jpg', 'gif', 'bmp', 'tiff', 'heic', 'heif'];
-        $baseDirectory = $this->getDirectory().'/conversions/'.$conversion;
+        $formats = array_map(fn (MediaFormat $f) => $f->value, MediaFormat::detectableFormats());
+        $baseDirectory = $this->getDirectory().'/'.self::CONVERSIONS_DIR.'/'.$conversion;
         $baseFileName = pathinfo($this->file_name, PATHINFO_FILENAME);
 
         foreach ($formats as $format) {
@@ -413,7 +440,7 @@ class Media extends Model
     /**
      * The table associated with the model.
      */
-    public function getTable()
+    public function getTable(): string
     {
         return config('mediaman.tables.media');
     }
@@ -486,7 +513,7 @@ class Media extends Model
         $directory = $this->getDirectory();
 
         if ($conversion) {
-            $directory .= '/conversions/'.$conversion;
+            $directory .= '/'.self::CONVERSIONS_DIR.'/'.$conversion;
         }
 
         return $directory.'/'.$this->file_name;
@@ -551,7 +578,7 @@ class Media extends Model
     /**
      * Find a media by media name
      */
-    public function scopeFindByName($query, $names, array $columns = ['*'])
+    public function scopeFindByName($query, string|array $names, array $columns = ['*'])
     {
         if (is_array($names)) {
             return $query->select($columns)->whereIn('name', $names)->get();
@@ -563,7 +590,7 @@ class Media extends Model
     /**
      * Sync collections of a media
      */
-    public function syncCollections($collections, $detaching = true): array
+    public function syncCollections(Collection|BaseCollection|array|int|string|bool|MediaCollection|null $collections, $detaching = true): array
     {
         if ($this->shouldDetachAll($collections)) {
             return $this->collections()->sync([]);
@@ -613,7 +640,7 @@ class Media extends Model
     /**
      * Fetch collections
      */
-    private function fetchCollections($collections)
+    private function fetchCollections(mixed $collections): Collection|BaseCollection|MediaCollection|null
     {
         // an eloquent collection doesn't need to be fetched again;
         // it's treated as a valid source of MediaCollection resource
@@ -657,7 +684,7 @@ class Media extends Model
     /**
      * Attach media to collections
      */
-    public function attachCollections($collections): ?int
+    public function attachCollections(Collection|BaseCollection|array|int|string|MediaCollection $collections): ?int
     {
         $fetch = $this->fetchCollections($collections);
         if ($fetch->count()) {

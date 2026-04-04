@@ -2,10 +2,14 @@
 
 namespace Emaia\MediaMan\Traits;
 
+use Emaia\MediaMan\Enums\MediaFormat;
+use Emaia\MediaMan\Enums\MediaType;
 use Emaia\MediaMan\Jobs\GenerateResponsiveImages;
+use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Exception;
 use Illuminate\Support\Collection as BaseCollection;
+use Illuminate\Support\Facades\Log;
 use Intervention\Image\ImageManager;
 
 trait ResponsiveImages
@@ -27,7 +31,7 @@ trait ResponsiveImages
      */
     public function getPictureHtml(array $attributes = [], $sizes = null): string
     {
-        if (! $this->isOfType('image')) {
+        if (! $this->isOfType(MediaType::IMAGE)) {
             return '';
         }
 
@@ -43,7 +47,7 @@ trait ResponsiveImages
         $sources = [];
 
         // Define format priority (modern formats first)
-        $formatPriority = ['avif', 'webp', 'jpg', 'jpeg', 'png', 'gif'];
+        $formatPriority = array_map(fn (MediaFormat $f) => $f->value, MediaFormat::responsiveFormats());
 
         // Sort available formats by priority
         $sortedFormats = [];
@@ -118,7 +122,7 @@ trait ResponsiveImages
      */
     public function hasResponsiveImages(): bool
     {
-        return ! empty($this->getCustomProperty('responsive_images') ?? []);
+        return ! empty($this->getCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES) ?? []);
     }
 
     /**
@@ -126,7 +130,7 @@ trait ResponsiveImages
      */
     public function getResponsiveImages(): BaseCollection
     {
-        $responsiveData = $this->getCustomProperty('responsive_images') ?? [];
+        $responsiveData = $this->getCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES) ?? [];
 
         return collect($responsiveData)->map(function ($item) {
             return (object) $item;
@@ -138,7 +142,7 @@ trait ResponsiveImages
      */
     public function getSimpleImgHtml(array $attributes = [], $sizes = null): string
     {
-        if (! $this->isOfType('image')) {
+        if (! $this->isOfType(MediaType::IMAGE)) {
             return '';
         }
 
@@ -193,7 +197,7 @@ trait ResponsiveImages
      */
     public function getSrcset(string $format = ''): string
     {
-        if (! $this->isOfType('image')) {
+        if (! $this->isOfType(MediaType::IMAGE)) {
             return '';
         }
 
@@ -231,7 +235,7 @@ trait ResponsiveImages
      */
     public function getImageWidth(): int
     {
-        if (! $this->isOfType('image')) {
+        if (! $this->isOfType(MediaType::IMAGE)) {
             return 0;
         }
 
@@ -268,11 +272,16 @@ trait ResponsiveImages
 
             unlink($tempFile);
 
-            $this->setCustomProperty('dimensions', $dimensions);
+            $this->setCustomProperty(Media::PROPERTY_DIMENSIONS, $dimensions);
             $this->save();
 
             return $dimensions;
         } catch (Exception $e) {
+            Log::warning('MediaMan: Failed to calculate image dimensions', [
+                'media_id' => $this->id,
+                'error' => $e->getMessage(),
+            ]);
+
             return ['width' => 0, 'height' => 0];
         }
     }
@@ -290,17 +299,18 @@ trait ResponsiveImages
      */
     protected function formatToMimeType(string $format): string
     {
-        return match (strtolower($format)) {
-            'jpg', 'jpeg' => 'image/jpeg',
-            'png' => 'image/png',
-            'webp' => 'image/webp',
-            'avif' => 'image/avif',
-            'gif' => 'image/gif',
-            'bmp' => 'image/bmp',
-            'tiff', 'tif' => 'image/tiff',
-            'svg' => 'image/svg+xml',
-            default => 'image/'.$format,
-        };
+        $mediaFormat = MediaFormat::tryFromValue($format);
+
+        if ($mediaFormat) {
+            return $mediaFormat->mimeType();
+        }
+
+        // Handle 'tif' alias
+        if (strtolower($format) === 'tif') {
+            return MediaFormat::TIFF->mimeType();
+        }
+
+        return 'image/'.$format;
     }
 
     /**
@@ -319,7 +329,7 @@ trait ResponsiveImages
      */
     public function getResponsiveUrl(int $width = 0, string $format = ''): string
     {
-        if (! $this->isOfType('image')) {
+        if (! $this->isOfType(MediaType::IMAGE)) {
             return $this->getUrl();
         }
 
@@ -360,7 +370,7 @@ trait ResponsiveImages
             return 'original';
         }
 
-        $preferredOrder = ['avif', 'webp', 'jpg', 'jpeg', 'png'];
+        $preferredOrder = array_map(fn (MediaFormat $f) => $f->value, MediaFormat::preferredOrder());
 
         foreach ($preferredOrder as $preferredFormat) {
             if (in_array($preferredFormat, $availableFormats)) {
@@ -423,7 +433,7 @@ trait ResponsiveImages
      */
     public function getImageHeight(): int
     {
-        if (! $this->isOfType('image')) {
+        if (! $this->isOfType(MediaType::IMAGE)) {
             return 0;
         }
 

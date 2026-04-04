@@ -18,12 +18,12 @@ class MediaCollection extends Model
         'name', 'created_at', 'updated_at',
     ];
 
-    public function getTable()
+    public function getTable(): string
     {
         return config('mediaman.tables.collections');
     }
 
-    public function scopeFindByName($query, $names, array $columns = ['*'])
+    public function scopeFindByName($query, string|array $names, array $columns = ['*'])
     {
         if (is_array($names)) {
             return $query->select($columns)->whereIn('name', $names)->get();
@@ -32,7 +32,7 @@ class MediaCollection extends Model
         return $query->select($columns)->where('name', $names)->first();
     }
 
-    public function media()
+    public function media(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
     {
         return $this->belongsToMany(Media::class, config('mediaman.tables.collection_media'), 'media_id', 'collection_id');
     }
@@ -104,7 +104,7 @@ class MediaCollection extends Model
     /**
      * Detach media from a collection
      */
-    public function detachMedia($media)
+    public function detachMedia(mixed $media): ?int
     {
         if ($this->shouldDetachAll($media)) {
             return $this->media()->detach();
@@ -151,7 +151,7 @@ class MediaCollection extends Model
      * and multiple collections for multiple items
      * todo: exception / strict return types
      */
-    private function fetchMedia($media)
+    private function fetchMedia(mixed $media): mixed
     {
         // an eloquent collection doesn't need to be fetched again
         // it's treated as a valid source of Media resource

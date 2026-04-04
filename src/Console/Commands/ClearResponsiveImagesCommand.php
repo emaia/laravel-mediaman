@@ -3,6 +3,7 @@
 namespace Emaia\MediaMan\Console\Commands;
 
 use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Illuminate\Console\Command;
 
 class ClearResponsiveImagesCommand extends Command
@@ -14,7 +15,7 @@ class ClearResponsiveImagesCommand extends Command
 
     protected $description = 'Clear responsive images for media items';
 
-    public function handle()
+    public function handle(): int
     {
         $query = Media::query()->where('mime_type', 'like', 'image/%');
 
@@ -31,7 +32,7 @@ class ClearResponsiveImagesCommand extends Command
         }
 
         // Only get items that have responsive images
-        $query->whereJsonContains('custom_properties->responsive_images');
+        $query->whereNotNull('custom_properties->responsive_images');
 
         $mediaItems = $query->get();
 

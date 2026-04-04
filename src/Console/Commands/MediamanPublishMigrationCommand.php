@@ -11,7 +11,7 @@ class MediamanPublishMigrationCommand extends Command
 
     protected $description = 'Publish Mediaman Migration';
 
-    public function handle()
+    public function handle(): void
     {
         $this->publishMigration();
     }
@@ -36,7 +36,7 @@ class MediamanPublishMigrationCommand extends Command
         $this->info('Migration published to: '.$relativePath);
     }
 
-    protected function getExistingMigration()
+    protected function getExistingMigration(): ?string
     {
         $allFiles = File::files(database_path('migrations'));
         foreach ($allFiles as $file) {

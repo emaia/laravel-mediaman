@@ -17,7 +17,7 @@ class GenerateResponsiveImagesCommand extends Command
 
     protected $description = 'Generate responsive images for existing media';
 
-    public function handle()
+    public function handle(): int
     {
         $query = Media::query()->where('mime_type', 'like', 'image/%');
 
@@ -35,7 +35,7 @@ class GenerateResponsiveImagesCommand extends Command
 
         // Filter out items that already have responsive images unless forced
         if (! $this->option('force')) {
-            $query->whereJsonDoesntContain('custom_properties->responsive_images', []);
+            $query->whereNull('custom_properties->responsive_images');
         }
 
         $mediaItems = $query->get();

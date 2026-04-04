@@ -2,6 +2,7 @@
 
 namespace Emaia\MediaMan;
 
+use Emaia\MediaMan\Enums\MediaType;
 use Emaia\MediaMan\Models\Media;
 use Intervention\Image\EncodedImage;
 use Intervention\Image\Image;
@@ -25,7 +26,7 @@ class ImageManipulator
      */
     public function manipulate(Media $media, array $conversions, bool $onlyIfMissing = true): void
     {
-        if (! $media->isOfType('image')) {
+        if (! $media->isOfType(MediaType::IMAGE)) {
             return;
         }
 
@@ -70,7 +71,7 @@ class ImageManipulator
      */
     protected function getConversionPathWithExtension(Media $media, string $conversion, string $extension): string
     {
-        $directory = $media->getDirectory().'/conversions/'.$conversion;
+        $directory = $media->getDirectory().'/'.Media::CONVERSIONS_DIR.'/'.$conversion;
         $fileName = $media->replaceFileExtension($media->file_name, $extension);
 
         return $directory.'/'.$fileName;

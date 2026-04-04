@@ -2,6 +2,8 @@
 
 namespace Emaia\MediaMan\ResponsiveImages;
 
+use Emaia\MediaMan\Enums\MediaFormat;
+use Emaia\MediaMan\Enums\MediaType;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\BreakpointWidthCalculator;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\WidthCalculator;
@@ -24,7 +26,7 @@ class ResponsiveImageGenerator
      */
     public function generateResponsiveImages(Media $media, array $options = []): void
     {
-        if (! $media->isOfType('image')) {
+        if (! $media->isOfType(MediaType::IMAGE)) {
             return;
         }
 
@@ -70,7 +72,7 @@ class ResponsiveImageGenerator
             }
         }
 
-        $media->setCustomProperty('responsive_images', $responsiveData);
+        $media->setCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES, $responsiveData);
         $media->save();
     }
 
@@ -82,13 +84,13 @@ class ResponsiveImageGenerator
         $image->scaleDown($targetWidth, null);
 
         $encodedImage = match ($format) {
-            'webp' => $image->toWebp($quality),
-            'avif' => $image->toAvif($quality),
-            'png' => $image->toPng(),
+            MediaFormat::WEBP->value => $image->toWebp($quality),
+            MediaFormat::AVIF->value => $image->toAvif($quality),
+            MediaFormat::PNG->value => $image->toPng(),
             default => $image->toJpeg($quality),
         };
 
-        $directory = $media->getDirectory().'/responsive';
+        $directory = $media->getDirectory().'/'.Media::RESPONSIVE_DIR;
         $fileName = $this->generateResponsiveFileName($media->file_name, $targetWidth, $format);
         $path = $directory.'/'.$fileName;
 
@@ -120,14 +122,14 @@ class ResponsiveImageGenerator
      */
     public function clearResponsiveImages(Media $media): void
     {
-        $responsiveDir = $media->getDirectory().'/responsive';
+        $responsiveDir = $media->getDirectory().'/'.Media::RESPONSIVE_DIR;
         $filesystem = $media->filesystem();
 
         if ($filesystem->exists($responsiveDir)) {
             $filesystem->deleteDirectory($responsiveDir);
         }
 
-        $media->forgetCustomProperty('responsive_images');
+        $media->forgetCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES);
         $media->save();
     }
 

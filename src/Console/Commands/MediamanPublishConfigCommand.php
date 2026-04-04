@@ -11,7 +11,7 @@ class MediamanPublishConfigCommand extends Command
 
     protected $description = 'Publish Mediaman Config';
 
-    public function handle()
+    public function handle(): void
     {
         $this->publishConfig();
     }

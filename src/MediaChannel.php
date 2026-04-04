@@ -12,7 +12,7 @@ class MediaChannel
      * @param  string  ...$conversions
      * @return $this
      */
-    public function performConversions(...$conversions): MediaChannel
+    public function performConversions(string ...$conversions): MediaChannel
     {
         $this->conversions = $conversions;
 

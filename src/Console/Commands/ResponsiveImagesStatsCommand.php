@@ -11,11 +11,11 @@ class ResponsiveImagesStatsCommand extends Command
 
     protected $description = 'Show statistics about responsive images';
 
-    public function handle()
+    public function handle(): int
     {
         $totalImages = Media::where('mime_type', 'like', 'image/%')->count();
         $withResponsive = Media::where('mime_type', 'like', 'image/%')
-            ->whereJsonContains('custom_properties->responsive_images')
+            ->whereNotNull('custom_properties->responsive_images')
             ->count();
 
         $this->info('Responsive Images Statistics');

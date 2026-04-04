@@ -2,6 +2,8 @@
 
 namespace Emaia\MediaMan;
 
+use Emaia\MediaMan\Enums\MediaType;
+use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Models\MediaCollection;
 use Illuminate\Http\UploadedFile;
 
@@ -157,7 +159,7 @@ class MediaUploader
     /**
      * Upload the file to the specified disk.
      */
-    public function upload()
+    public function upload(): Media
     {
         $model = config('mediaman.models.media');
 
@@ -198,7 +200,7 @@ class MediaUploader
 
         // Generate responsive images if requested or auto-enabled
         if ($this->generateResponsive || config('mediaman.responsive_images.auto_generate', false)) {
-            if (config('mediaman.responsive_images.enabled', true) && $media->isOfType('image')) {
+            if (config('mediaman.responsive_images.enabled', true) && $media->isOfType(MediaType::IMAGE)) {
                 $media->generateResponsiveImages($this->responsiveOptions);
             }
         }

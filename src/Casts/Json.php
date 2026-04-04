@@ -15,7 +15,7 @@ class Json implements CastsAttributes
      * @param  array  $attributes
      * @return array
      */
-    public function get($model, $key, $value, $attributes)
+    public function get($model, $key, $value, $attributes): mixed
     {
         return json_decode($value, true);
     }
@@ -29,7 +29,7 @@ class Json implements CastsAttributes
      * @param  array  $attributes
      * @return string
      */
-    public function set($model, $key, $value, $attributes)
+    public function set($model, $key, $value, $attributes): mixed
     {
         return json_encode($value);
     }

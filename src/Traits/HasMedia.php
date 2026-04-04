@@ -7,6 +7,7 @@ use Emaia\MediaMan\MediaChannel;
 use Emaia\MediaMan\Models\Media;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 trait HasMedia
@@ -20,7 +21,7 @@ trait HasMedia
     /**
      * Determine if there is any media in the specified group.
      */
-    public function hasMedia(string $channel = 'default'): bool
+    public function hasMedia(string $channel = Media::DEFAULT_CHANNEL): bool
     {
         return $this->getMedia($channel)->isNotEmpty();
     }
@@ -28,9 +29,9 @@ trait HasMedia
     /**
      * Get all the media in the specified group.
      */
-    public function getMedia(?string $channel = 'default')
+    public function getMedia(?string $channel = Media::DEFAULT_CHANNEL): Collection
     {
-        $cacheKey = $channel ?? 'default';
+        $cacheKey = $channel ?? Media::DEFAULT_CHANNEL;
 
         if (!isset($this->mediaCache[$cacheKey])) {
             if ($this->relationLoaded('media')) {
@@ -62,7 +63,7 @@ trait HasMedia
     /**
      * Get the URL of the first media item with automatic format detection.
      */
-    public function getFirstMediaUrl(?string $channel = 'default', string $conversion = ''): string
+    public function getFirstMediaUrl(?string $channel = Media::DEFAULT_CHANNEL, string $conversion = ''): string
     {
         if (!$media = $this->getFirstMedia($channel)) {
             return '';
@@ -74,7 +75,7 @@ trait HasMedia
     /**
      * Get the first media item in the specified channel.
      */
-    public function getFirstMedia(?string $channel = 'default')
+    public function getFirstMedia(?string $channel = Media::DEFAULT_CHANNEL)
     {
         return $this->getMedia($channel)->first();
     }
@@ -82,7 +83,7 @@ trait HasMedia
     /**
      * Attach media to the specified channel.
      */
-    public function attachMedia($media, string $channel = 'default', array $conversions = []): ?int
+    public function attachMedia($media, string $channel = Media::DEFAULT_CHANNEL, array $conversions = []): ?int
     {
         $syncResult = $this->syncMedia($media, $channel, $conversions, false);
 
@@ -103,7 +104,7 @@ trait HasMedia
      * @param bool $detaching
      * @return array|null
      */
-    public function syncMedia(mixed $media, string $channel = 'default', array $conversions = [], bool $detaching = true): ?array
+    public function syncMedia(mixed $media, string $channel = Media::DEFAULT_CHANNEL, array $conversions = [], bool $detaching = true): ?array
     {
         $this->registerMediaChannels();
 
@@ -166,6 +167,11 @@ trait HasMedia
 
             return ['attached' => $attached, 'detached' => $detached, 'updated' => $updated];
         } catch (Throwable $th) {
+            Log::warning('MediaMan: Failed to sync media', [
+                'channel' => $channel,
+                'error' => $th->getMessage(),
+            ]);
+
             return null;
         }
     }
@@ -175,7 +181,7 @@ trait HasMedia
      *
      * @return void
      */
-    public function registerMediaChannels()
+    public function registerMediaChannels(): void
     {
         //
     }
@@ -201,7 +207,7 @@ trait HasMedia
     /**
      * Detach all the media in the specified channel.
      */
-    public function clearMediaChannel(string $channel = 'default'): void
+    public function clearMediaChannel(string $channel = Media::DEFAULT_CHANNEL): void
     {
         $this->media()->wherePivot('channel', $channel)->detach();
         $this->clearMediaCache($channel);
@@ -244,7 +250,7 @@ trait HasMedia
      *
      * @return MediaChannel|null
      */
-    public function getMediaChannel(string $name)
+    public function getMediaChannel(string $name): ?MediaChannel
     {
         return $this->mediaChannels[$name] ?? null;
     }
@@ -264,7 +270,7 @@ trait HasMedia
     /**
      * Get the URL with fallback for the first media item.
      */
-    public function getFirstMediaUrlWithFallback(?string $channel = 'default', string $conversion = ''): string
+    public function getFirstMediaUrlWithFallback(?string $channel = Media::DEFAULT_CHANNEL, string $conversion = ''): string
     {
         if (!$media = $this->getFirstMedia($channel)) {
             return '';
@@ -276,7 +282,7 @@ trait HasMedia
     /**
      * Get conversion URL only if it exists for the first media item.
      */
-    public function getFirstMediaConversionUrl(?string $channel = 'default', string $conversion = ''): ?string
+    public function getFirstMediaConversionUrl(?string $channel = Media::DEFAULT_CHANNEL, string $conversion = ''): ?string
     {
         if (!$media = $this->getFirstMedia($channel)) {
             return null;
@@ -288,7 +294,7 @@ trait HasMedia
     /**
      * Check if the first media item has a specific conversion.
      */
-    public function hasMediaConversion(?string $channel = 'default', string $conversion = ''): bool
+    public function hasMediaConversion(?string $channel = Media::DEFAULT_CHANNEL, string $conversion = ''): bool
     {
         if (!$media = $this->getFirstMedia($channel)) {
             return false;
@@ -302,7 +308,7 @@ trait HasMedia
      *
      * @return MediaChannel
      */
-    protected function addMediaChannel(string $name)
+    protected function addMediaChannel(string $name): MediaChannel
     {
         $channel = new MediaChannel;
 
