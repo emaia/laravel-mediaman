@@ -66,4 +66,38 @@ enum MediaFormat: string
     {
         return self::tryFrom(strtolower($value));
     }
+
+    /**
+     * Get file extension from a MIME type.
+     */
+    public static function extensionFromMimeType(string $mimeType): string
+    {
+        static $map = [
+            // Standard formats
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'image/gif' => 'gif',
+            'image/webp' => 'webp',
+            'image/bmp' => 'bmp',
+            'image/svg+xml' => 'svg',
+
+            // Extended formats supported by Intervention Image
+            'image/avif' => 'avif',
+            'image/tiff' => 'tiff',
+            'image/tif' => 'tif',
+            'image/jp2' => 'jp2',
+            'image/jpx' => 'jpx',
+            'image/jpm' => 'jpm',
+            'image/heic' => 'heic',
+            'image/heif' => 'heif',
+
+            // Alternative MIME types
+            'image/x-ms-bmp' => 'bmp',
+            'image/x-windows-bmp' => 'bmp',
+            'image/vnd.adobe.photoshop' => 'psd',
+            'image/x-photoshop' => 'psd',
+        ];
+
+        return $map[$mimeType] ?? 'jpg';
+    }
 }

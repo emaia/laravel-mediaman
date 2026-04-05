@@ -2,6 +2,7 @@
 
 namespace Emaia\MediaMan;
 
+use Emaia\MediaMan\Enums\MediaFormat;
 use Emaia\MediaMan\Enums\MediaType;
 use Emaia\MediaMan\Models\Media;
 use Intervention\Image\EncodedImage;
@@ -79,29 +80,7 @@ class ImageManipulator
 
     protected function getExtensionFromMimeType(string $mimeType): string
     {
-        $map = [
-            'image/jpeg' => 'jpg',
-            'image/png' => 'png',
-            'image/gif' => 'gif',
-            'image/webp' => 'webp',
-            'image/bmp' => 'bmp',
-            'image/svg+xml' => 'svg',
-
-            'image/avif' => 'avif',
-            'image/tiff' => 'tiff',
-            'image/jp2' => 'jp2',     // JPEG 2000
-            'image/jpx' => 'jpx',     // JPEG 2000 Part 2
-            'image/jpm' => 'jpm',     // JPEG 2000 Part 6
-            'image/heic' => 'heic',   // HEIC (High-Efficiency Image Format)
-            'image/heif' => 'heif',   // HEIF (High-Efficiency Image Format)
-
-            'image/x-ms-bmp' => 'bmp',
-            'image/tif' => 'tif',
-            'image/vnd.adobe.photoshop' => 'psd',
-            'image/x-photoshop' => 'psd',
-        ];
-
-        return $map[$mimeType] ?? 'jpg';
+        return MediaFormat::extensionFromMimeType($mimeType);
     }
 
     protected function updatePathExtension(string $path, string $newExtension): string

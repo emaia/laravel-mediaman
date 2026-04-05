@@ -56,6 +56,9 @@ class Media extends Model
 
     protected array $conversionFormatCache = [];
 
+    /** @var array<string, string|null> Static cache for reflection-based format detection */
+    protected static array $reflectionFormatCache = [];
+
     public static function booted(): void
     {
         static::deleted(static function ($media) {
@@ -227,10 +230,15 @@ class Media extends Model
         try {
             if (is_callable($converter)) {
                 $reflection = new ReflectionFunction($converter);
+                $cacheKey = $reflection->getFileName().':'.$reflection->getStartLine().':'.$reflection->getEndLine();
+
+                if (array_key_exists($cacheKey, static::$reflectionFormatCache)) {
+                    return static::$reflectionFormatCache[$cacheKey];
+                }
+
                 $code = $this->getClosureCode($reflection);
 
                 if ($code) {
-                    // Check for specific method call
                     $formatMethods = [
                         'toWebp(' => MediaFormat::WEBP->value,
                         '->toWebp(' => MediaFormat::WEBP->value,
@@ -254,15 +262,21 @@ class Media extends Model
 
                     foreach ($formatMethods as $method => $format) {
                         if (stripos($code, $method) !== false) {
+                            static::$reflectionFormatCache[$cacheKey] = $format;
+
                             return $format;
                         }
                     }
 
-                    // check for specific encoding
                     if (preg_match('/encode\w*\([\'"]([^\'\"]+)[\'"]/', $code, $matches)) {
-                        return $this->getExtensionFromMimeType($matches[1]);
+                        $format = $this->getExtensionFromMimeType($matches[1]);
+                        static::$reflectionFormatCache[$cacheKey] = $format;
+
+                        return $format;
                     }
                 }
+
+                static::$reflectionFormatCache[$cacheKey] = null;
             }
         } catch (Exception $e) {
             Log::debug('MediaMan: Reflection-based format detection failed', [
@@ -313,33 +327,7 @@ class Media extends Model
      */
     public function getExtensionFromMimeType(string $mimeType): string
     {
-        $map = [
-            // Standard formats
-            'image/jpeg' => 'jpg',
-            'image/png' => 'png',
-            'image/gif' => 'gif',
-            'image/webp' => 'webp',
-            'image/bmp' => 'bmp',
-            'image/svg+xml' => 'svg',
-
-            // Extended formats supported by Intervention Image
-            'image/avif' => 'avif',
-            'image/tiff' => 'tiff',
-            'image/tif' => 'tif',
-            'image/jp2' => 'jp2',     // JPEG 2000
-            'image/jpx' => 'jpx',     // JPEG 2000 Part 2
-            'image/jpm' => 'jpm',     // JPEG 2000 Part 6
-            'image/heic' => 'heic',   // HEIC (High-Efficiency Image Format)
-            'image/heif' => 'heif',   // HEIF (High-Efficiency Image Format)
-
-            // Alternative mime types
-            'image/x-ms-bmp' => 'bmp',
-            'image/vnd.adobe.photoshop' => 'psd',
-            'image/x-photoshop' => 'psd',
-            'image/x-windows-bmp' => 'bmp',
-        ];
-
-        return $map[$mimeType] ?? 'jpg';
+        return MediaFormat::extensionFromMimeType($mimeType);
     }
 
     /**
