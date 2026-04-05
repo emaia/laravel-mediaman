@@ -2,6 +2,7 @@
 
 namespace Emaia\MediaMan\Jobs;
 
+use Emaia\MediaMan\Events\ConversionCompleted;
 use Emaia\MediaMan\ImageManipulator;
 use Emaia\MediaMan\Models\Media;
 use Illuminate\Bus\Queueable;
@@ -31,6 +32,8 @@ class PerformConversions implements ShouldQueue
             $this->media,
             $this->conversions
         );
+
+        event(new ConversionCompleted($this->media, $this->conversions));
     }
 
     public function getMedia(): Media

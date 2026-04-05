@@ -61,6 +61,7 @@ There are a few key concepts that need to be understood before continuing:
 * [Media & Collections](#media--collections)
 * [Media, Models & Conversions](#conversions)
 * [Responsive Images](#responsive-images)
+* [Events](#events)
 * [Artisan Commands](#artisan-commands)
 * [Contribution and License](#contribution-and-license)
 
@@ -892,6 +893,53 @@ $media->clearResponsiveImages();
 ```
 
 This removes all variant files from storage and clears the metadata from `custom_properties`.
+
+-----
+
+## Events
+
+MediaMan dispatches events at key points in the media lifecycle, allowing you to hook into the process with standard Laravel listeners.
+
+| Event | Dispatched When | Properties |
+|-------|----------------|------------|
+| `MediaUploaded` | A file is uploaded via `MediaUploader` | `$event->media` |
+| `MediaDeleted` | A media record is deleted | `$event->media` |
+| `ConversionCompleted` | Image conversions finish (queued job) | `$event->media`, `$event->conversions` |
+| `ResponsiveImagesGenerated` | Responsive variants finish (queued job) | `$event->media`, `$event->options` |
+
+All event classes live under the `Emaia\MediaMan\Events` namespace.
+
+### Listening to events
+
+Register listeners in your `EventServiceProvider` or use the `Event` facade:
+
+```php
+use Emaia\MediaMan\Events\MediaUploaded;
+use Emaia\MediaMan\Events\MediaDeleted;
+use Emaia\MediaMan\Events\ConversionCompleted;
+use Emaia\MediaMan\Events\ResponsiveImagesGenerated;
+
+// in EventServiceProvider::$listen
+protected $listen = [
+    MediaUploaded::class => [
+        SendUploadNotification::class,
+    ],
+    MediaDeleted::class => [
+        CleanupExternalCdn::class,
+    ],
+];
+```
+
+Or with a closure:
+
+```php
+use Illuminate\Support\Facades\Event;
+use Emaia\MediaMan\Events\MediaUploaded;
+
+Event::listen(function (MediaUploaded $event) {
+    logger()->info("Media uploaded: {$event->media->file_name}");
+});
+```
 
 -----
 

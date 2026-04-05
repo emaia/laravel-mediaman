@@ -6,6 +6,7 @@ use Emaia\MediaMan\Casts\Json;
 use Emaia\MediaMan\ConversionRegistry;
 use Emaia\MediaMan\Enums\MediaFormat;
 use Emaia\MediaMan\Enums\MediaType;
+use Emaia\MediaMan\Events\MediaDeleted;
 use Emaia\MediaMan\Traits\ResponsiveImages;
 use Exception;
 use Illuminate\Contracts\Filesystem\Filesystem;
@@ -62,6 +63,8 @@ class Media extends Model
             $deleted = Storage::disk($media->disk)->deleteDirectory($media->getDirectory());
             // if failed, try deleting the file then
             ! $deleted && Storage::disk($media->disk)->delete($media->getPath());
+
+            event(new MediaDeleted($media));
         });
 
         static::updating(function ($media) {

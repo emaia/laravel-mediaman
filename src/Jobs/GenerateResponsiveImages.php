@@ -2,6 +2,7 @@
 
 namespace Emaia\MediaMan\Jobs;
 
+use Emaia\MediaMan\Events\ResponsiveImagesGenerated;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Illuminate\Bus\Queueable;
@@ -31,6 +32,8 @@ class GenerateResponsiveImages implements ShouldQueue
             $this->media,
             $this->options
         );
+
+        event(new ResponsiveImagesGenerated($this->media, $this->options));
     }
 
     public function getMedia(): Media

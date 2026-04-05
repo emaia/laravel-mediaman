@@ -3,6 +3,7 @@
 namespace Emaia\MediaMan;
 
 use Emaia\MediaMan\Enums\MediaType;
+use Emaia\MediaMan\Events\MediaUploaded;
 use Emaia\MediaMan\Exceptions\MimeTypeNotAllowed;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Models\MediaCollection;
@@ -249,6 +250,8 @@ class MediaUploader
                 $media->generateResponsiveImages($this->responsiveOptions);
             }
         }
+
+        event(new MediaUploaded($media));
 
         return $media;
     }
