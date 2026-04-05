@@ -3,6 +3,7 @@
 namespace Emaia\MediaMan;
 
 use Emaia\MediaMan\Enums\MediaType;
+use Emaia\MediaMan\Exceptions\MimeTypeNotAllowed;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Models\MediaCollection;
 use Illuminate\Http\UploadedFile;
@@ -26,6 +27,9 @@ class MediaUploader
 
     /** @var array */
     protected $custom_properties = [];
+
+    /** @var array|null */
+    protected ?array $allowedMimeTypes = null;
 
     /**
      * Enable automatic responsive image generation.
@@ -157,10 +161,25 @@ class MediaUploader
     }
 
     /**
+     * Set the allowed MIME types for this upload.
+     *
+     * Overrides the global `mediaman.allowed_mime_types` config.
+     * Supports wildcards like 'image/*'.
+     */
+    public function allowMimeTypes(array $mimeTypes): MediaUploader
+    {
+        $this->allowedMimeTypes = $mimeTypes;
+
+        return $this;
+    }
+
+    /**
      * Upload the file to the specified disk.
      */
     public function upload(): Media
     {
+        $this->validateMimeType();
+
         $model = config('mediaman.models.media');
 
         $media = new $model;
@@ -247,5 +266,45 @@ class MediaUploader
         $this->responsiveOptions['quality'] = $quality;
 
         return $this;
+    }
+
+    /**
+     * Validate the file MIME type against allowed types.
+     *
+     * @throws MimeTypeNotAllowed
+     */
+    protected function validateMimeType(): void
+    {
+        $allowed = $this->allowedMimeTypes ?? config('mediaman.allowed_mime_types', []);
+
+        if (empty($allowed)) {
+            return;
+        }
+
+        $mimeType = $this->file->getMimeType();
+
+        foreach ($allowed as $pattern) {
+            if ($this->mimeTypeMatches($mimeType, $pattern)) {
+                return;
+            }
+        }
+
+        throw MimeTypeNotAllowed::forMimeType($mimeType);
+    }
+
+    /**
+     * Check if a MIME type matches a pattern (supports wildcards like 'image/*').
+     */
+    protected function mimeTypeMatches(string $mimeType, string $pattern): bool
+    {
+        if ($pattern === $mimeType) {
+            return true;
+        }
+
+        if (str_ends_with($pattern, '/*')) {
+            return str_starts_with($mimeType, substr($pattern, 0, -1));
+        }
+
+        return false;
     }
 }

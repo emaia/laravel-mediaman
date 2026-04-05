@@ -22,6 +22,22 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Allowed MIME Types
+    |--------------------------------------------------------------------------
+    |
+    | Define which MIME types are allowed for upload. An empty array means
+    | all MIME types are accepted. You may use wildcards like 'image/*'.
+    |
+    | Examples:
+    |   ['image/jpeg', 'image/png', 'application/pdf']
+    |   ['image/*', 'application/pdf']
+    |
+    */
+
+    'allowed_mime_types' => [],
+
+    /*
+    |--------------------------------------------------------------------------
     | The queue that should be used to perform image conversions
     |--------------------------------------------------------------------------
     |

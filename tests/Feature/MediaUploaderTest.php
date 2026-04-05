@@ -1,8 +1,10 @@
 <?php
 
+use Emaia\MediaMan\Exceptions\MimeTypeNotAllowed;
 use Emaia\MediaMan\MediaUploader;
 use Emaia\MediaMan\Models\Media;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Storage;
 
 it('can upload a file to the default disk', function () {
@@ -79,4 +81,80 @@ it('can save data to the media model', function () {
     expect($media)->toBeInstanceOf(Media::class)
         ->and($media->custom_properties['test-01'])->toEqual('test data 01')
         ->and($media->custom_properties['test-02'])->toEqual('test data 02');
+});
+
+// --- MIME Type Validation ---
+
+it('uploads when no mime type restrictions are configured', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->image('file.jpg'))->upload();
+
+    expect($media)->toBeInstanceOf(Media::class);
+});
+
+it('uploads when the file mime type is in the allowed list', function () {
+    Config::set('mediaman.allowed_mime_types', ['image/jpeg', 'image/png']);
+
+    $media = MediaUploader::source(UploadedFile::fake()->image('file.jpg'))->upload();
+
+    expect($media)->toBeInstanceOf(Media::class);
+});
+
+it('throws exception when the file mime type is not allowed by config', function () {
+    Config::set('mediaman.allowed_mime_types', ['application/pdf']);
+
+    MediaUploader::source(UploadedFile::fake()->image('file.jpg'))->upload();
+})->throws(MimeTypeNotAllowed::class);
+
+it('supports wildcard mime type patterns', function () {
+    Config::set('mediaman.allowed_mime_types', ['image/*']);
+
+    $media = MediaUploader::source(UploadedFile::fake()->image('file.jpg'))->upload();
+
+    expect($media)->toBeInstanceOf(Media::class);
+});
+
+it('rejects files not matching wildcard mime type pattern', function () {
+    Config::set('mediaman.allowed_mime_types', ['application/*']);
+
+    MediaUploader::source(UploadedFile::fake()->image('file.jpg'))->upload();
+})->throws(MimeTypeNotAllowed::class);
+
+it('allows per-upload mime type override via fluent method', function () {
+    Config::set('mediaman.allowed_mime_types', ['application/pdf']);
+
+    $media = MediaUploader::source(UploadedFile::fake()->image('file.jpg'))
+        ->allowMimeTypes(['image/jpeg', 'image/png'])
+        ->upload();
+
+    expect($media)->toBeInstanceOf(Media::class);
+});
+
+it('rejects files when per-upload mime types do not match', function () {
+    MediaUploader::source(UploadedFile::fake()->image('file.jpg'))
+        ->allowMimeTypes(['application/pdf'])
+        ->upload();
+})->throws(MimeTypeNotAllowed::class);
+
+it('does not save to database when mime type validation fails', function () {
+    Config::set('mediaman.allowed_mime_types', ['application/pdf']);
+
+    try {
+        MediaUploader::source(UploadedFile::fake()->image('file.jpg'))->upload();
+    } catch (MimeTypeNotAllowed) {
+        // expected
+    }
+
+    expect(Media::count())->toBe(0);
+});
+
+it('does not store file to disk when mime type validation fails', function () {
+    Config::set('mediaman.allowed_mime_types', ['application/pdf']);
+
+    try {
+        MediaUploader::source(UploadedFile::fake()->image('file.jpg'))->upload();
+    } catch (MimeTypeNotAllowed) {
+        // expected
+    }
+
+    expect(Storage::disk(self::DEFAULT_DISK)->allFiles())->toBeEmpty();
 });
