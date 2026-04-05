@@ -68,6 +68,57 @@ it('will sanitize the file name', function () {
     expect($media->file_name)->toEqual('bad-file-name-023.jpg');
 });
 
+it('sanitizes directory traversal attempts from file name', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->image('file.jpg'))
+        ->useFileName('../../etc/passwd')
+        ->upload();
+
+    expect($media->file_name)->not->toContain('..')
+        ->not->toContain('/');
+});
+
+it('strips null bytes from file name', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->image('file.jpg'))
+        ->useFileName("file\0name.jpg")
+        ->upload();
+
+    expect($media->file_name)->toEqual('filename.jpg');
+});
+
+it('sanitizes double extensions', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->image('file.jpg'))
+        ->useFileName('malware.php.jpg')
+        ->upload();
+
+    expect($media->file_name)->toEqual('malware-php.jpg');
+});
+
+it('strips unicode control characters from file name', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->image('file.jpg'))
+        ->useFileName("file\xE2\x80\x8Bname.jpg")  // zero-width space
+        ->upload();
+
+    expect($media->file_name)->toEqual('filename.jpg');
+});
+
+it('sanitizes dangerous characters from file name', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->image('file.jpg'))
+        ->useFileName('file<script>:.jpg')
+        ->upload();
+
+    expect($media->file_name)->not->toContain('<')
+        ->not->toContain('>')
+        ->not->toContain(':');
+});
+
+it('uses fallback name when filename becomes empty after sanitization', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->image('file.jpg'))
+        ->useFileName('###.jpg')
+        ->upload();
+
+    expect($media->file_name)->toEqual('unnamed.jpg');
+});
+
 it('can save data to the media model', function () {
     $file = UploadedFile::fake()->image('image.jpg');
 

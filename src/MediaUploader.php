@@ -122,7 +122,33 @@ class MediaUploader
      */
     protected function sanitizeFileName(string $fileName): string
     {
-        return str_replace(['#', '/', '\\', ' '], '-', $fileName);
+        // Strip null bytes and control/invisible unicode chars
+        $fileName = preg_replace('/[\x00\p{C}]/u', '', $fileName);
+
+        // Separate name and final extension
+        $extension = pathinfo($fileName, PATHINFO_EXTENSION);
+        $name = pathinfo($fileName, PATHINFO_FILENAME);
+
+        // Replace dangerous characters (includes .. for directory traversal)
+        $name = str_replace(
+            ['..', '#', '/', '\\', ' ', '?', '%', '*', ':', '|', '"', "'", '<', '>'],
+            '-',
+            $name
+        );
+
+        // Replace dots in name part (prevents double extensions like file.php.jpg)
+        $name = str_replace('.', '-', $name);
+
+        // Collapse multiple dashes and trim
+        $name = preg_replace('/-+/', '-', $name);
+        $name = trim($name, '-');
+
+        // Fallback for empty name
+        if ($name === '') {
+            $name = 'unnamed';
+        }
+
+        return $extension !== '' ? "{$name}.{$extension}" : $name;
     }
 
     /**
