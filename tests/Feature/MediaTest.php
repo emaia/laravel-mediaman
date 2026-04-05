@@ -3,6 +3,7 @@
 use Emaia\MediaMan\MediaUploader;
 use Emaia\MediaMan\Models\Media;
 use Illuminate\Filesystem\Filesystem;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 function getMediaPath($mediaId): string
@@ -693,4 +694,18 @@ it('can forget custom data', function () {
     expect($media->hasCustomProperty('color'))->toBeFalse()
         ->and($media->hasCustomProperty('size'))->toBeTrue()
         ->and($media->getCustomProperty('size'))->toEqual('small');
+});
+
+it('has a composite index on mediables table for mediable_type, mediable_id and channel', function () {
+    $tableName = config('mediaman.tables.mediables');
+    $indexes = DB::select("PRAGMA index_list('{$tableName}')");
+
+    $indexColumns = collect($indexes)
+        ->map(function ($index) {
+            $columns = DB::select("PRAGMA index_info('{$index->name}')");
+            return collect($columns)->pluck('name')->toArray();
+        })
+        ->toArray();
+
+    expect($indexColumns)->toContain(['mediable_type', 'mediable_id', 'channel']);
 });

@@ -60,6 +60,8 @@ class CreateMediaManTables extends Migration
                 ->references('id')
                 ->on(config('mediaman.tables.media'))
                 ->onDelete('cascade');
+
+            $table->index(['mediable_type', 'mediable_id', 'channel']);
         });
 
         // Test Subject table

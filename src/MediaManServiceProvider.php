@@ -39,6 +39,7 @@ class MediaManServiceProvider extends ServiceProvider
         // Migrations
         $this->publishes([
             __DIR__.'/../database/migrations/create_mediaman_tables.php.stub' => database_path('migrations/'.date('Y_m_d_His', time()).'_create_mediaman_tables.php'),
+            __DIR__.'/../database/migrations/add_mediables_composite_index.php.stub' => database_path('migrations/'.date('Y_m_d_His', time()).'_add_mediables_composite_index.php'),
         ], 'migrations');
 
         // Config
