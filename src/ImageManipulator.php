@@ -19,7 +19,7 @@ class ImageManipulator
     {
         $this->conversionRegistry = $conversionRegistry;
 
-        $this->imageManager = $imageManager ?? ImageManager::imagick() ?? ImageManager::gd();
+        $this->imageManager = $imageManager ?? ImageManager::imagick();
     }
 
     /**

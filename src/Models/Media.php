@@ -25,11 +25,13 @@ use SplFileObject;
 
 /**
  * @property int $id
+ * @property string $name
  * @property string $file_name
  * @property string $mime_type
  * @property string $disk
  * @property string $type
  * @property float|int $size
+ * @property array $custom_properties
  */
 class Media extends Model
 {
@@ -229,56 +231,54 @@ class Media extends Model
     protected function detectFormatWithReflection(callable $converter): ?string
     {
         try {
-            if (is_callable($converter)) {
-                $reflection = new ReflectionFunction($converter);
-                $cacheKey = $reflection->getFileName().':'.$reflection->getStartLine().':'.$reflection->getEndLine();
+            $reflection = new ReflectionFunction($converter);
+            $cacheKey = $reflection->getFileName().':'.$reflection->getStartLine().':'.$reflection->getEndLine();
 
-                if (array_key_exists($cacheKey, static::$reflectionFormatCache)) {
-                    return static::$reflectionFormatCache[$cacheKey];
-                }
+            if (array_key_exists($cacheKey, static::$reflectionFormatCache)) {
+                return static::$reflectionFormatCache[$cacheKey];
+            }
 
-                $code = $this->getClosureCode($reflection);
+            $code = $this->getClosureCode($reflection);
 
-                if ($code) {
-                    $formatMethods = [
-                        'toWebp(' => MediaFormat::WEBP->value,
-                        '->toWebp(' => MediaFormat::WEBP->value,
-                        'toAvif(' => MediaFormat::AVIF->value,
-                        '->toAvif(' => MediaFormat::AVIF->value,
-                        'toPng(' => MediaFormat::PNG->value,
-                        '->toPng(' => MediaFormat::PNG->value,
-                        'toJpeg(' => MediaFormat::JPG->value,
-                        '->toJpeg(' => MediaFormat::JPG->value,
-                        'toGif(' => MediaFormat::GIF->value,
-                        '->toGif(' => MediaFormat::GIF->value,
-                        'toBmp(' => MediaFormat::BMP->value,
-                        '->toBmp(' => MediaFormat::BMP->value,
-                        'toTiff(' => MediaFormat::TIFF->value,
-                        '->toTiff(' => MediaFormat::TIFF->value,
-                        'toHeic(' => MediaFormat::HEIC->value,
-                        '->toHeic(' => MediaFormat::HEIC->value,
-                        'toHeif(' => MediaFormat::HEIF->value,
-                        '->toHeif(' => MediaFormat::HEIF->value,
-                    ];
+            if ($code) {
+                $formatMethods = [
+                    'toWebp(' => MediaFormat::WEBP->value,
+                    '->toWebp(' => MediaFormat::WEBP->value,
+                    'toAvif(' => MediaFormat::AVIF->value,
+                    '->toAvif(' => MediaFormat::AVIF->value,
+                    'toPng(' => MediaFormat::PNG->value,
+                    '->toPng(' => MediaFormat::PNG->value,
+                    'toJpeg(' => MediaFormat::JPG->value,
+                    '->toJpeg(' => MediaFormat::JPG->value,
+                    'toGif(' => MediaFormat::GIF->value,
+                    '->toGif(' => MediaFormat::GIF->value,
+                    'toBmp(' => MediaFormat::BMP->value,
+                    '->toBmp(' => MediaFormat::BMP->value,
+                    'toTiff(' => MediaFormat::TIFF->value,
+                    '->toTiff(' => MediaFormat::TIFF->value,
+                    'toHeic(' => MediaFormat::HEIC->value,
+                    '->toHeic(' => MediaFormat::HEIC->value,
+                    'toHeif(' => MediaFormat::HEIF->value,
+                    '->toHeif(' => MediaFormat::HEIF->value,
+                ];
 
-                    foreach ($formatMethods as $method => $format) {
-                        if (stripos($code, $method) !== false) {
-                            static::$reflectionFormatCache[$cacheKey] = $format;
-
-                            return $format;
-                        }
-                    }
-
-                    if (preg_match('/encode\w*\([\'"]([^\'\"]+)[\'"]/', $code, $matches)) {
-                        $format = $this->getExtensionFromMimeType($matches[1]);
+                foreach ($formatMethods as $method => $format) {
+                    if (stripos($code, $method) !== false) {
                         static::$reflectionFormatCache[$cacheKey] = $format;
 
                         return $format;
                     }
                 }
 
-                static::$reflectionFormatCache[$cacheKey] = null;
+                if (preg_match('/encode\w*\([\'"]([^\'\"]+)[\'"]/', $code, $matches)) {
+                    $format = $this->getExtensionFromMimeType($matches[1]);
+                    static::$reflectionFormatCache[$cacheKey] = $format;
+
+                    return $format;
+                }
             }
+
+            static::$reflectionFormatCache[$cacheKey] = null;
         } catch (Exception $e) {
             Log::debug('MediaMan: Reflection-based format detection failed', [
                 'error' => $e->getMessage(),
@@ -434,7 +434,7 @@ class Media extends Model
      */
     public function getTable(): string
     {
-        return config('mediaman.tables.media');
+        return config('mediaman.tables.media', 'mediaman_media');
     }
 
     /**
@@ -682,7 +682,7 @@ class Media extends Model
     {
         $fetch = $this->fetchCollections($collections);
 
-        if (is_countable($fetch)) {
+        if ($fetch instanceof Collection) {
             $ids = $fetch->modelKeys();
             $res = $this->collections()->sync($ids, false);
             $attached = count($res['attached']);
@@ -711,7 +711,7 @@ class Media extends Model
 
         $fetch = $this->fetchCollections($collections);
 
-        if (is_countable($fetch)) {
+        if ($fetch instanceof Collection) {
             $ids = $fetch->modelKeys();
 
             return $this->collections()->detach($ids);

@@ -263,7 +263,7 @@ trait ResponsiveImages
             $tempFile = tempnam(sys_get_temp_dir(), 'mediaman_dimensions');
             file_put_contents($tempFile, $this->filesystem()->get($this->getOriginalPath()));
 
-            $imageManager = ImageManager::imagick() ?? ImageManager::gd();
+            $imageManager = ImageManager::imagick();
             $image = $imageManager->read($tempFile);
             $dimensions = [
                 'width' => $image->width(),

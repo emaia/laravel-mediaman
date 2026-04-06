@@ -23,7 +23,7 @@ class MediaCollection extends Model
 
     public function getTable(): string
     {
-        return config('mediaman.tables.collections');
+        return config('mediaman.tables.collections', 'mediaman_collections');
     }
 
     public function scopeFindByName($query, string|array $names, array $columns = ['*'])
