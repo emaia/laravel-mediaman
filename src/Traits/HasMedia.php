@@ -5,6 +5,7 @@ namespace Emaia\MediaMan\Traits;
 use Emaia\MediaMan\Jobs\PerformConversions;
 use Emaia\MediaMan\MediaChannel;
 use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\Traits\ResolvesModels;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
 use Illuminate\Support\Facades\Log;
@@ -12,6 +13,8 @@ use Throwable;
 
 trait HasMedia
 {
+    use ResolvesModels;
+
     /** @var MediaChannel[] */
     protected array $mediaChannels = [];
 
@@ -56,7 +59,7 @@ trait HasMedia
     public function media(): MorphToMany
     {
         return $this
-            ->morphToMany(config('mediaman.models.media'), 'mediable', config('mediaman.tables.mediables'))
+            ->morphToMany($this->mediaModel(), 'mediable', config('mediaman.tables.mediables'))
             ->withPivot('channel');
     }
 
@@ -109,7 +112,7 @@ trait HasMedia
         $this->registerMediaChannels();
 
         if ($detaching === true && $this->shouldDetachAll($media)) {
-            $detachedIds = $this->getMedia($channel)->pluck('id')->toArray();
+            $detachedIds = $this->getMedia($channel)->modelKeys();
             $this->clearMediaChannel($channel);
             return ['attached' => [], 'detached' => $detachedIds, 'updated' => []];
         }
@@ -126,7 +129,7 @@ trait HasMedia
         }
 
         if (!empty($conversions)) {
-            $model = config('mediaman.models.media');
+            $model = $this->mediaModel();
 
             $mediaInstances = $model::findMany($ids);
 
@@ -139,7 +142,7 @@ trait HasMedia
         }
 
         try {
-            $currentMediaIds = $this->getMedia($channel)->pluck('id')->toArray();
+            $currentMediaIds = $this->getMedia($channel)->modelKeys();
 
             $attached = [];
             $detached = [];
@@ -238,7 +241,8 @@ trait HasMedia
             return $media->modelKeys();
         }
 
-        if ($media instanceof Media) {
+        $mediaModel = $this->mediaModel();
+        if ($media instanceof $mediaModel) {
             return [$media->getKey()];
         }
 

@@ -140,6 +140,65 @@ Here's an example configuration to use a dedicated local media disk for MediaMan
 
 Now, run `php artisan storage:link` to create the symbolic link of our newly created media disk.
 
+### Custom Models
+
+MediaMan allows you to swap the default `Media` and `MediaCollection` models with your own. This is useful for adding
+custom behavior, extra fields, UUID primary keys, or soft deletes.
+
+**Step 1:** Create your custom model(s) extending the base ones:
+
+```php
+namespace App\Models;
+
+use Emaia\MediaMan\Models\Media as BaseMedia;
+
+class Media extends BaseMedia
+{
+    // Add custom behavior, relationships, scopes, etc.
+}
+```
+
+```php
+namespace App\Models;
+
+use Emaia\MediaMan\Models\MediaCollection as BaseMediaCollection;
+
+class MediaCollection extends BaseMediaCollection
+{
+    // Add custom behavior
+}
+```
+
+**Step 2:** Point to your custom models in `config/mediaman.php`:
+
+```php
+'models' => [
+    'media' => App\Models\Media::class,
+    'collection' => App\Models\MediaCollection::class,
+],
+```
+
+All operations (uploads, relationships, collections) will now use your custom models.
+
+#### Example: Using UUIDs
+
+To use UUID primary keys, leverage Laravel's built-in `HasUuids` trait:
+
+```php
+namespace App\Models;
+
+use Emaia\MediaMan\Models\Media as BaseMedia;
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
+
+class Media extends BaseMedia
+{
+    use HasUuids;
+}
+```
+
+You will also need a custom migration to use `uuid` columns instead of `bigIncrements`. Publish the migration and
+adjust accordingly.
+
 ### Queue
 
 Image conversions and responsive image generation are dispatched as queued jobs. You can specify which queue to use:

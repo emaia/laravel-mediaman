@@ -7,6 +7,7 @@ use Emaia\MediaMan\ConversionRegistry;
 use Emaia\MediaMan\Enums\MediaFormat;
 use Emaia\MediaMan\Enums\MediaType;
 use Emaia\MediaMan\Events\MediaDeleted;
+use Emaia\MediaMan\Traits\ResolvesModels;
 use Emaia\MediaMan\Traits\ResponsiveImages;
 use Exception;
 use Illuminate\Contracts\Filesystem\Filesystem;
@@ -32,7 +33,7 @@ use SplFileObject;
  */
 class Media extends Model
 {
-    use ResponsiveImages;
+    use ResolvesModels, ResponsiveImages;
 
     const DEFAULT_CHANNEL = 'default';
 
@@ -581,7 +582,7 @@ class Media extends Model
     /**
      * Sync collections of a media
      */
-    public function syncCollections(Collection|BaseCollection|array|int|string|bool|MediaCollection|null $collections, $detaching = true): array
+    public function syncCollections(Collection|BaseCollection|array|int|string|bool|Model|null $collections, $detaching = true): array
     {
         if ($this->shouldDetachAll($collections)) {
             return $this->collections()->sync([]);
@@ -591,12 +592,12 @@ class Media extends Model
 
         if (is_countable($fetch)) {
             /** @var Collection $fetch */
-            $ids = $fetch->pluck('id')->all();
+            $ids = $fetch->modelKeys();
 
             return $this->collections()->sync($ids, $detaching);
-        } else {
-            return $this->collections()->sync($fetch->id, $detaching);
         }
+
+        return $this->collections()->sync($fetch->getKey(), $detaching);
 
     }
 
@@ -622,7 +623,7 @@ class Media extends Model
     public function collections(): BelongsToMany
     {
         return $this->belongsToMany(
-            MediaCollection::class,
+            $this->collectionModel(),
             config('mediaman.tables.collection_media'),
             'collection_id',
             'media_id');
@@ -631,41 +632,43 @@ class Media extends Model
     /**
      * Fetch collections
      */
-    private function fetchCollections(mixed $collections): Collection|BaseCollection|MediaCollection|null
+    private function fetchCollections(mixed $collections): Collection|BaseCollection|Model|null
     {
+        $model = $this->collectionModel();
+
         // an eloquent collection doesn't need to be fetched again;
         // it's treated as a valid source of MediaCollection resource
         if ($collections instanceof Collection) {
             return $collections;
         }
-        // todo: check for instance of media model / collection instead?
-        if ($collections instanceof BaseCollection) {
-            $ids = $collections->pluck('id')->all();
 
-            return MediaCollection::find($ids);
+        if ($collections instanceof BaseCollection) {
+            $ids = $collections->map(fn ($item) => method_exists($item, 'getKey') ? $item->getKey() : $item)->all();
+
+            return $model::find($ids);
         }
 
-        if (is_object($collections) && isset($collections->id)) {
-            return MediaCollection::find($collections->id);
+        if (is_object($collections) && method_exists($collections, 'getKey')) {
+            return $model::find($collections->getKey());
         }
 
         if (is_numeric($collections)) {
-            return MediaCollection::find($collections);
+            return $model::find($collections);
         }
 
         if (is_string($collections)) {
-            return MediaCollection::findByName($collections);
+            return $model::findByName($collections);
         }
 
         // all array items should be of the same type
         // find by id or name based on the type of the first item in the array
         if (is_array($collections) && isset($collections[0])) {
             if (is_numeric($collections[0])) {
-                return MediaCollection::find($collections);
+                return $model::find($collections);
             }
 
             if (is_string($collections[0])) {
-                return MediaCollection::findByName($collections);
+                return $model::findByName($collections);
             }
         }
 
@@ -675,46 +678,50 @@ class Media extends Model
     /**
      * Attach media to collections
      */
-    public function attachCollections(Collection|BaseCollection|array|int|string|MediaCollection $collections): ?int
+    public function attachCollections(Collection|BaseCollection|array|int|string|Model $collections): ?int
     {
         $fetch = $this->fetchCollections($collections);
-        if ($fetch->count()) {
 
-            $ids = $fetch->pluck('id');
+        if (is_countable($fetch)) {
+            $ids = $fetch->modelKeys();
             $res = $this->collections()->sync($ids, false);
-            $attached = count($res['attached']);
-
-            return $attached > 0 ? $attached : null;
-        } else {
-            $res = $this->collections()->sync($fetch->id, false);
             $attached = count($res['attached']);
 
             return $attached > 0 ? $attached : null;
         }
 
+        if (method_exists($fetch, 'getKey')) {
+            $res = $this->collections()->sync($fetch->getKey(), false);
+            $attached = count($res['attached']);
+
+            return $attached > 0 ? $attached : null;
+        }
+
+        return null;
     }
 
     /**
      * Detach media from collections
      */
-    public function detachCollections(Collection|int|bool|array|string|MediaCollection|null $collections): ?int
+    public function detachCollections(Collection|int|bool|array|string|Model|null $collections): ?int
     {
         if ($this->shouldDetachAll($collections)) {
             return $this->collections()->detach();
         }
 
-        // todo: check if null is returned on failure
         $fetch = $this->fetchCollections($collections);
 
-        if ($fetch->count()) {
-            $ids = $fetch->pluck('id')->all();
+        if (is_countable($fetch)) {
+            $ids = $fetch->modelKeys();
 
             return $this->collections()->detach($ids);
-        } else {
-            /* @var $fetch Media */
-            return $this->collections()->detach($fetch->id);
         }
 
+        if (method_exists($fetch, 'getKey')) {
+            return $this->collections()->detach($fetch->getKey());
+        }
+
+        return null;
     }
 
     public function hasCustomProperty(string $propertyName): bool

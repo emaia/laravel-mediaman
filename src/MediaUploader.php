@@ -6,11 +6,12 @@ use Emaia\MediaMan\Enums\MediaType;
 use Emaia\MediaMan\Events\MediaUploaded;
 use Emaia\MediaMan\Exceptions\MimeTypeNotAllowed;
 use Emaia\MediaMan\Models\Media;
-use Emaia\MediaMan\Models\MediaCollection;
+use Emaia\MediaMan\Traits\ResolvesModels;
 use Illuminate\Http\UploadedFile;
 
 class MediaUploader
 {
+    use ResolvesModels;
     /** @var UploadedFile */
     protected $file;
 
@@ -207,7 +208,7 @@ class MediaUploader
     {
         $this->validateMimeType();
 
-        $model = config('mediaman.models.media');
+        $model = $this->mediaModel();
 
         $media = new $model;
 
@@ -228,19 +229,19 @@ class MediaUploader
 
         if (count($this->collections) > 0) {
             // todo: support multiple collections
-            $collection = MediaCollection::firstOrCreate([
+            $collectionModel = $this->collectionModel();
+            $collection = $collectionModel::firstOrCreate([
                 'name' => $this->collections[0],
             ]);
 
-            $media->collections()->attach($collection->id);
+            $media->collections()->attach($collection->getKey());
         } else {
             // add to the default collection
             // todo: allow not to add in the default collection
-
-            /** @var MediaCollection|null $collection */
-            $collection = MediaCollection::findByName(config('mediaman.collection'));
+            $collectionModel = $this->collectionModel();
+            $collection = $collectionModel::findByName(config('mediaman.collection'));
             if ($collection) {
-                $media->collections()->attach($collection->id);
+                $media->collections()->attach($collection->getKey());
             }
         }
 

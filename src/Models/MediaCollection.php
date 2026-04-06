@@ -2,9 +2,11 @@
 
 namespace Emaia\MediaMan\Models;
 
+use Emaia\MediaMan\Traits\ResolvesModels;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Collection as BaseCollection;
 
 /**
@@ -14,6 +16,7 @@ use Illuminate\Support\Collection as BaseCollection;
  */
 class MediaCollection extends Model
 {
+    use ResolvesModels;
     protected $fillable = [
         'name', 'created_at', 'updated_at',
     ];
@@ -32,9 +35,9 @@ class MediaCollection extends Model
         return $query->select($columns)->where('name', $names)->first();
     }
 
-    public function media(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    public function media(): BelongsToMany
     {
-        return $this->belongsToMany(Media::class, config('mediaman.tables.collection_media'), 'media_id', 'collection_id');
+        return $this->belongsToMany($this->mediaModel(), config('mediaman.tables.collection_media'), 'media_id', 'collection_id');
     }
 
     /**
@@ -52,13 +55,13 @@ class MediaCollection extends Model
 
         if (is_countable($fetch)) {
             /** @var Collection $fetch */
-            $ids = $fetch->pluck('id')->all();
+            $ids = $fetch->modelKeys();
 
             return $this->media()->sync($ids, $detaching);
         }
 
-        if (isset($fetch->id)) {
-            return $this->media()->sync($fetch->id);
+        if (method_exists($fetch, 'getKey')) {
+            return $this->media()->sync($fetch->getKey());
         }
 
         return null;
@@ -82,7 +85,7 @@ class MediaCollection extends Model
         // which returns number of detached model, we're using sync without detachment
         if (is_countable($fetch)) {
             /** @var Collection $fetch */
-            $ids = $fetch->pluck('id')->all();
+            $ids = $fetch->modelKeys();
             $res = $this->media()->sync($ids, false);
 
             $attached = count($res['attached']);
@@ -90,8 +93,8 @@ class MediaCollection extends Model
             return $attached > 0 ? $attached : null;
         }
 
-        if (isset($fetch->id)) {
-            $res = $this->media()->sync($fetch->id, false);
+        if (method_exists($fetch, 'getKey')) {
+            $res = $this->media()->sync($fetch->getKey(), false);
 
             $attached = count($res['attached']);
 
@@ -116,13 +119,13 @@ class MediaCollection extends Model
 
         if (is_countable($fetch)) {
             /** @var Collection $fetch */
-            $ids = $fetch->pluck('id')->all();
+            $ids = $fetch->modelKeys();
 
             return $this->media()->detach($ids);
         }
 
-        if (isset($fetch->id)) {
-            return $this->media()->detach($fetch->id);
+        if (method_exists($fetch, 'getKey')) {
+            return $this->media()->detach($fetch->getKey());
         }
 
         return null;
@@ -153,29 +156,30 @@ class MediaCollection extends Model
      */
     private function fetchMedia(mixed $media): mixed
     {
+        $model = $this->mediaModel();
+
         // an eloquent collection doesn't need to be fetched again
         // it's treated as a valid source of Media resource
         if ($media instanceof EloquentCollection) {
             return $media;
         }
 
-        // todo: check for instance of media model / collection instead?
         if ($media instanceof BaseCollection) {
-            $ids = $media->pluck('id')->all();
+            $ids = $media->map(fn ($item) => method_exists($item, 'getKey') ? $item->getKey() : $item)->all();
 
-            return Media::find($ids);
+            return $model::find($ids);
         }
 
-        if (is_object($media) && isset($media->id)) {
-            return Media::find($media->id);
+        if (is_object($media) && method_exists($media, 'getKey')) {
+            return $model::find($media->getKey());
         }
 
         if (is_numeric($media)) {
-            return MediaCollection::find($media);
+            return $model::find($media);
         }
 
         if (is_string($media)) {
-            return Media::findByName($media);
+            return $model::findByName($media);
         }
 
         // all array items should be of same type
@@ -186,11 +190,11 @@ class MediaCollection extends Model
             }
 
             if (is_numeric($media[0])) {
-                return Media::find($media);
+                return $model::find($media);
             }
 
             if (is_string($media[0])) {
-                return Media::findByName($media);
+                return $model::findByName($media);
             }
         }
 
