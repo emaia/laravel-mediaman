@@ -22,7 +22,7 @@ class MediamanPublishMigrationCommand extends Command
         if ($existingMigration) {
             $this->info('Found mediaman migration: '.$existingMigration);
             if (! $this->confirm('The mediaman migration file already exists. Do you want to overwrite it?')) {
-                $this->info('Config file was not overwritten.');
+                $this->info('Migration file was not overwritten.');
 
                 return;
             }
