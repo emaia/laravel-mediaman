@@ -4,7 +4,6 @@ use Emaia\MediaMan\MediaUploader;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Tests\Models\Subject;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Storage;
 
 // --- Media Model Errors ---
 

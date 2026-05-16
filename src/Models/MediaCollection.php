@@ -17,6 +17,7 @@ use Illuminate\Support\Collection as BaseCollection;
 class MediaCollection extends Model
 {
     use ResolvesModels;
+
     protected $fillable = [
         'name', 'created_at', 'updated_at',
     ];

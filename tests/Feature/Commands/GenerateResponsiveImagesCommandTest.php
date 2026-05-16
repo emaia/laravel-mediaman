@@ -1,7 +1,6 @@
 <?php
 
 use Emaia\MediaMan\MediaUploader;
-use Emaia\MediaMan\Models\Media;
 use Illuminate\Http\UploadedFile;
 
 it('shows message when no media items found', function () {

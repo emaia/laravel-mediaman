@@ -9,7 +9,6 @@ class MediaChannel
     /**
      * Register the conversions to be performed when media is attached.
      *
-     * @param  string  ...$conversions
      * @return $this
      */
     public function performConversions(string ...$conversions): MediaChannel

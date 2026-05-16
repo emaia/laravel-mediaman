@@ -65,7 +65,7 @@ class Media extends Model
             // delete the media directory
             $deleted = Storage::disk($media->disk)->deleteDirectory($media->getDirectory());
             // if failed, try deleting the file then
-            !$deleted && Storage::disk($media->disk)->delete($media->getPath());
+            ! $deleted && Storage::disk($media->disk)->delete($media->getPath());
 
             event(new MediaDeleted($media));
         });
@@ -89,7 +89,7 @@ class Media extends Model
 
             // If the disk has changed, move the file to the new disk first
             if ($media->isDirty('disk')) {
-                $filePathOnOriginalDisk = $path . '/' . $originalFileName;
+                $filePathOnOriginalDisk = $path.'/'.$originalFileName;
                 $fileContent = Storage::disk($originalDisk)->get($filePathOnOriginalDisk);
 
                 // Store the file to the new disk
@@ -102,7 +102,7 @@ class Media extends Model
             // If the filename has changed, rename the file on the disk it currently resides
             if ($media->isDirty('file_name')) {
                 // Rename the file in the storage
-                Storage::disk($newDisk)->move($path . '/' . $originalFileName, $path . '/' . $newFileName);
+                Storage::disk($newDisk)->move($path.'/'.$originalFileName, $path.'/'.$newFileName);
             }
         });
     }
@@ -112,7 +112,7 @@ class Media extends Model
      */
     public function getDirectory(): string
     {
-        return $this->getKey() . '-' . md5($this->getKey() . config('app.key'));
+        return $this->getKey().'-'.md5($this->getKey().config('app.key'));
     }
 
     /**
@@ -132,7 +132,7 @@ class Media extends Model
         $fileName = $this->file_name;
 
         if ($conversion) {
-            $directory .= '/' . self::CONVERSIONS_DIR . '/' . $conversion;
+            $directory .= '/'.self::CONVERSIONS_DIR.'/'.$conversion;
 
             // Try to detect the correct format for this conversion
             $detectedExtension = $this->detectConversionFormat($conversion);
@@ -142,7 +142,7 @@ class Media extends Model
             }
         }
 
-        return $directory . '/' . $fileName;
+        return $directory.'/'.$fileName;
     }
 
     /**
@@ -158,12 +158,12 @@ class Media extends Model
         try {
             $conversionRegistry = app(ConversionRegistry::class);
 
-            if (!$conversionRegistry->exists($conversion)) {
+            if (! $conversionRegistry->exists($conversion)) {
                 return null;
             }
 
             // Only detect a format for image files
-            if (!$this->isOfType(MediaType::IMAGE)) {
+            if (! $this->isOfType(MediaType::IMAGE)) {
                 return null;
             }
 
@@ -282,7 +282,7 @@ class Media extends Model
             $startLine = $reflection->getStartLine();
             $endLine = $reflection->getEndLine();
 
-            if (!$filename || !$startLine || !$endLine) {
+            if (! $filename || ! $startLine || ! $endLine) {
                 return null;
             }
 
@@ -348,12 +348,12 @@ class Media extends Model
      */
     protected function detectFormatFromExistingFile(string $conversion): ?string
     {
-        $formats = array_map(fn(MediaFormat $f) => $f->value, MediaFormat::detectableFormats());
-        $baseDirectory = $this->getDirectory() . '/' . self::CONVERSIONS_DIR . '/' . $conversion;
+        $formats = array_map(fn (MediaFormat $f) => $f->value, MediaFormat::detectableFormats());
+        $baseDirectory = $this->getDirectory().'/'.self::CONVERSIONS_DIR.'/'.$conversion;
         $baseFileName = pathinfo($this->file_name, PATHINFO_FILENAME);
 
         foreach ($formats as $format) {
-            $testPath = $baseDirectory . '/' . $baseFileName . '.' . $format;
+            $testPath = $baseDirectory.'/'.$baseFileName.'.'.$format;
             if ($this->filesystem()->exists($testPath)) {
                 return $format;
             }
@@ -379,7 +379,7 @@ class Media extends Model
     {
         $pathInfo = pathinfo($fileName);
 
-        return $pathInfo['filename'] . '.' . $newExtension;
+        return $pathInfo['filename'].'.'.$newExtension;
     }
 
     /**
@@ -389,18 +389,18 @@ class Media extends Model
     {
         $allDisks = config('filesystems.disks');
 
-        if (!array_key_exists($diskName, $allDisks)) {
+        if (! array_key_exists($diskName, $allDisks)) {
             throw new InvalidArgumentException("Disk [$diskName] is not defined in the filesystems configuration.");
         }
 
         // Early return if the accessibility check is disabled
-        if (!config('mediaman.check_disk_accessibility', false)) {
+        if (! config('mediaman.check_disk_accessibility', false)) {
             return;
         }
 
         // Accessibility checks for read-write operations
         $disk = Storage::disk($diskName);
-        $tempFileName = 'temp_check_file_' . uniqid();
+        $tempFileName = 'temp_check_file_'.uniqid();
 
         try {
             // Attempt to write to the disk
@@ -409,7 +409,7 @@ class Media extends Model
             // Now, attempt to delete the temporary file
             $disk->delete($tempFileName);
         } catch (Exception $e) {
-            throw new Exception("Failed to write or delete on the disk [$diskName]. Error: " . $e->getMessage(), 0, $e);
+            throw new Exception("Failed to write or delete on the disk [$diskName]. Error: ".$e->getMessage(), 0, $e);
         }
     }
 
@@ -445,14 +445,14 @@ class Media extends Model
         $units = ['B', 'KB', 'MB', 'GB', 'TB'];
 
         if ($this->size == 0) {
-            return '0 ' . $units[1];
+            return '0 '.$units[1];
         }
 
         for ($i = 0; $this->size > 1024; $i++) {
             $this->size /= 1024;
         }
 
-        return round($this->size, 2) . ' ' . $units[$i];
+        return round($this->size, 2).' '.$units[$i];
     }
 
     /**
@@ -489,10 +489,10 @@ class Media extends Model
         $directory = $this->getDirectory();
 
         if ($conversion) {
-            $directory .= '/' . self::CONVERSIONS_DIR . '/' . $conversion;
+            $directory .= '/'.self::CONVERSIONS_DIR.'/'.$conversion;
         }
 
-        return $directory . '/' . $this->file_name;
+        return $directory.'/'.$this->file_name;
     }
 
     /**
@@ -500,7 +500,7 @@ class Media extends Model
      */
     public function getConversionUrl(string $conversion): ?string
     {
-        if (!$this->hasConversion($conversion)) {
+        if (! $this->hasConversion($conversion)) {
             return null;
         }
 
@@ -627,7 +627,7 @@ class Media extends Model
         }
 
         if ($collections instanceof BaseCollection) {
-            $ids = $collections->map(fn($item) => method_exists($item, 'getKey') ? $item->getKey() : $item)->all();
+            $ids = $collections->map(fn ($item) => method_exists($item, 'getKey') ? $item->getKey() : $item)->all();
 
             return $model::find($ids);
         }

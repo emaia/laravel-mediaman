@@ -1,7 +1,10 @@
 <?php
 
-pest()->extend(Emaia\MediaMan\Tests\TestCase::class)
-    ->use(Illuminate\Foundation\Testing\RefreshDatabase::class)
+use Emaia\MediaMan\Tests\TestCase;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+
+pest()->extend(TestCase::class)
+    ->use(RefreshDatabase::class)
     ->in('Feature');
 
 /*

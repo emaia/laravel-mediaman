@@ -6,6 +6,7 @@ use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Tests\Models\Subject;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
+use Illuminate\Database\SQLiteConnection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 
@@ -63,7 +64,7 @@ it('returns number of attached media or null while associating', function () {
 
     expect($attachedCount)->toEqual(1);
 
-    if (DB::connection() instanceof \Illuminate\Database\SQLiteConnection) {
+    if (DB::connection() instanceof SQLiteConnection) {
         // SQLite doesn't enforce foreign key constraints by default, so this test won't fail as expected in an SQLite environment.
         // However, it should work as expected on other relational databases that enforce these constraints.
         $this->markTestSkipped('Skipping test for SQLite connection.');

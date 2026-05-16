@@ -12,6 +12,7 @@ use Illuminate\Http\UploadedFile;
 class MediaUploader
 {
     use ResolvesModels;
+
     /** @var UploadedFile */
     protected $file;
 
@@ -30,7 +31,6 @@ class MediaUploader
     /** @var array */
     protected $custom_properties = [];
 
-    /** @var array|null */
     protected ?array $allowedMimeTypes = null;
 
     /**

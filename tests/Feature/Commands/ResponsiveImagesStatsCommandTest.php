@@ -1,7 +1,6 @@
 <?php
 
 use Emaia\MediaMan\MediaUploader;
-use Emaia\MediaMan\Models\Media;
 use Illuminate\Http\UploadedFile;
 
 it('shows stats with no media items', function () {

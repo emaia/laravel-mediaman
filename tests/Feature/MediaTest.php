@@ -154,7 +154,7 @@ it('validates disk usability for valid disk', function () {
 });
 
 it('throws exception for invalid disk in disk usability check', function () {
-    $this->expectException(\InvalidArgumentException::class);
+    $this->expectException(InvalidArgumentException::class);
 
     Media::ensureDiskUsability('invalidDisk');
 });
@@ -703,6 +703,7 @@ it('has a composite index on mediables table for mediable_type, mediable_id and 
     $indexColumns = collect($indexes)
         ->map(function ($index) {
             $columns = DB::select("PRAGMA index_info('{$index->name}')");
+
             return collect($columns)->pluck('name')->toArray();
         })
         ->toArray();

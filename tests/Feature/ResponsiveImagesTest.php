@@ -1,6 +1,5 @@
 <?php
 
-use Emaia\MediaMan\Enums\MediaFormat;
 use Emaia\MediaMan\MediaUploader;
 use Emaia\MediaMan\Models\Media;
 use Illuminate\Http\UploadedFile;
