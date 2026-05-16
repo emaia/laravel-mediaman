@@ -14,6 +14,7 @@ use Emaia\MediaMan\ResponsiveImages\WidthCalculator\FileSizeOptimizedWidthCalcul
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\WidthCalculator;
 use Illuminate\Support\ServiceProvider;
 use Intervention\Image\ImageManager;
+use InvalidArgumentException;
 
 class MediaManServiceProvider extends ServiceProvider
 {
@@ -28,8 +29,6 @@ class MediaManServiceProvider extends ServiceProvider
         );
 
         $this->app->singleton(ConversionRegistry::class);
-
-        $this->app->bind(MediaChannel::class);
 
         $this->registerImageManager();
         $this->registerResponsiveImageServices();
@@ -72,11 +71,13 @@ class MediaManServiceProvider extends ServiceProvider
     protected function registerImageManager(): void
     {
         $this->app->singleton(ImageManager::class, function () {
-            return match (config('mediaman.driver')) {
+            $driver = config('mediaman.driver');
+
+            return match ($driver) {
                 'imagick' => ImageManager::imagick(),
                 'gd' => ImageManager::gd(),
-                default => throw new \InvalidArgumentException(
-                    'Unsupported image driver ['.config('mediaman.driver').']. Supported: "imagick", "gd".'
+                default => throw new InvalidArgumentException(
+                    "Unsupported image driver [{$driver}]. Supported: \"imagick\", \"gd\"."
                 ),
             };
         });
