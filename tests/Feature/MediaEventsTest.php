@@ -43,7 +43,7 @@ it('dispatches ConversionCompleted event after conversions are performed', funct
 
     $conversions = [];
     $job = new PerformConversions($media, $conversions);
-    $job->handle();
+    app()->call([$job, 'handle']);
 
     Event::assertDispatched(ConversionCompleted::class, function ($event) use ($media, $conversions) {
         return $event->media->id === $media->id
@@ -59,7 +59,7 @@ it('dispatches ResponsiveImagesGenerated event after responsive images are gener
 
     $options = ['quality' => 80];
     $job = new GenerateResponsiveImages($media, $options);
-    $job->handle();
+    app()->call([$job, 'handle']);
 
     Event::assertDispatched(ResponsiveImagesGenerated::class, function ($event) use ($media, $options) {
         return $event->media->id === $media->id

@@ -44,13 +44,16 @@ class FileSizeOptimizedWidthCalculator implements WidthCalculator
         $predictedFileSize = $fileSize;
         $pixelPrice = $predictedFileSize / $area;
 
+        $reductionFactor = config('mediaman.responsive_images.file_size_optimized.reduction_factor', 0.7);
+        $minWidth = config('mediaman.responsive_images.file_size_optimized.min_width', 20);
+        $minFileSize = config('mediaman.responsive_images.file_size_optimized.min_file_size_bytes', 10240);
+
         while (true) {
-            // Reduce file size by 30% each iteration
-            $predictedFileSize *= 0.7;
+            $predictedFileSize *= $reductionFactor;
 
             $newWidth = (int) floor(sqrt(($predictedFileSize / $pixelPrice) / $ratio));
 
-            if ($this->finishedCalculating((int) $predictedFileSize, $newWidth)) {
+            if ($this->finishedCalculating((int) $predictedFileSize, $newWidth, $minWidth, $minFileSize)) {
                 break;
             }
 
@@ -64,15 +67,13 @@ class FileSizeOptimizedWidthCalculator implements WidthCalculator
     /**
      * Determine if we should stop calculating new widths.
      */
-    protected function finishedCalculating(int $predictedFileSize, int $newWidth): bool
+    protected function finishedCalculating(int $predictedFileSize, int $newWidth, int $minWidth, int $minFileSize): bool
     {
-        // Stop if width becomes too small
-        if ($newWidth < 20) {
+        if ($newWidth < $minWidth) {
             return true;
         }
 
-        // Stop if predicted file size is too small (10KB)
-        if ($predictedFileSize < (1024 * 10)) {
+        if ($predictedFileSize < $minFileSize) {
             return true;
         }
 

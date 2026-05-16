@@ -1,5 +1,8 @@
 <?php
 
+use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\Models\MediaCollection;
+
 return [
 
     /*
@@ -69,8 +72,8 @@ return [
     */
 
     'models' => [
-        'media' => \Emaia\MediaMan\Models\Media::class,
-        'collection' => \Emaia\MediaMan\Models\MediaCollection::class,
+        'media' => Media::class,
+        'collection' => MediaCollection::class,
     ],
 
     /*
@@ -216,6 +219,39 @@ return [
         */
 
         'max_width' => 2560,
+
+        /*
+        |--------------------------------------------------------------------------
+        | File Size Optimized Width Calculator
+        |--------------------------------------------------------------------------
+        |
+        | Parameters for the file_size_optimized width calculator algorithm.
+        |
+        | reduction_factor: File size reduction per iteration (0-1).
+        | min_width: Stop when calculated width falls below this value (px).
+        | min_file_size_bytes: Stop when predicted file size falls below this.
+        |
+        */
+
+        'file_size_optimized' => [
+            'reduction_factor' => 0.7,
+            'min_width' => 20,
+            'min_file_size_bytes' => 10240,
+        ],
+
+        /*
+        |--------------------------------------------------------------------------
+        | Predefined Conversion Defaults
+        |--------------------------------------------------------------------------
+        |
+        | Default values used by the built-in responsive conversions.
+        |
+        */
+
+        'predefined_conversions' => [
+            'responsive_custom_widths' => [400, 800, 1200],
+            'responsive_hq_quality' => 95,
+        ],
 
     ],
 ];

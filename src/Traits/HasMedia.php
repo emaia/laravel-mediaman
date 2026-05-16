@@ -5,7 +5,6 @@ namespace Emaia\MediaMan\Traits;
 use Emaia\MediaMan\Jobs\PerformConversions;
 use Emaia\MediaMan\MediaChannel;
 use Emaia\MediaMan\Models\Media;
-use Emaia\MediaMan\Traits\ResolvesModels;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
 use Illuminate\Support\Facades\Log;
@@ -36,13 +35,13 @@ trait HasMedia
     {
         $cacheKey = $channel ?? Media::DEFAULT_CHANNEL;
 
-        if (!isset($this->mediaCache[$cacheKey])) {
+        if (! isset($this->mediaCache[$cacheKey])) {
             if ($this->relationLoaded('media')) {
                 $media = $this->getRelation('media');
                 if ($channel === null) {
                     $this->mediaCache[$cacheKey] = $media;
                 } else {
-                    $this->mediaCache[$cacheKey] = $media->filter(fn($m) => $m->pivot->channel === $channel)->values();
+                    $this->mediaCache[$cacheKey] = $media->filter(fn ($m) => $m->pivot->channel === $channel)->values();
                 }
             } else {
                 if ($channel === null) {
@@ -68,7 +67,7 @@ trait HasMedia
      */
     public function getFirstMediaUrl(?string $channel = Media::DEFAULT_CHANNEL, string $conversion = ''): string
     {
-        if (!$media = $this->getFirstMedia($channel)) {
+        if (! $media = $this->getFirstMedia($channel)) {
             return '';
         }
 
@@ -100,12 +99,6 @@ trait HasMedia
      *
      * This will remove the media that aren't in the provided list
      * and add those which aren't already attached if $detaching is truthy.
-     *
-     * @param mixed $media
-     * @param string $channel
-     * @param array $conversions
-     * @param bool $detaching
-     * @return array|null
      */
     public function syncMedia(mixed $media, string $channel = Media::DEFAULT_CHANNEL, array $conversions = [], bool $detaching = true): ?array
     {
@@ -114,6 +107,7 @@ trait HasMedia
         if ($detaching === true && $this->shouldDetachAll($media)) {
             $detachedIds = $this->getMedia($channel)->modelKeys();
             $this->clearMediaChannel($channel);
+
             return ['attached' => [], 'detached' => $detachedIds, 'updated' => []];
         }
 
@@ -128,7 +122,7 @@ trait HasMedia
             );
         }
 
-        if (!empty($conversions)) {
+        if (! empty($conversions)) {
             $model = $this->mediaModel();
 
             $mediaInstances = $model::findMany($ids);
@@ -148,17 +142,16 @@ trait HasMedia
             $detached = [];
             $updated = [];
 
-
             if ($detaching) {
                 $toDetach = array_diff($currentMediaIds, $ids);
-                if (!empty($toDetach)) {
+                if (! empty($toDetach)) {
                     $this->media()->wherePivot('channel', $channel)->detach($toDetach);
                     $detached = array_values($toDetach);
                 }
             }
 
             foreach ($ids as $id) {
-                if (!in_array($id, $currentMediaIds)) {
+                if (! in_array($id, $currentMediaIds)) {
                     $this->media()->attach($id, ['channel' => $channel]);
                     $attached[] = $id;
                 } else {
@@ -181,8 +174,6 @@ trait HasMedia
 
     /**
      * Register all the model's media channels.
-     *
-     * @return void
      */
     public function registerMediaChannels(): void
     {
@@ -232,10 +223,9 @@ trait HasMedia
     /**
      * Parse the media id's from the mixed input.
      *
-     * @param mixed $media
-     * @return array
+     * @param  mixed  $media
      */
-    protected function parseMediaIds($media)
+    protected function parseMediaIds($media): array
     {
         if ($media instanceof Collection) {
             return $media->modelKeys();
@@ -246,13 +236,11 @@ trait HasMedia
             return [$media->getKey()];
         }
 
-        return (array)$media;
+        return (array) $media;
     }
 
     /**
      * Get the media channel with the specified name.
-     *
-     * @return MediaChannel|null
      */
     public function getMediaChannel(string $name): ?MediaChannel
     {
@@ -276,7 +264,7 @@ trait HasMedia
      */
     public function getFirstMediaUrlWithFallback(?string $channel = Media::DEFAULT_CHANNEL, string $conversion = ''): string
     {
-        if (!$media = $this->getFirstMedia($channel)) {
+        if (! $media = $this->getFirstMedia($channel)) {
             return '';
         }
 
@@ -288,7 +276,7 @@ trait HasMedia
      */
     public function getFirstMediaConversionUrl(?string $channel = Media::DEFAULT_CHANNEL, string $conversion = ''): ?string
     {
-        if (!$media = $this->getFirstMedia($channel)) {
+        if (! $media = $this->getFirstMedia($channel)) {
             return null;
         }
 
@@ -300,7 +288,7 @@ trait HasMedia
      */
     public function hasMediaConversion(?string $channel = Media::DEFAULT_CHANNEL, string $conversion = ''): bool
     {
-        if (!$media = $this->getFirstMedia($channel)) {
+        if (! $media = $this->getFirstMedia($channel)) {
             return false;
         }
 
@@ -309,12 +297,10 @@ trait HasMedia
 
     /**
      * Register a new media group.
-     *
-     * @return MediaChannel
      */
     protected function addMediaChannel(string $name): MediaChannel
     {
-        $channel = new MediaChannel;
+        $channel = app(MediaChannel::class);
 
         $this->mediaChannels[$name] = $channel;
 

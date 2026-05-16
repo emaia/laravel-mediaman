@@ -30,7 +30,7 @@ class ResponsiveConversions
         Conversion::register('responsive-custom', function ($image) {
             return new ResponsiveConversion($image, [
                 'type' => 'custom',
-                'widths' => [400, 800, 1200],
+                'widths' => config('mediaman.responsive_images.predefined_conversions.responsive_custom_widths', [400, 800, 1200]),
             ]);
         });
 
@@ -46,7 +46,7 @@ class ResponsiveConversions
         Conversion::register('responsive-hq', function ($image) {
             return new ResponsiveConversion($image, [
                 'type' => 'breakpoint',
-                'quality' => 95,
+                'quality' => config('mediaman.responsive_images.predefined_conversions.responsive_hq_quality', 95),
                 'formats' => ['webp', 'jpg'],
             ]);
         });

@@ -26,9 +26,9 @@ class PerformConversions implements ShouldQueue
         $this->conversions = $conversions;
     }
 
-    public function handle(): void
+    public function handle(ImageManipulator $manipulator): void
     {
-        app(ImageManipulator::class)->manipulate(
+        $manipulator->manipulate(
             $this->media,
             $this->conversions
         );

@@ -26,9 +26,9 @@ class GenerateResponsiveImages implements ShouldQueue
 
     }
 
-    public function handle(): void
+    public function handle(ResponsiveImageGenerator $generator): void
     {
-        app(ResponsiveImageGenerator::class)->generateResponsiveImages(
+        $generator->generateResponsiveImages(
             $this->media,
             $this->options
         );

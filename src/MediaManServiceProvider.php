@@ -29,6 +29,8 @@ class MediaManServiceProvider extends ServiceProvider
 
         $this->app->singleton(ConversionRegistry::class);
 
+        $this->app->bind(MediaChannel::class);
+
         $this->registerImageManager();
         $this->registerResponsiveImageServices();
     }
@@ -65,7 +67,7 @@ class MediaManServiceProvider extends ServiceProvider
     }
 
     /**
-     * Register responsive image-related services.
+     * Register Image Manager.
      */
     protected function registerImageManager(): void
     {
@@ -76,6 +78,9 @@ class MediaManServiceProvider extends ServiceProvider
         });
     }
 
+    /**
+     * Register responsive image-related services.
+     */
     protected function registerResponsiveImageServices(): void
     {
         $this->app->bind('mediaman.width_calculator.breakpoint', function ($app) {
