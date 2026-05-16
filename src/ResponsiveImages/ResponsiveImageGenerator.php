@@ -5,7 +5,6 @@ namespace Emaia\MediaMan\ResponsiveImages;
 use Emaia\MediaMan\Enums\MediaFormat;
 use Emaia\MediaMan\Enums\MediaType;
 use Emaia\MediaMan\Models\Media;
-use Emaia\MediaMan\ResponsiveImages\WidthCalculator\BreakpointWidthCalculator;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\WidthCalculator;
 use Intervention\Image\ImageManager;
 
@@ -15,10 +14,10 @@ class ResponsiveImageGenerator
 
     protected WidthCalculator $widthCalculator;
 
-    public function __construct(ImageManager $imageManager, ?WidthCalculator $widthCalculator = null)
+    public function __construct(ImageManager $imageManager, WidthCalculator $widthCalculator)
     {
         $this->imageManager = $imageManager;
-        $this->widthCalculator = $widthCalculator ?? new BreakpointWidthCalculator($imageManager);
+        $this->widthCalculator = $widthCalculator;
     }
 
     /**

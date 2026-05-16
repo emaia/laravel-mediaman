@@ -67,14 +67,18 @@ class MediaManServiceProvider extends ServiceProvider
     }
 
     /**
-     * Register Image Manager.
+     * Register the image manager singleton.
      */
     protected function registerImageManager(): void
     {
         $this->app->singleton(ImageManager::class, function () {
-            return config('mediaman.driver') === 'gd'
-                ? ImageManager::gd()
-                : ImageManager::imagick();
+            return match (config('mediaman.driver')) {
+                'imagick' => ImageManager::imagick(),
+                'gd' => ImageManager::gd(),
+                default => throw new \InvalidArgumentException(
+                    'Unsupported image driver ['.config('mediaman.driver').']. Supported: "imagick", "gd".'
+                ),
+            };
         });
     }
 
@@ -91,7 +95,7 @@ class MediaManServiceProvider extends ServiceProvider
 
         $this->app->bind('mediaman.width_calculator.file_size_optimized', function ($app) {
             return new FileSizeOptimizedWidthCalculator(
-                imageManager: $app->make(ImageManager::class)
+                $app->make(ImageManager::class)
             );
         });
 
