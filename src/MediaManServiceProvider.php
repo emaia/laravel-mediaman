@@ -89,7 +89,8 @@ class MediaManServiceProvider extends ServiceProvider
     {
         $this->app->bind('mediaman.width_calculator.breakpoint', function ($app) {
             return new BreakpointWidthCalculator(
-                $app->make(ImageManager::class)
+                $app->make(ImageManager::class),
+                config('mediaman.responsive_images.breakpoints')
             );
         });
 

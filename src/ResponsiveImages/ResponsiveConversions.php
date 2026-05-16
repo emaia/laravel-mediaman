@@ -15,7 +15,7 @@ class ResponsiveConversions
         Conversion::register('responsive', function ($image) {
             return new ResponsiveConversion($image, [
                 'type' => 'breakpoint',
-                'breakpoints' => config('mediaman.responsive_images.breakpoints', [320, 640, 1024, 1366, 1920]),
+                'breakpoints' => config('mediaman.responsive_images.breakpoints'),
             ]);
         });
 
