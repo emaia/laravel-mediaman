@@ -13,6 +13,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Image Processing Driver
+    |--------------------------------------------------------------------------
+    |
+    | Choose which driver intervention/image should use for processing.
+    | Supported: "imagick" (ImageMagick) or "gd" (GD Library).
+    |
+    | Make sure the corresponding PHP extension is installed.
+    |
+    */
+
+    'driver' => env('MEDIAMAN_DRIVER', 'imagick'),
+
+    /*
+    |--------------------------------------------------------------------------
     | The default collection name where files should reside.
     |--------------------------------------------------------------------------
     |

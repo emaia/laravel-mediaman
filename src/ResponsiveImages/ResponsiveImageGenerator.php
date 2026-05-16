@@ -15,10 +15,10 @@ class ResponsiveImageGenerator
 
     protected WidthCalculator $widthCalculator;
 
-    public function __construct(?ImageManager $imageManager = null, ?WidthCalculator $widthCalculator = null)
+    public function __construct(ImageManager $imageManager, ?WidthCalculator $widthCalculator = null)
     {
-        $this->imageManager = $imageManager ?? ImageManager::imagick();
-        $this->widthCalculator = $widthCalculator ?? new BreakpointWidthCalculator;
+        $this->imageManager = $imageManager;
+        $this->widthCalculator = $widthCalculator ?? new BreakpointWidthCalculator($imageManager);
     }
 
     /**

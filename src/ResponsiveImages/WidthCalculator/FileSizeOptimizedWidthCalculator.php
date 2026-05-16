@@ -9,9 +9,9 @@ class FileSizeOptimizedWidthCalculator implements WidthCalculator
 {
     protected ImageManager $imageManager;
 
-    public function __construct(?ImageManager $imageManager = null)
+    public function __construct(ImageManager $imageManager)
     {
-        $this->imageManager = $imageManager ?? ImageManager::gd();
+        $this->imageManager = $imageManager;
     }
 
     /**

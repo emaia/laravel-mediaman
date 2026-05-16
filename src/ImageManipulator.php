@@ -15,11 +15,11 @@ class ImageManipulator
 
     protected ImageManager $imageManager;
 
-    public function __construct(ConversionRegistry $conversionRegistry, ?ImageManager $imageManager = null)
+    public function __construct(ConversionRegistry $conversionRegistry, ImageManager $imageManager)
     {
         $this->conversionRegistry = $conversionRegistry;
 
-        $this->imageManager = $imageManager ?? ImageManager::imagick();
+        $this->imageManager = $imageManager;
     }
 
     /**

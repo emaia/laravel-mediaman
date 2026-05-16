@@ -13,6 +13,7 @@ use Emaia\MediaMan\ResponsiveImages\WidthCalculator\BreakpointWidthCalculator;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\FileSizeOptimizedWidthCalculator;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\WidthCalculator;
 use Illuminate\Support\ServiceProvider;
+use Intervention\Image\ImageManager;
 
 class MediaManServiceProvider extends ServiceProvider
 {
@@ -28,6 +29,7 @@ class MediaManServiceProvider extends ServiceProvider
 
         $this->app->singleton(ConversionRegistry::class);
 
+        $this->registerImageManager();
         $this->registerResponsiveImageServices();
     }
 
@@ -63,20 +65,31 @@ class MediaManServiceProvider extends ServiceProvider
     }
 
     /**
-     * Register responsive image related services.
+     * Register responsive image-related services.
      */
+    protected function registerImageManager(): void
+    {
+        $this->app->singleton(ImageManager::class, function () {
+            return config('mediaman.driver') === 'gd'
+                ? ImageManager::gd()
+                : ImageManager::imagick();
+        });
+    }
+
     protected function registerResponsiveImageServices(): void
     {
-        // Register width calculators
         $this->app->bind('mediaman.width_calculator.breakpoint', function ($app) {
-            return new BreakpointWidthCalculator;
+            return new BreakpointWidthCalculator(
+                $app->make(ImageManager::class)
+            );
         });
 
         $this->app->bind('mediaman.width_calculator.file_size_optimized', function ($app) {
-            return new FileSizeOptimizedWidthCalculator;
+            return new FileSizeOptimizedWidthCalculator(
+                imageManager: $app->make(ImageManager::class)
+            );
         });
 
-        // Register width calculator based on config
         $this->app->bind(WidthCalculator::class, function ($app) {
             $calculator = config('mediaman.responsive_images.width_calculator', 'breakpoint');
 
@@ -86,11 +99,17 @@ class MediaManServiceProvider extends ServiceProvider
             };
         });
 
-        // Register responsive image generator
         $this->app->singleton(ResponsiveImageGenerator::class, function ($app) {
             return new ResponsiveImageGenerator(
-                null, // ImageManager will use default
+                $app->make(ImageManager::class),
                 $app->make(WidthCalculator::class)
+            );
+        });
+
+        $this->app->singleton(ImageManipulator::class, function ($app) {
+            return new ImageManipulator(
+                $app->make(ConversionRegistry::class),
+                $app->make(ImageManager::class)
             );
         });
     }

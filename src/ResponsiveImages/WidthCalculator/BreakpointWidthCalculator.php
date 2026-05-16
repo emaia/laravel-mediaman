@@ -11,10 +11,10 @@ class BreakpointWidthCalculator implements WidthCalculator
 
     protected array $breakpoints;
 
-    public function __construct(?array $breakpoints = null, ?ImageManager $imageManager = null)
+    public function __construct(ImageManager $imageManager, ?array $breakpoints = null)
     {
         $this->breakpoints = $breakpoints ?? config('mediaman.responsive_images.breakpoints', [320, 640, 1024, 1366, 1920]);
-        $this->imageManager = $imageManager ?? ImageManager::gd();
+        $this->imageManager = $imageManager;
     }
 
     /**
