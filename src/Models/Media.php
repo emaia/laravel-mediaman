@@ -20,8 +20,6 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
-use ReflectionFunction;
-use SplFileObject;
 
 /**
  * @property int $id
@@ -37,15 +35,15 @@ class Media extends Model
 {
     use ResolvesModels, ResponsiveImages;
 
-    const DEFAULT_CHANNEL = 'default';
+    const string DEFAULT_CHANNEL = 'default';
 
-    const CONVERSIONS_DIR = 'conversions';
+    const string CONVERSIONS_DIR = 'conversions';
 
-    const RESPONSIVE_DIR = 'responsive';
+    const string RESPONSIVE_DIR = 'responsive';
 
-    const PROPERTY_RESPONSIVE_IMAGES = 'responsive_images';
+    const string PROPERTY_RESPONSIVE_IMAGES = 'responsive_images';
 
-    const PROPERTY_DIMENSIONS = 'dimensions';
+    const string PROPERTY_DIMENSIONS = 'dimensions';
 
     protected $fillable = [
         'name', 'file_name', 'mime_type', 'size', 'disk', 'custom_properties',
@@ -116,7 +114,7 @@ class Media extends Model
     }
 
     /**
-     * Get the path to the file on disk with correct extension for conversions.
+     * Get the path to the file on disk with the correct extension for conversions.
      */
     public function getPath(string $conversion = ''): string
     {
@@ -167,10 +165,8 @@ class Media extends Model
                 return null;
             }
 
-            $converter = $conversionRegistry->get($conversion);
-
-            // Attempt 1: try to detect a format with Reflection
-            $detectedFormat = $this->detectFormatWithReflection($converter);
+            // Attempt 1: pre-computed format from the registry
+            $detectedFormat = $conversionRegistry->getFormat($conversion);
 
             if ($detectedFormat) {
                 $this->conversionFormatCache[$conversion] = $detectedFormat;
@@ -223,91 +219,6 @@ class Media extends Model
     }
 
     /**
-     * Get a format from conversion code using Reflection
-     */
-    protected function detectFormatWithReflection(callable $converter): ?string
-    {
-        try {
-            $reflection = new ReflectionFunction($converter);
-            $code = $this->getClosureCode($reflection);
-
-            if ($code) {
-                $formatMethods = [
-                    'toWebp(' => MediaFormat::WEBP->value,
-                    '->toWebp(' => MediaFormat::WEBP->value,
-                    'toAvif(' => MediaFormat::AVIF->value,
-                    '->toAvif(' => MediaFormat::AVIF->value,
-                    'toPng(' => MediaFormat::PNG->value,
-                    '->toPng(' => MediaFormat::PNG->value,
-                    'toJpeg(' => MediaFormat::JPG->value,
-                    '->toJpeg(' => MediaFormat::JPG->value,
-                    'toGif(' => MediaFormat::GIF->value,
-                    '->toGif(' => MediaFormat::GIF->value,
-                    'toBmp(' => MediaFormat::BMP->value,
-                    '->toBmp(' => MediaFormat::BMP->value,
-                    'toTiff(' => MediaFormat::TIFF->value,
-                    '->toTiff(' => MediaFormat::TIFF->value,
-                    'toHeic(' => MediaFormat::HEIC->value,
-                    '->toHeic(' => MediaFormat::HEIC->value,
-                    'toHeif(' => MediaFormat::HEIF->value,
-                    '->toHeif(' => MediaFormat::HEIF->value,
-                ];
-
-                foreach ($formatMethods as $method => $format) {
-                    if (stripos($code, $method) !== false) {
-                        return $format;
-                    }
-                }
-
-                if (preg_match('/encode\w*\([\'"]([^\'\"]+)[\'"]/', $code, $matches)) {
-                    return $this->getExtensionFromMimeType($matches[1]);
-                }
-            }
-        } catch (Exception $e) {
-            Log::debug('MediaMan: Reflection-based format detection failed', [
-                'error' => $e->getMessage(),
-            ]);
-        }
-
-        return null;
-    }
-
-    /**
-     * Extract the closure code using Reflection.
-     */
-    protected function getClosureCode(ReflectionFunction $reflection): ?string
-    {
-        try {
-            $filename = $reflection->getFileName();
-            $startLine = $reflection->getStartLine();
-            $endLine = $reflection->getEndLine();
-
-            if (! $filename || ! $startLine || ! $endLine) {
-                return null;
-            }
-
-            // read only the necessary lines
-            $file = new SplFileObject($filename);
-            $file->seek($startLine - 1);
-
-            $code = '';
-            for ($i = $startLine; $i <= $endLine; $i++) {
-                $code .= $file->current();
-                $file->next();
-            }
-
-            return $code;
-
-        } catch (Exception $e) {
-            Log::debug('MediaMan: Failed to extract closure code', [
-                'error' => $e->getMessage(),
-            ]);
-
-            return null;
-        }
-    }
-
-    /**
      * Get file extension from a mime type with extended support.
      */
     public function getExtensionFromMimeType(string $mimeType): string
@@ -316,7 +227,7 @@ class Media extends Model
     }
 
     /**
-     * Detect the format based on conversion name.
+     * Detect the format based on the conversion name.
      */
     protected function detectFormatFromConversionName(string $conversion): ?string
     {
