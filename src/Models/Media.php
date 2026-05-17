@@ -12,6 +12,7 @@ use Emaia\MediaMan\Traits\ResponsiveImages;
 use Exception;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Arr;
@@ -33,7 +34,15 @@ use InvalidArgumentException;
  */
 class Media extends Model
 {
-    use ResolvesModels, ResponsiveImages;
+    use HasFactory, ResolvesModels, ResponsiveImages;
+
+    /**
+     * Create a new factory instance for the model.
+     */
+    protected static function newFactory()
+    {
+        return \Emaia\MediaMan\Database\Factories\MediaFactory::new();
+    }
 
     const string DEFAULT_CHANNEL = 'default';
 

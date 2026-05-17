@@ -19,7 +19,7 @@ it('registers the media relationship', function () {
 });
 
 it('can attach media to the default channel', function () {
-    $media = factory(Media::class)->create();
+    $media = Media::factory()->create();
 
     $this->subject->attachMedia($media);
 
@@ -30,7 +30,7 @@ it('can attach media to the default channel', function () {
 });
 
 it('can attach media to a named channel', function () {
-    $media = factory(Media::class)->create();
+    $media = Media::factory()->create();
 
     $this->subject->attachMedia($media, $channel = 'custom');
 
@@ -41,7 +41,7 @@ it('can attach media to a named channel', function () {
 });
 
 it('can attach a collection of media', function () {
-    $media = factory(Media::class, 2)->create();
+    $media = Media::factory()->count(2)->create();
 
     $this->subject->attachMedia($media);
 
@@ -58,7 +58,7 @@ it('can attach a collection of media', function () {
 });
 
 it('returns number of attached media or null while associating', function () {
-    $media = factory(Media::class)->create();
+    $media = Media::factory()->create();
 
     $attachedCount = $this->subject->attachMedia($media, 'custom');
 
@@ -76,7 +76,7 @@ it('returns number of attached media or null while associating', function () {
 });
 
 it('returns number of detached media or null while disassociating', function () {
-    $media = factory(Media::class)->create();
+    $media = Media::factory()->create();
     $this->subject->attachMedia($media, 'custom');
 
     $detached = $this->subject->detachMedia($media);
@@ -89,7 +89,7 @@ it('returns number of detached media or null while disassociating', function () 
 });
 
 it('can attach media and returns number of media attached', function () {
-    $media = factory(Media::class)->create();
+    $media = Media::factory()->create();
 
     $attachedCount = $this->subject->attachMedia($media);
 
@@ -100,7 +100,7 @@ it('can attach media and returns number of media attached', function () {
 });
 
 it('can detach media and returns number of media detached', function () {
-    $media = factory(Media::class)->create();
+    $media = Media::factory()->create();
     $this->subject->attachMedia($media);
 
     $detachedCount = $this->subject->detachMedia($media);
@@ -140,7 +140,7 @@ it('can sync media and returns sync status', function () {
 });
 
 it('can sync collections for a media instance', function () {
-    $media = factory(Media::class)->create();
+    $media = Media::factory()->create();
     $collections = ['collection1', 'collection2'];
 
     $syncStatus = $media->syncCollections($collections);
@@ -153,7 +153,7 @@ it('can sync collections for a media instance', function () {
 it('will perform the given conversions when media is attached', function () {
     Queue::fake();
 
-    $media = factory(Media::class)->create();
+    $media = Media::factory()->create();
 
     $conversions = ['conversion'];
 
@@ -171,7 +171,7 @@ it('will perform the given conversions when media is attached', function () {
 it('will perform the conversions registered by the channel when media is attached', function () {
     Queue::fake();
 
-    $media = factory(Media::class)->create();
+    $media = Media::factory()->create();
 
     $this->subject->attachMedia($media, $channel = 'converted-images');
 
@@ -189,7 +189,7 @@ it('will perform the conversions registered by the channel when media is attache
 });
 
 it('can retrieve all the media from the default channel', function () {
-    $media = factory(Media::class, 2)->create();
+    $media = Media::factory()->count(2)->create();
 
     $this->subject->attachMedia($media);
 
@@ -200,7 +200,7 @@ it('can retrieve all the media from the default channel', function () {
 });
 
 it('can retrieve all the media from the specified channel', function () {
-    $media = factory(Media::class, 2)->create();
+    $media = Media::factory()->count(2)->create();
 
     $this->subject->attachMedia($media, 'gallery');
 
@@ -218,7 +218,7 @@ it('can handle attempts to get media from an empty channel', function () {
 });
 
 it('can retrieve the first media from the default channel', function () {
-    $media = factory(Media::class)->create();
+    $media = Media::factory()->create();
 
     $this->subject->attachMedia($media);
 
@@ -229,7 +229,7 @@ it('can retrieve the first media from the default channel', function () {
 });
 
 it('can retrieve the first media from the specified channel', function () {
-    $media = factory(Media::class)->create();
+    $media = Media::factory()->create();
 
     $this->subject->attachMedia($media, 'gallery');
 
@@ -240,8 +240,8 @@ it('can retrieve the first media from the specified channel', function () {
 });
 
 it('will only retrieve media from the specified channel', function () {
-    $defaultMedia = factory(Media::class)->create();
-    $galleryMedia = factory(Media::class)->create();
+    $defaultMedia = Media::factory()->create();
+    $galleryMedia = Media::factory()->create();
 
     // Attach media to the default channel...
     $this->subject->attachMedia($defaultMedia->id);
@@ -262,7 +262,7 @@ it('will only retrieve media from the specified channel', function () {
 });
 
 it('can retrieve the url of the first media item from the default channel', function () {
-    $media = factory(Media::class)->create();
+    $media = Media::factory()->create();
 
     $this->subject->attachMedia($media);
 
@@ -272,7 +272,7 @@ it('can retrieve the url of the first media item from the default channel', func
 });
 
 it('can retrieve the url of the first media item from the specified channel', function () {
-    $media = factory(Media::class)->create();
+    $media = Media::factory()->create();
 
     $this->subject->attachMedia($media, 'gallery');
 
@@ -282,7 +282,7 @@ it('can retrieve the url of the first media item from the specified channel', fu
 });
 
 it('can retrieve the converted image url of the first media item from the specified group', function () {
-    $media = factory(Media::class)->create();
+    $media = Media::factory()->create();
 
     $this->subject->attachMedia($media, 'gallery');
 
@@ -292,7 +292,7 @@ it('can retrieve the converted image url of the first media item from the specif
 });
 
 it('can determine if there is media in the default channel', function () {
-    $media = factory(Media::class)->create();
+    $media = Media::factory()->create();
 
     $this->subject->attachMedia($media);
 
@@ -301,7 +301,7 @@ it('can determine if there is media in the default channel', function () {
 });
 
 it('can determine if there is any media in the specified group', function () {
-    $media = factory(Media::class)->create();
+    $media = Media::factory()->create();
 
     $this->subject->attachMedia($media, 'gallery');
 
@@ -310,8 +310,8 @@ it('can determine if there is any media in the specified group', function () {
 });
 
 it('can detach all the media', function () {
-    $mediaOne = factory(Media::class)->create();
-    $mediaTwo = factory(Media::class)->create();
+    $mediaOne = Media::factory()->create();
+    $mediaTwo = Media::factory()->create();
 
     $this->subject->attachMedia($mediaOne);
     $this->subject->attachMedia($mediaTwo, 'gallery');
@@ -322,8 +322,8 @@ it('can detach all the media', function () {
 });
 
 it('can detach specific media items', function () {
-    $mediaOne = factory(Media::class)->create();
-    $mediaTwo = factory(Media::class)->create();
+    $mediaOne = Media::factory()->create();
+    $mediaTwo = Media::factory()->create();
 
     $this->subject->attachMedia([
         $mediaOne->id, $mediaTwo->id,
@@ -336,8 +336,8 @@ it('can detach specific media items', function () {
 });
 
 it('can detach all the media in a specified channel', function () {
-    $mediaOne = factory(Media::class)->create();
-    $mediaTwo = factory(Media::class)->create();
+    $mediaOne = Media::factory()->create();
+    $mediaTwo = Media::factory()->create();
 
     $this->subject->attachMedia($mediaOne, 'one');
     $this->subject->attachMedia($mediaTwo, 'two');
@@ -350,10 +350,10 @@ it('can detach all the media in a specified channel', function () {
 });
 
 it('syncMedia only affects the specified channel and preserves other channels', function () {
-    $featuredMedia = factory(Media::class)->create();
-    $galleryMedia1 = factory(Media::class)->create();
-    $galleryMedia2 = factory(Media::class)->create();
-    $newFeaturedMedia = factory(Media::class)->create();
+    $featuredMedia = Media::factory()->create();
+    $galleryMedia1 = Media::factory()->create();
+    $galleryMedia2 = Media::factory()->create();
+    $newFeaturedMedia = Media::factory()->create();
 
     $this->subject->attachMedia($featuredMedia, 'featured-image');
     $this->subject->attachMedia([$galleryMedia1, $galleryMedia2], 'gallery');
@@ -372,8 +372,8 @@ it('syncMedia only affects the specified channel and preserves other channels', 
 });
 
 it('syncMedia with empty media only clears the specified channel', function () {
-    $featuredMedia = factory(Media::class)->create();
-    $galleryMedia = factory(Media::class)->create();
+    $featuredMedia = Media::factory()->create();
+    $galleryMedia = Media::factory()->create();
 
     $this->subject->attachMedia($featuredMedia, 'featured-image');
     $this->subject->attachMedia($galleryMedia, 'gallery');
