@@ -77,15 +77,15 @@ class ConversionRegistry
 
             if ($code) {
                 $formatMethods = [
-                    'toWebp(' => MediaFormat::WEBP->value,
-                    'toAvif(' => MediaFormat::AVIF->value,
-                    'toPng(' => MediaFormat::PNG->value,
-                    'toJpeg(' => MediaFormat::JPG->value,
-                    'toGif(' => MediaFormat::GIF->value,
-                    'toBmp(' => MediaFormat::BMP->value,
-                    'toTiff(' => MediaFormat::TIFF->value,
-                    'toHeic(' => MediaFormat::HEIC->value,
-                    'toHeif(' => MediaFormat::HEIF->value,
+                    'encodeUsingFormat(Format::WEBP' => MediaFormat::WEBP->value,
+                    'encodeUsingFormat(Format::AVIF' => MediaFormat::AVIF->value,
+                    'encodeUsingFormat(Format::PNG' => MediaFormat::PNG->value,
+                    'encodeUsingFormat(Format::JPEG' => MediaFormat::JPG->value,
+                    'encodeUsingFormat(Format::GIF' => MediaFormat::GIF->value,
+                    'encodeUsingFormat(Format::BMP' => MediaFormat::BMP->value,
+                    'encodeUsingFormat(Format::TIFF' => MediaFormat::TIFF->value,
+                    'encodeUsingFormat(Format::HEIC' => MediaFormat::HEIC->value,
+                    'encodeUsingFormat(Format::HEIF' => MediaFormat::HEIF->value,
                 ];
 
                 foreach ($formatMethods as $method => $format) {
@@ -94,7 +94,7 @@ class ConversionRegistry
                     }
                 }
 
-                if (preg_match('/encode\w*\([\'"]([^\'\"]+)[\'"]/', $code, $matches)) {
+                if (preg_match('/encode\([\'"]([^\'\"]+)[\'"]/', $code, $matches)) {
                     return MediaFormat::extensionFromMimeType($matches[1]);
                 }
             }

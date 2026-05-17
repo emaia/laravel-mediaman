@@ -73,7 +73,7 @@ it('detects webp format from closure source at registration time', function () {
     $conversionRegistry = new ConversionRegistry;
 
     $conversionRegistry->register('thumb', function (Image $image) {
-        return $image->resize(64, 64)->toWebp(80);
+        return $image->resize(64, 64)->encodeUsingFormat(Format::WEBP80);
     });
 
     expect($conversionRegistry->getFormat('thumb'))->toBe('webp');
@@ -83,7 +83,7 @@ it('detects avif format from closure source', function () {
     $conversionRegistry = new ConversionRegistry;
 
     $conversionRegistry->register('hero', function (Image $image) {
-        return $image->toAvif(50);
+        return $image->encodeUsingFormat(Format::AVIF50);
     });
 
     expect($conversionRegistry->getFormat('hero'))->toBe('avif');
@@ -93,7 +93,7 @@ it('detects png format from closure source', function () {
     $conversionRegistry = new ConversionRegistry;
 
     $conversionRegistry->register('logo', function (Image $image) {
-        return $image->toPng();
+        return $image->encodeUsingFormat(Format::PNG);
     });
 
     expect($conversionRegistry->getFormat('logo'))->toBe('png');
@@ -103,7 +103,7 @@ it('detects jpg format from closure source', function () {
     $conversionRegistry = new ConversionRegistry;
 
     $conversionRegistry->register('thumb', function (Image $image) {
-        return $image->toJpeg(90);
+        return $image->encodeUsingFormat(Format::JPEG90);
     });
 
     expect($conversionRegistry->getFormat('thumb'))->toBe('jpg');
@@ -139,7 +139,7 @@ it('get() still returns the original closure after format refactor', function ()
     $conversionRegistry = new ConversionRegistry;
 
     $conversionRegistry->register('test', function (Image $image) {
-        return $image->toWebp();
+        return $image->encodeUsingFormat(Format::WEBP);
     });
 
     $closure = $conversionRegistry->get('test');

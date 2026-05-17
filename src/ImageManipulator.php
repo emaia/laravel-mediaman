@@ -34,7 +34,7 @@ class ImageManipulator
         foreach ($conversions as $conversion) {
             $converter = $this->conversionRegistry->get($conversion);
 
-            $image = $converter($this->imageManager->read(
+            $image = $converter($this->imageManager->decode(
                 $media->filesystem()->readStream($media->getOriginalPath())
             ));
 
@@ -48,13 +48,13 @@ class ImageManipulator
                     continue;
                 }
 
-                $filesystem->put($path, $image->toFilePointer());
+                $filesystem->put($path, $image->toStream());
 
                 continue;
             }
 
             if ($image instanceof Image) {
-                $encoded = $image->encodeByMediaType();
+                $encoded = $image->encode();
                 $extension = $this->getExtensionFromMimeType($encoded->mediaType());
                 $path = $this->getConversionPathWithExtension($media, $conversion, $extension);
 
@@ -62,7 +62,7 @@ class ImageManipulator
                     continue;
                 }
 
-                $filesystem->put($path, $encoded->toFilePointer());
+                $filesystem->put($path, $encoded->toStream());
             }
         }
     }

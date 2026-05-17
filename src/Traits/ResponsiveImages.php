@@ -264,7 +264,7 @@ trait ResponsiveImages
             file_put_contents($tempFile, $this->filesystem()->get($this->getOriginalPath()));
 
             $imageManager = app(ImageManager::class);
-            $image = $imageManager->read($tempFile);
+            $image = $imageManager->decode($tempFile);
             $dimensions = [
                 'width' => $image->width(),
                 'height' => $image->height(),

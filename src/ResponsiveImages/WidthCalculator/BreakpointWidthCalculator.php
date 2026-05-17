@@ -22,7 +22,7 @@ class BreakpointWidthCalculator implements WidthCalculator
      */
     public function calculateWidthsFromFile(string $imagePath): Collection
     {
-        $image = $this->imageManager->read($imagePath);
+        $image = $this->imageManager->decode($imagePath);
 
         $originalWidth = $image->width();
         $originalHeight = $image->height();
