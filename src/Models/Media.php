@@ -278,7 +278,7 @@ class Media extends Model
      *
      * @return Filesystem
      */
-    public function filesystem()
+    public function filesystem(): Filesystem
     {
         return Storage::disk($this->disk);
     }

@@ -2,7 +2,7 @@
 
 use Emaia\MediaMan\MediaUploader;
 use Emaia\MediaMan\Models\Media;
-use Illuminate\Filesystem\Filesystem;
+use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
