@@ -675,19 +675,19 @@ it('can remove collections if its bool null empty string or empty array with det
 });
 
 it('can check custom data existence', function () {
-    $media = factory(Media::class)->create();
+    $media = Media::factory()->create();
     expect($media->hasCustomProperty('color'))->tobeFalse();
 });
 
 it('can set custom data', function () {
-    $media = factory(Media::class)->create();
+    $media = Media::factory()->create();
     $media->setCustomProperty('color', 'blue');
     expect($media->hasCustomProperty('color'))->toBeTrue()
         ->and($media->getCustomProperty('color'))->toEqual('blue');
 });
 
 it('can forget custom data', function () {
-    $media = factory(Media::class)->create();
+    $media = Media::factory()->create();
     $media->setCustomProperty('color', 'blue');
     $media->setCustomProperty('size', 'small');
     $media->forgetCustomProperty('color');

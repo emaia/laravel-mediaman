@@ -27,7 +27,7 @@ class TestCase extends Orchestra
         parent::setUp();
 
         $this->loadMigrationsFrom(__DIR__.'/database/migrations');
-        $this->withFactories(__DIR__.'/database/factories');
+        require_once __DIR__.'/database/factories/MediaFactory.php';
 
         // Use a test disk as the default disk...
         Config::set('mediaman.disk', self::DEFAULT_DISK);
