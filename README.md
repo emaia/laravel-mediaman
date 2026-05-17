@@ -67,10 +67,9 @@ There are a few key concepts that need to be understood before continuing:
 
 ## Requirements
 
-| Laravel | Package | PHP     |
-|---------|---------|---------|
-| v12     | 1.x     | 8.2–8.3 |
-| v13     | 1.x     | 8.3–8.5 |
+| Laravel | Package | PHP   |
+|---------|---------|-------|
+| v12–v13 | 1.x     | 8.3+  |
 
 ## Installation
 
@@ -139,6 +138,23 @@ Here's an example configuration to use a dedicated local media disk for MediaMan
 ```
 
 Now, run `php artisan storage:link` to create the symbolic link of our newly created media disk.
+
+### Image Driver
+
+MediaMan uses [intervention/image](https://github.com/Intervention/image) under the hood. You can choose which
+PHP image library to use via the `driver` config key:
+
+```php
+// file: config/mediaman.php
+'driver' => env('MEDIAMAN_DRIVER', 'imagick'), // or 'gd'
+```
+
+| Driver    | PHP Extension     | Notes                                      |
+|-----------|-------------------|--------------------------------------------|
+| `imagick` | ext-imagick       | Default. Higher quality, full color-space support |
+| `gd`      | ext-gd            | Lighter, bundled in most PHP installations |
+
+If an invalid value is set, an `InvalidArgumentException` will be thrown at runtime.
 
 ### Custom Models
 
@@ -228,6 +244,19 @@ php artisan queue:work
     'width_calculator' => 'breakpoint', // or 'file_size_optimized'
     'min_width'        => 320,
     'max_width'        => 2560,
+
+    // File-size-optimized calculator parameters
+    'file_size_optimized' => [
+        'reduction_factor'   => 0.7,
+        'min_width'          => 20,
+        'min_file_size_bytes' => 10240,
+    ],
+
+    // Defaults for built-in responsive conversions
+    'predefined_conversions' => [
+        'responsive_custom_widths' => [400, 800, 1200],
+        'responsive_hq_quality'    => 95,
+    ],
 ],
 ```
 
@@ -242,6 +271,11 @@ php artisan queue:work
 | `width_calculator` | `'breakpoint'`                 | `breakpoint` uses fixed widths; `file_size_optimized` selects widths based on file-size reduction |
 | `min_width`        | `320`                          | Images narrower than this won't generate a variant                                                |
 | `max_width`        | `2560`                         | Widths above this are capped                                                                      |
+| `file_size_optimized.reduction_factor` | `0.7`      | File-size reduction multiplier per iteration (0–1)                                                |
+| `file_size_optimized.min_width`        | `20`       | Stop iterating when calculated width falls below this (px)                                        |
+| `file_size_optimized.min_file_size_bytes` | `10240` | Stop when predicted file size falls below this (bytes)                                            |
+| `predefined_conversions.responsive_custom_widths` | `[400, 800, 1200]` | Widths for the `responsive-custom` conversion                               |
+| `predefined_conversions.responsive_hq_quality`    | `95`                 | Quality for the `responsive-hq` conversion                                  |
 
 -----
 
