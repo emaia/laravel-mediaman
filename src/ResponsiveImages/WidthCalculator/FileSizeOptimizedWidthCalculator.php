@@ -19,7 +19,7 @@ class FileSizeOptimizedWidthCalculator implements WidthCalculator
      */
     public function calculateWidthsFromFile(string $imagePath): Collection
     {
-        $image = $this->imageManager->read($imagePath);
+        $image = $this->imageManager->decode($imagePath);
 
         $width = $image->width();
         $height = $image->height();

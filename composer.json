@@ -1,7 +1,7 @@
 {
     "name": "emaia/laravel-mediaman",
     "license": "MIT",
-    "description": "MediaMan - The most elegant & powerful media management package for Laravel!",
+    "description": "MediaMan - Elegant & powerful media management package for Laravel!",
     "keywords": [
         "laravel package",
         "laravel media",
@@ -19,12 +19,6 @@
             "email": "eu@emaia.dev",
             "homepage": "https://emaia.dev",
             "role": "Developer"
-        },
-        {
-            "name": "Farhan Israq",
-            "email": "farhan.israq.bd@gmail.com",
-            "homepage": "https://farhanshares.com",
-            "role": "Developer"
         }
     ],
     "require": {
@@ -32,16 +26,16 @@
         "illuminate/support": "^12.0|^13.0",
         "illuminate/database": "^12.0|^13.0",
         "illuminate/validation": "^12.0|^13.0",
-        "intervention/image": "^3.0"
+        "intervention/image": "^4.0"
     },
     "require-dev": {
+        "larastan/larastan": "^3.0",
+        "laravel/pao": "^1.0",
+        "laravel/pint": "^1.29",
+        "mockery/mockery": "^1.6",
         "orchestra/testbench": "^10.0|^11.0",
         "orchestra/workbench": "^10.0|^11.0",
-        "pestphp/pest": "^v4.7.0",
-        "mockery/mockery": "^1.6",
-        "larastan/larastan": "^3.0",
-        "laravel/pint": "^1.29",
-        "laravel/pao": "^1.0"
+        "pestphp/pest": "^v4.7.0"
     },
     "autoload": {
         "psr-4": {
@@ -69,8 +63,8 @@
     },
     "scripts": {
         "analyse": "./vendor/bin/phpstan analyse",
+        "format": "vendor/bin/pint",
         "test" : "./vendor/bin/pest",
-        "test-coverage": "vendor/bin/pest --coverage",
-        "format": "vendor/bin/pint"
+        "test-coverage": "vendor/bin/pest --coverage"
     }
 }

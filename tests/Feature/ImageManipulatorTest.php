@@ -28,7 +28,7 @@ it('it will apply registered conversions', function () {
 
     $manager = new ImageManager(Driver::class);
 
-    $image = $manager->create(640, 480);
+    $image = $manager->createImage(640, 480);
 
     $image->save(Storage::disk('test')->path('1-'.md5('1'.config('app.key')).'/original.png'));
 
@@ -44,7 +44,7 @@ it('it will apply registered conversions', function () {
 
     $manipulator->manipulate($media, ['resize'], onlyIfMissing: false);
 
-    $convertedImage = $manager->read(Storage::disk('test')->path('1-'.md5('1'.config('app.key')).'/conversions/resize/original.png'));
+    $convertedImage = $manager->decode(Storage::disk('test')->path('1-'.md5('1'.config('app.key')).'/conversions/resize/original.png'));
     expect($convertedImage->width())->toBe(64)
         ->and($convertedImage->height())->toBe(50);
 

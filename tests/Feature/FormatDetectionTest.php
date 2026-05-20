@@ -7,6 +7,7 @@ use Emaia\MediaMan\MediaUploader;
 use Emaia\MediaMan\Tests\TestCase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Intervention\Image\Format;
 use Intervention\Image\Image;
 use PHPUnit\Framework\Attributes\Test;
 
@@ -20,15 +21,15 @@ class FormatDetectionTest extends TestCase
 
         // Register test conversions
         Conversion::register('webp_thumb', function (Image $image) {
-            return $image->resize(200, 200)->toWebp();
+            return $image->resize(200, 200)->encodeUsingFormat(Format::WEBP);
         });
 
         Conversion::register('avif_hero', function (Image $image) {
-            return $image->resize(800, 600)->toAvif();
+            return $image->resize(800, 600)->encodeUsingFormat(Format::AVIF);
         });
 
         Conversion::register('png_logo', function (Image $image) {
-            return $image->resize(100, 100)->toPng();
+            return $image->resize(100, 100)->encodeUsingFormat(Format::PNG);
         });
 
         Conversion::register('original_format', function (Image $image) {

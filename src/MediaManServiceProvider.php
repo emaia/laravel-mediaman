@@ -13,6 +13,8 @@ use Emaia\MediaMan\ResponsiveImages\WidthCalculator\BreakpointWidthCalculator;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\FileSizeOptimizedWidthCalculator;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\WidthCalculator;
 use Illuminate\Support\ServiceProvider;
+use Intervention\Image\Drivers\Gd\Driver as GdDriver;
+use Intervention\Image\Drivers\Imagick\Driver as ImagickDriver;
 use Intervention\Image\ImageManager;
 use InvalidArgumentException;
 
@@ -74,8 +76,8 @@ class MediaManServiceProvider extends ServiceProvider
             $driver = config('mediaman.driver');
 
             return match ($driver) {
-                'imagick' => ImageManager::imagick(),
-                'gd' => ImageManager::gd(),
+                'imagick' => ImageManager::usingDriver(ImagickDriver::class),
+                'gd' => ImageManager::usingDriver(GdDriver::class),
                 default => throw new InvalidArgumentException(
                     "Unsupported image driver [{$driver}]. Supported: \"imagick\", \"gd\"."
                 ),

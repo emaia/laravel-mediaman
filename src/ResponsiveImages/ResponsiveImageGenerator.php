@@ -6,6 +6,7 @@ use Emaia\MediaMan\Enums\MediaFormat;
 use Emaia\MediaMan\Enums\MediaType;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\WidthCalculator;
+use Intervention\Image\Format;
 use Intervention\Image\ImageManager;
 
 class ResponsiveImageGenerator
@@ -52,7 +53,7 @@ class ResponsiveImageGenerator
         }
 
         $responsiveData = [];
-        $originalImage = $this->imageManager->read($filesystem->readStream($originalPath));
+        $originalImage = $this->imageManager->decode($filesystem->readStream($originalPath));
 
         foreach ($widths as $targetWidth) {
             // Skip if target width is larger than original
@@ -83,17 +84,17 @@ class ResponsiveImageGenerator
         $image->scaleDown($targetWidth, null);
 
         $encodedImage = match ($format) {
-            MediaFormat::WEBP->value => $image->toWebp($quality),
-            MediaFormat::AVIF->value => $image->toAvif($quality),
-            MediaFormat::PNG->value => $image->toPng(),
-            default => $image->toJpeg($quality),
+            MediaFormat::WEBP->value => $image->encodeUsingFormat(Format::WEBP, quality: $quality),
+            MediaFormat::AVIF->value => $image->encodeUsingFormat(Format::AVIF, quality: $quality),
+            MediaFormat::PNG->value => $image->encodeUsingFormat(Format::PNG),
+            default => $image->encodeUsingFormat(Format::JPEG, quality: $quality),
         };
 
         $directory = $media->getDirectory().'/'.Media::RESPONSIVE_DIR;
         $fileName = $this->generateResponsiveFileName($media->file_name, $targetWidth, $format);
         $path = $directory.'/'.$fileName;
 
-        $media->filesystem()->put($path, $encodedImage->toFilePointer());
+        $media->filesystem()->put($path, $encodedImage->toStream());
 
         return [
             'width' => $targetWidth,
@@ -101,7 +102,7 @@ class ResponsiveImageGenerator
             'format' => $format,
             'path' => $path,
             'url' => $media->filesystem()->url($path),
-            'size' => strlen($encodedImage->toString()),
+            'size' => strlen((string) $encodedImage),
         ];
     }
 
