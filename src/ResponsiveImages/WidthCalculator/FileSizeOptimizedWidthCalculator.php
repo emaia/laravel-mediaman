@@ -15,17 +15,21 @@ class FileSizeOptimizedWidthCalculator implements WidthCalculator
     }
 
     /**
-     * Calculate optimal widths from an image file.
+     * Calculate optimal widths from an image file path.
      */
     public function calculateWidthsFromFile(string $imagePath): Collection
     {
-        $image = $this->imageManager->decode($imagePath);
+        return $this->calculateWidthsFromBinary((string) file_get_contents($imagePath));
+    }
 
-        $width = $image->width();
-        $height = $image->height();
-        $fileSize = filesize($imagePath);
+    /**
+     * Calculate optimal widths from in-memory binary image data.
+     */
+    public function calculateWidthsFromBinary(string $binary): Collection
+    {
+        $image = $this->imageManager->decode($binary);
 
-        return $this->calculateWidths($fileSize, $width, $height);
+        return $this->calculateWidths(strlen($binary), $image->width(), $image->height());
     }
 
     /**

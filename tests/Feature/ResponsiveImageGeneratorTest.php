@@ -112,7 +112,7 @@ it('uses the configured width calculator when widths option is omitted', functio
     $media = MediaUploader::source($file)->upload();
 
     $calculator = Mockery::mock(WidthCalculator::class);
-    $calculator->shouldReceive('calculateWidthsFromFile')
+    $calculator->shouldReceive('calculateWidthsFromBinary')
         ->once()
         ->andReturn(collect([300]));
 

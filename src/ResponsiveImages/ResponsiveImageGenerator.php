@@ -42,18 +42,17 @@ class ResponsiveImageGenerator
         $formats = $options['formats'] ?? config('mediaman.responsive_images.formats', ['webp', 'jpg']);
         $widths = $options['widths'] ?? null;
 
-        // Calculate widths if not provided
+        // Read the original bytes once and reuse for width calculation + decoding
+        $originalBytes = $filesystem->get($originalPath);
+
         if (! $widths) {
-            $tempFile = tempnam(sys_get_temp_dir(), 'mediaman_responsive');
-            file_put_contents($tempFile, $filesystem->get($originalPath));
-            $widths = $this->widthCalculator->calculateWidthsFromFile($tempFile);
-            unlink($tempFile);
+            $widths = $this->widthCalculator->calculateWidthsFromBinary($originalBytes);
         } else {
             $widths = collect($widths);
         }
 
         $responsiveData = [];
-        $originalImage = $this->imageManager->decode($filesystem->readStream($originalPath));
+        $originalImage = $this->imageManager->decode($originalBytes);
 
         foreach ($widths as $targetWidth) {
             // Skip if target width is larger than original

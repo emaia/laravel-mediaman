@@ -260,17 +260,13 @@ trait ResponsiveImages
     protected function calculateImageDimensions(): array
     {
         try {
-            $tempFile = tempnam(sys_get_temp_dir(), 'mediaman_dimensions');
-            file_put_contents($tempFile, $this->filesystem()->get($this->getOriginalPath()));
+            $image = app(ImageManager::class)
+                ->decode($this->filesystem()->get($this->getOriginalPath()));
 
-            $imageManager = app(ImageManager::class);
-            $image = $imageManager->decode($tempFile);
             $dimensions = [
                 'width' => $image->width(),
                 'height' => $image->height(),
             ];
-
-            unlink($tempFile);
 
             $this->setCustomProperty(Media::PROPERTY_DIMENSIONS, $dimensions);
             $this->save();
