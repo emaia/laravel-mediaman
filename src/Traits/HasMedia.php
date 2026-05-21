@@ -150,13 +150,18 @@ trait HasMedia
                 }
             }
 
+            $toAttach = [];
             foreach ($ids as $id) {
-                if (! in_array($id, $currentMediaIds)) {
-                    $this->media()->attach($id, ['channel' => $channel]);
-                    $attached[] = $id;
-                } else {
+                if (in_array($id, $currentMediaIds)) {
                     $updated[] = $id;
+                } else {
+                    $toAttach[] = $id;
                 }
+            }
+
+            if (! empty($toAttach)) {
+                $this->media()->attach($toAttach, ['channel' => $channel]);
+                $attached = $toAttach;
             }
 
             $this->clearMediaCache($channel);
