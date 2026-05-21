@@ -82,11 +82,4 @@ class ImageManipulator
     {
         return MediaFormat::extensionFromMimeType($mimeType);
     }
-
-    protected function updatePathExtension(string $path, string $newExtension): string
-    {
-        $pathInfo = pathinfo($path);
-
-        return $pathInfo['dirname'].'/'.$pathInfo['filename'].'.'.$newExtension;
-    }
 }

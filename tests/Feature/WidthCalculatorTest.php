@@ -130,3 +130,27 @@ it('returns unique widths only', function () {
 
     expect(count(array_unique($array)))->toEqual(count($array));
 });
+
+it('reads width and height from disk in calculateWidthsFromFile', function () {
+    $calculator = new FileSizeOptimizedWidthCalculator($this->imageManager);
+
+    $path = tempnam(sys_get_temp_dir(), 'mediaman_width_calc').'.jpg';
+    $this->imageManager->createImage(640, 480)->save($path);
+
+    $widths = $calculator->calculateWidthsFromFile($path);
+
+    expect($widths->first())->toEqual(640);
+
+    @unlink($path);
+});
+
+it('stops when predicted new width falls below min_width', function () {
+    config(['mediaman.responsive_images.file_size_optimized.min_width' => 1400]);
+
+    $calculator = new FileSizeOptimizedWidthCalculator($this->imageManager);
+
+    // First reduction yields newWidth=1254 (< min_width=1400), which trips the threshold
+    $widths = $calculator->calculateWidths(500000, 1500, 1000);
+
+    expect($widths->toArray())->toEqual([1500]);
+});

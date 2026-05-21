@@ -1,9 +1,11 @@
 <?php
 
 use Emaia\MediaMan\ConversionRegistry;
+use Emaia\MediaMan\Exceptions\InvalidConversion;
 use Emaia\MediaMan\ImageManipulator;
 use Emaia\MediaMan\Models\Media;
 use Intervention\Image\Drivers\Gd\Driver;
+use Intervention\Image\Encoders\WebpEncoder;
 use Intervention\Image\Image;
 use Intervention\Image\ImageManager;
 
@@ -18,6 +20,26 @@ beforeEach(function () {
     }
     Storage::disk('test')->makeDirectory('1-'.md5('1'.config('app.key')));
 });
+
+function makeImageMedia(): Media
+{
+    $media = new Media;
+    $media->name = 'test image';
+    $media->file_name = 'original.png';
+    $media->mime_type = 'image/png';
+    $media->disk = 'test';
+    $media->size = 1;
+    $media->save();
+
+    return $media;
+}
+
+function createOriginalImage(Media $media, ImageManager $manager, int $width = 640, int $height = 480): void
+{
+    $manager->createImage($width, $height)->save(
+        Storage::disk('test')->path($media->getDirectory().'/original.png')
+    );
+}
 
 it('it will apply registered conversions', function () {
     $conversionRegistry = new ConversionRegistry;
@@ -51,66 +73,115 @@ it('it will apply registered conversions', function () {
 });
 
 it('will only apply conversions to an image', function () {
-    //    $conversionRegistry = new ConversionRegistry();
-    //
-    //    $conversionRegistry->register('resize', function ($image) {
-    //        return $image->resize(64);
-    //    });
-    //
-    //    $imageManager = Mockery::mock(ImageManager::class);
-    //
-    //    // Assert that the conversion was not applied...
-    //    $imageManager->shouldNotReceive('make');
-    //
-    //    $manipulator = new ImageManipulator($conversionRegistry, $imageManager);
-    //
-    //    $media = new Media(['mime_type' => 'text/html']);
-    //
-    //    $manipulator->manipulate($media, ['resize'], $onlyIfMissing = false);
-})->todo();
+    $registry = new ConversionRegistry;
+    $invoked = false;
 
-it('will ignore unregistered conversions', function () {
-    //    $this->expectException(InvalidConversion::class);
-    //
-    //    $conversionRegistry = new ConversionRegistry();
-    //
-    //    $imageManager = Mockery::mock(ImageManager::class);
-    //
-    //    // Assert that the conversion was not applied...
-    //    $imageManager->shouldNotReceive('make');
-    //
-    //    $manipulator = new ImageManipulator($conversionRegistry, $imageManager);
-    //
-    //    $media = new Media(['mime_type' => 'image/png']);
-    //
-    //    $manipulator->manipulate($media, ['unknown'], $onlyIfMissing = false);
-})->todo();
+    $registry->register('resize', function (Image $image) use (&$invoked) {
+        $invoked = true;
+
+        return $image->resize(64, 50);
+    });
+
+    $manager = new ImageManager(Driver::class);
+    $manipulator = new ImageManipulator($registry, $manager);
+
+    $media = new Media;
+    $media->name = 'document';
+    $media->file_name = 'file.txt';
+    $media->mime_type = 'text/plain';
+    $media->disk = 'test';
+    $media->size = 1;
+    $media->save();
+
+    $manipulator->manipulate($media, ['resize'], onlyIfMissing: false);
+
+    expect($invoked)->toBeFalse();
+});
+
+it('will throw InvalidConversion for unregistered conversions', function () {
+    $registry = new ConversionRegistry;
+    $manager = new ImageManager(Driver::class);
+    $manipulator = new ImageManipulator($registry, $manager);
+
+    $media = makeImageMedia();
+    createOriginalImage($media, $manager);
+
+    $manipulator->manipulate($media, ['does-not-exist'], onlyIfMissing: false);
+})->throws(InvalidConversion::class, 'Conversion `does-not-exist` does not exist');
+
+it('writes the encoded variant when a conversion returns an EncodedImage', function () {
+    $registry = new ConversionRegistry;
+
+    $registry->register('webp-thumb', function (Image $image) {
+        return $image->resize(64, 50)->encode(new WebpEncoder(quality: 80));
+    });
+
+    $manager = new ImageManager(Driver::class);
+    $manipulator = new ImageManipulator($registry, $manager);
+
+    $media = makeImageMedia();
+    createOriginalImage($media, $manager);
+
+    $manipulator->manipulate($media, ['webp-thumb'], onlyIfMissing: false);
+
+    $expectedPath = $media->getDirectory().'/conversions/webp-thumb/original.webp';
+    expect(Storage::disk('test')->exists($expectedPath))->toBeTrue();
+});
+
+it('skips writing an EncodedImage variant when output already exists with onlyIfMissing', function () {
+    $registry = new ConversionRegistry;
+    $invocations = 0;
+
+    $registry->register('webp-thumb', function (Image $image) use (&$invocations) {
+        $invocations++;
+
+        return $image->resize(64, 50)->encode(new WebpEncoder(quality: 80));
+    });
+
+    $manager = new ImageManager(Driver::class);
+    $manipulator = new ImageManipulator($registry, $manager);
+
+    $media = makeImageMedia();
+    createOriginalImage($media, $manager);
+
+    $manipulator->manipulate($media, ['webp-thumb'], onlyIfMissing: true);
+    $conversionPath = $media->getDirectory().'/conversions/webp-thumb/original.webp';
+    $firstMtime = Storage::disk('test')->lastModified($conversionPath);
+
+    sleep(1);
+    $manipulator->manipulate($media, ['webp-thumb'], onlyIfMissing: true);
+
+    expect(Storage::disk('test')->lastModified($conversionPath))->toBe($firstMtime)
+        ->and($invocations)->toBe(2);
+});
 
 it('will skip conversions if the converted image already exists', function () {
-    //    $conversionRegistry = new ConversionRegistry();
-    //
-    //    $conversionRegistry->register('resize', function (Image $image) use (&$conversionApplied) {
-    //        return $image;
-    //    });
-    //
-    //    $imageManager = Mockery::mock(ImageManager::class);
-    //
-    //    // Assert that the conversion was not applied...
-    //    $imageManager->shouldNotReceive('make');
-    //
-    //    $manipulator = new ImageManipulator($conversionRegistry, $imageManager);
-    //
-    //    /** @var \FarhanShares\MediaMan\Models\Media|MockInterface $media */
-    //    $media = Mockery::mock(Media::class)->makePartial();
-    //    $media->file_name = 'file-name.png';
-    //    $media->mime_type = 'image/png';
-    //
-    //    $filesystem = Mockery::mock(Filesystem::class);
-    //
-    //    // Mock that the file already exists...
-    //    $filesystem->shouldReceive('exists')->with($media->getPath('resize'))->once()->andReturn(true);
-    //
-    //    $media->shouldReceive('filesystem')->once()->andReturn($filesystem);
-    //
-    //    $manipulator->manipulate($media, ['resize']);
-})->todo();
+    $registry = new ConversionRegistry;
+    $invocations = 0;
+
+    $registry->register('resize', function (Image $image) use (&$invocations) {
+        $invocations++;
+
+        return $image->resize(64, 50);
+    });
+
+    $manager = new ImageManager(Driver::class);
+    $manipulator = new ImageManipulator($registry, $manager);
+
+    $media = makeImageMedia();
+    createOriginalImage($media, $manager);
+
+    // First run creates the output
+    $manipulator->manipulate($media, ['resize'], onlyIfMissing: true);
+    $conversionPath = $media->getDirectory().'/conversions/resize/original.png';
+    expect(Storage::disk('test')->exists($conversionPath))->toBeTrue();
+    $firstMtime = Storage::disk('test')->lastModified($conversionPath);
+
+    // Second run with onlyIfMissing=true must not overwrite the existing file
+    sleep(1);
+    $manipulator->manipulate($media, ['resize'], onlyIfMissing: true);
+    expect(Storage::disk('test')->lastModified($conversionPath))->toBe($firstMtime);
+
+    // The closure still runs (encode happens before exists check), but writes are skipped
+    expect($invocations)->toBe(2);
+});

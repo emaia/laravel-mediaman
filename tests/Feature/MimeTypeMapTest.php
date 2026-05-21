@@ -3,8 +3,6 @@
 use Emaia\MediaMan\Enums\MediaFormat;
 use Emaia\MediaMan\Models\Media;
 
-// --- P1: Shared MIME type map ---
-
 it('resolves standard mime types to extensions via MediaFormat', function () {
     expect(MediaFormat::extensionFromMimeType('image/jpeg'))->toBe('jpg')
         ->and(MediaFormat::extensionFromMimeType('image/png'))->toBe('png')

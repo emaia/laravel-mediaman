@@ -4,6 +4,7 @@ namespace Emaia\MediaMan\Models;
 
 use Emaia\MediaMan\Casts\Json;
 use Emaia\MediaMan\ConversionRegistry;
+use Emaia\MediaMan\Database\Factories\MediaFactory;
 use Emaia\MediaMan\Enums\MediaFormat;
 use Emaia\MediaMan\Enums\MediaType;
 use Emaia\MediaMan\Events\MediaDeleted;
@@ -41,7 +42,7 @@ class Media extends Model
      */
     protected static function newFactory()
     {
-        return \Emaia\MediaMan\Database\Factories\MediaFactory::new();
+        return MediaFactory::new();
     }
 
     const string DEFAULT_CHANNEL = 'default';
@@ -284,8 +285,6 @@ class Media extends Model
 
     /**
      * Get the filesystem where the associated file is stored.
-     *
-     * @return Filesystem
      */
     public function filesystem(): Filesystem
     {

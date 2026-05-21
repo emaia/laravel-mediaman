@@ -30,9 +30,9 @@ it('can retrieve all the registered conversions', function () {
 
     $conversions = $conversionRegistry->all();
 
-    expect($conversions)->toHaveCount(2);
-    expect($conversions['one']())->toEqual('one');
-    expect($conversions['two']())->toEqual('two');
+    expect($conversions)->toHaveCount(2)
+        ->and($conversions['one']())->toEqual('one')
+        ->and($conversions['two']())->toEqual('two');
 });
 
 test('there can only be one conversion registered with the same name', function () {
@@ -46,8 +46,8 @@ test('there can only be one conversion registered with the same name', function 
         return 'two';
     });
 
-    expect($conversionRegistry->all())->toHaveCount(1);
-    expect($conversionRegistry->get('conversion')())->toEqual('two');
+    expect($conversionRegistry->all())->toHaveCount(1)
+        ->and($conversionRegistry->get('conversion')())->toEqual('two');
 });
 
 it('can determine if a conversion has been registered', function () {
@@ -57,8 +57,8 @@ it('can determine if a conversion has been registered', function () {
         //
     });
 
-    expect($conversionRegistry->exists('registered'))->toBeTrue();
-    expect($conversionRegistry->exists('unregistered'))->toBeFalse();
+    expect($conversionRegistry->exists('registered'))->toBeTrue()
+        ->and($conversionRegistry->exists('unregistered'))->toBeFalse();
 });
 
 it('will error when attempting to retrieve an unregistered conversion', function () {
@@ -147,6 +147,24 @@ it('get() still returns the original closure after format refactor', function ()
     expect($closure)->toBeCallable();
 });
 
+it('returns null format when the callable is a native function with no source', function () {
+    $conversionRegistry = new ConversionRegistry;
+
+    // Closure backed by a native function — Reflection returns false for filename/lines
+    $conversionRegistry->register('native', Closure::fromCallable('strlen'));
+
+    expect($conversionRegistry->getFormat('native'))->toBeNull();
+});
+
+it('returns null format when ReflectionFunction throws', function () {
+    $conversionRegistry = new ConversionRegistry;
+
+    // Internal callables (e.g. constructors via fromCallable) can also yield no source
+    $conversionRegistry->register('builtin', Closure::fromCallable('strtoupper'));
+
+    expect($conversionRegistry->getFormat('builtin'))->toBeNull();
+});
+
 it('all() returns closures only, not internal format data', function () {
     $conversionRegistry = new ConversionRegistry;
 
@@ -159,7 +177,7 @@ it('all() returns closures only, not internal format data', function () {
 
     $all = $conversionRegistry->all();
 
-    expect($all)->toHaveCount(2);
-    expect($all['one']())->toEqual('one');
-    expect($all['two']())->toEqual('two');
+    expect($all)->toHaveCount(2)
+        ->and($all['one']())->toEqual('one')
+        ->and($all['two']())->toEqual('two');
 });

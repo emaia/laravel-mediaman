@@ -39,7 +39,8 @@
     },
     "autoload": {
         "psr-4": {
-            "Emaia\\MediaMan\\": "src/"
+            "Emaia\\MediaMan\\": "src/",
+            "Emaia\\MediaMan\\Database\\Factories\\": "database/factories/"
         }
     },
     "autoload-dev": {

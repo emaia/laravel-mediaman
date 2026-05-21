@@ -27,7 +27,6 @@ class TestCase extends Orchestra
         parent::setUp();
 
         $this->loadMigrationsFrom(__DIR__.'/database/migrations');
-        require_once __DIR__.'/database/factories/MediaFactory.php';
 
         // Use a test disk as the default disk...
         Config::set('mediaman.disk', self::DEFAULT_DISK);
@@ -60,6 +59,7 @@ class TestCase extends Orchestra
             'driver' => 'sqlite',
             'database' => ':memory:',
             'prefix' => '',
+            'foreign_key_constraints' => true,
         ]);
 
         // Load migrations

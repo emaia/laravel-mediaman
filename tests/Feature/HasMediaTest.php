@@ -6,8 +6,6 @@ use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Tests\Models\Subject;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
-use Illuminate\Database\SQLiteConnection;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 
 beforeEach(function () {
@@ -25,8 +23,8 @@ it('can attach media to the default channel', function () {
 
     $attachedMedia = $this->subject->media()->first();
 
-    expect($media->id)->toEqual($attachedMedia->id);
-    expect($attachedMedia->pivot->channel)->toEqual('default');
+    expect($media->id)->toEqual($attachedMedia->id)
+        ->and($attachedMedia->pivot->channel)->toEqual('default');
 });
 
 it('can attach media to a named channel', function () {
@@ -36,8 +34,8 @@ it('can attach media to a named channel', function () {
 
     $attachedMedia = $this->subject->media()->first();
 
-    expect($attachedMedia->id)->toEqual($media->id);
-    expect($attachedMedia->pivot->channel)->toEqual($channel);
+    expect($attachedMedia->id)->toEqual($media->id)
+        ->and($attachedMedia->pivot->channel)->toEqual($channel);
 });
 
 it('can attach a collection of media', function () {
@@ -47,8 +45,8 @@ it('can attach a collection of media', function () {
 
     $attachedMedia = $this->subject->media()->get();
 
-    expect($attachedMedia)->toHaveCount(2);
-    expect($media->diff($attachedMedia))->toBeEmpty();
+    expect($attachedMedia)->toHaveCount(2)
+        ->and($media->diff($attachedMedia))->toBeEmpty();
 
     $attachedMedia->each(
         function ($media) {
@@ -64,15 +62,9 @@ it('returns number of attached media or null while associating', function () {
 
     expect($attachedCount)->toEqual(1);
 
-    if (DB::connection() instanceof SQLiteConnection) {
-        // SQLite doesn't enforce foreign key constraints by default, so this test won't fail as expected in an SQLite environment.
-        // However, it should work as expected on other relational databases that enforce these constraints.
-        $this->markTestSkipped('Skipping test for SQLite connection.');
-    } else {
-        // try attaching a non-existing media record
-        $attached = $this->subject->attachMedia(5, 'custom');
-        expect($attached)->toEqual(null);
-    }
+    // try attaching a non-existing media record
+    $attached = $this->subject->attachMedia(5, 'custom');
+    expect($attached)->toEqual(null);
 });
 
 it('returns number of detached media or null while disassociating', function () {
@@ -105,8 +97,8 @@ it('can detach media and returns number of media detached', function () {
 
     $detachedCount = $this->subject->detachMedia($media);
 
-    expect($detachedCount)->toEqual(1);
-    expect($this->subject->media()->first())->toBeNull();
+    expect($detachedCount)->toEqual(1)
+        ->and($this->subject->media()->first())->toBeNull();
 });
 
 it('can sync media and returns sync status', function () {
@@ -127,12 +119,11 @@ it('can sync media and returns sync status', function () {
     // Now, sync to media2
     $syncStatus = $this->subject->syncMedia($media2);
 
-    expect($syncStatus)->toHaveKey('updated');
-    expect($syncStatus)->toHaveKey('attached');
-    expect($syncStatus)->toHaveKey('detached');
-
-    expect($syncStatus['attached'])->toEqual([$media2->id]);
-    expect($syncStatus['detached'])->toEqual([$media1->id]);
+    expect($syncStatus)->toHaveKey('updated')
+        ->and($syncStatus)->toHaveKey('attached')
+        ->and($syncStatus)->toHaveKey('detached')
+        ->and($syncStatus['attached'])->toEqual([$media2->id])
+        ->and($syncStatus['detached'])->toEqual([$media1->id]);
 
     $syncStatus = $this->subject->syncMedia([]);
     // should detach all
@@ -145,9 +136,9 @@ it('can sync collections for a media instance', function () {
 
     $syncStatus = $media->syncCollections($collections);
 
-    expect($syncStatus)->toHaveKey('attached');
-    expect($syncStatus)->toHaveKey('detached');
-    expect($syncStatus)->toHaveKey('updated');
+    expect($syncStatus)->toHaveKey('attached')
+        ->and($syncStatus)->toHaveKey('detached')
+        ->and($syncStatus)->toHaveKey('updated');
 });
 
 it('will perform the given conversions when media is attached', function () {
@@ -195,8 +186,8 @@ it('can retrieve all the media from the default channel', function () {
 
     $defaultMedia = $this->subject->getMedia();
 
-    expect($defaultMedia->count())->toEqual(2);
-    expect($media->diff($defaultMedia))->toBeEmpty();
+    expect($defaultMedia->count())->toEqual(2)
+        ->and($media->diff($defaultMedia))->toBeEmpty();
 });
 
 it('can retrieve all the media from the specified channel', function () {
@@ -206,15 +197,15 @@ it('can retrieve all the media from the specified channel', function () {
 
     $galleryMedia = $this->subject->getMedia('gallery');
 
-    expect($galleryMedia->count())->toEqual(2);
-    expect($media->diff($galleryMedia))->toBeEmpty();
+    expect($galleryMedia->count())->toEqual(2)
+        ->and($media->diff($galleryMedia))->toBeEmpty();
 });
 
 it('can handle attempts to get media from an empty channel', function () {
     $media = $this->subject->getMedia();
 
-    expect($media)->toBeInstanceOf(EloquentCollection::class);
-    expect($media->isEmpty())->toBeTrue();
+    expect($media)->toBeInstanceOf(EloquentCollection::class)
+        ->and($media->isEmpty())->toBeTrue();
 });
 
 it('can retrieve the first media from the default channel', function () {
@@ -224,8 +215,8 @@ it('can retrieve the first media from the default channel', function () {
 
     $firstMedia = $this->subject->getFirstMedia();
 
-    expect($firstMedia)->toBeInstanceOf(Media::class);
-    expect($firstMedia->id)->toEqual($media->id);
+    expect($firstMedia)->toBeInstanceOf(Media::class)
+        ->and($firstMedia->id)->toEqual($media->id);
 });
 
 it('can retrieve the first media from the specified channel', function () {
@@ -235,8 +226,8 @@ it('can retrieve the first media from the specified channel', function () {
 
     $firstMedia = $this->subject->getFirstMedia('gallery');
 
-    expect($firstMedia)->toBeInstanceOf(Media::class);
-    expect($firstMedia->id)->toEqual($media->id);
+    expect($firstMedia)->toBeInstanceOf(Media::class)
+        ->and($firstMedia->id)->toEqual($media->id);
 });
 
 it('will only retrieve media from the specified channel', function () {
@@ -253,12 +244,12 @@ it('will only retrieve media from the specified channel', function () {
     $allGalleryMedia = $this->subject->getMedia('gallery');
     $firstGalleryMedia = $this->subject->getFirstMedia('gallery');
 
-    expect($allDefaultMedia)->toHaveCount(1);
-    expect($allDefaultMedia->first()->id)->toEqual($defaultMedia->id);
+    expect($allDefaultMedia)->toHaveCount(1)
+        ->and($allDefaultMedia->first()->id)->toEqual($defaultMedia->id)
+        ->and($allGalleryMedia)->toHaveCount(1)
+        ->and($allGalleryMedia->first()->id)->toEqual($galleryMedia->id)
+        ->and($firstGalleryMedia->id)->toEqual($galleryMedia->id);
 
-    expect($allGalleryMedia)->toHaveCount(1);
-    expect($allGalleryMedia->first()->id)->toEqual($galleryMedia->id);
-    expect($firstGalleryMedia->id)->toEqual($galleryMedia->id);
 });
 
 it('can retrieve the url of the first media item from the default channel', function () {
@@ -296,8 +287,8 @@ it('can determine if there is media in the default channel', function () {
 
     $this->subject->attachMedia($media);
 
-    expect($this->subject->hasMedia())->toBeTrue();
-    expect($this->subject->hasMedia('empty'))->toBeFalse();
+    expect($this->subject->hasMedia())->toBeTrue()
+        ->and($this->subject->hasMedia('empty'))->toBeFalse();
 });
 
 it('can determine if there is any media in the specified group', function () {
@@ -305,8 +296,8 @@ it('can determine if there is any media in the specified group', function () {
 
     $this->subject->attachMedia($media, 'gallery');
 
-    expect($this->subject->hasMedia('gallery'))->toBeTrue();
-    expect($this->subject->hasMedia())->toBeFalse();
+    expect($this->subject->hasMedia('gallery'))->toBeTrue()
+        ->and($this->subject->hasMedia())->toBeFalse();
 });
 
 it('can detach all the media', function () {
@@ -331,8 +322,8 @@ it('can detach specific media items', function () {
 
     $this->subject->detachMedia($mediaOne);
 
-    expect($this->subject->getMedia())->toHaveCount(1);
-    expect($this->subject->getFirstMedia()->id)->toEqual($mediaTwo->id);
+    expect($this->subject->getMedia())->toHaveCount(1)
+        ->and($this->subject->getFirstMedia()->id)->toEqual($mediaTwo->id);
 });
 
 it('can detach all the media in a specified channel', function () {
@@ -384,4 +375,125 @@ it('syncMedia with empty media only clears the specified channel', function () {
         ->and($this->subject->hasMedia('gallery'))->toBeTrue()
         ->and($this->subject->getFirstMedia('gallery')->id)->toEqual($galleryMedia->id);
 
+});
+
+it('syncMedia treats a false value as detach-all', function () {
+    $media = Media::factory()->create();
+    $this->subject->attachMedia($media);
+
+    $result = $this->subject->syncMedia(false);
+
+    expect($result['detached'])->toEqual([$media->id])
+        ->and($this->subject->hasMedia())->toBeFalse();
+});
+
+it('syncMedia treats an empty collection as detach-all', function () {
+    $media = Media::factory()->create();
+    $this->subject->attachMedia($media);
+
+    $result = $this->subject->syncMedia(new EloquentCollection);
+
+    expect($result['detached'])->toEqual([$media->id])
+        ->and($this->subject->hasMedia())->toBeFalse();
+});
+
+it('syncMedia reports already-attached media in the updated key', function () {
+    $existing = Media::factory()->create();
+    $newMedia = Media::factory()->create();
+
+    $this->subject->attachMedia($existing);
+
+    $result = $this->subject->syncMedia([$existing->id, $newMedia->id]);
+
+    expect($result['updated'])->toEqual([$existing->id])
+        ->and($result['attached'])->toEqual([$newMedia->id])
+        ->and($result['detached'])->toEqual([]);
+});
+
+it('returns null from attachMedia when nothing new was attached', function () {
+    $media = Media::factory()->create();
+    $this->subject->attachMedia($media);
+
+    // Re-attaching the same media should not count as new
+    $result = $this->subject->attachMedia($media);
+
+    expect($result)->toBeNull();
+});
+
+it('returns empty string from getFirstMediaUrl when no media is attached', function () {
+    expect($this->subject->getFirstMediaUrl())->toEqual('')
+        ->and($this->subject->getFirstMediaUrl('gallery'))->toEqual('');
+});
+
+it('returns empty string from getFirstMediaUrlWithFallback when no media', function () {
+    expect($this->subject->getFirstMediaUrlWithFallback())->toEqual('');
+});
+
+it('returns the original url from getFirstMediaUrlWithFallback when conversion missing', function () {
+    $media = Media::factory()->create();
+    $this->subject->attachMedia($media);
+
+    $url = $this->subject->getFirstMediaUrlWithFallback(Media::DEFAULT_CHANNEL, 'thumbnail');
+
+    expect($url)->toEqual($media->getUrl());
+});
+
+it('returns null from getFirstMediaConversionUrl when no media is attached', function () {
+    expect($this->subject->getFirstMediaConversionUrl())->toBeNull();
+});
+
+it('returns null from getFirstMediaConversionUrl when conversion does not exist', function () {
+    $media = Media::factory()->create();
+    $this->subject->attachMedia($media);
+
+    expect($this->subject->getFirstMediaConversionUrl(Media::DEFAULT_CHANNEL, 'missing'))->toBeNull();
+});
+
+it('returns false from hasMediaConversion when no media is attached', function () {
+    expect($this->subject->hasMediaConversion())->toBeFalse();
+});
+
+it('returns false from hasMediaConversion when conversion missing', function () {
+    $media = Media::factory()->create();
+    $this->subject->attachMedia($media);
+
+    expect($this->subject->hasMediaConversion(Media::DEFAULT_CHANNEL, 'never-registered'))->toBeFalse();
+});
+
+it('reads from a preloaded media relation when getMedia is called', function () {
+    $mediaOne = Media::factory()->create();
+    $mediaTwo = Media::factory()->create();
+
+    $this->subject->attachMedia($mediaOne);
+    $this->subject->attachMedia($mediaTwo, 'gallery');
+
+    // Reload from the DB without the trait's in-memory cache
+    $subject = $this->subject->fresh(['media']);
+
+    // Trigger filter-by-channel path on a preloaded relation
+    expect($subject->getMedia('default'))->toHaveCount(1)
+        ->and($subject->getMedia('default')->first()->id)->toEqual($mediaOne->id)
+        ->and($subject->getMedia('gallery'))->toHaveCount(1);
+});
+
+it('returns all media when getMedia is called with null channel on preloaded relation', function () {
+    $mediaOne = Media::factory()->create();
+    $mediaTwo = Media::factory()->create();
+
+    $this->subject->attachMedia($mediaOne);
+    $this->subject->attachMedia($mediaTwo, 'gallery');
+
+    $subject = $this->subject->fresh(['media']);
+
+    expect($subject->getMedia(null))->toHaveCount(2);
+});
+
+it('returns all channels media when getMedia is called with null channel without preload', function () {
+    $mediaOne = Media::factory()->create();
+    $mediaTwo = Media::factory()->create();
+
+    $this->subject->attachMedia($mediaOne);
+    $this->subject->attachMedia($mediaTwo, 'gallery');
+
+    expect($this->subject->getMedia(null))->toHaveCount(2);
 });
