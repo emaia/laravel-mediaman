@@ -11,8 +11,6 @@ use Illuminate\Support\Collection as BaseCollection;
 
 /**
  * @property int $id
- *
- * @method findByName($name)
  */
 class MediaCollection extends Model
 {
@@ -27,13 +25,20 @@ class MediaCollection extends Model
         return config('mediaman.tables.collections', 'mediaman_collections');
     }
 
-    public function scopeFindByName($query, string|array $names, array $columns = ['*'])
+    /**
+     * Find one or many collections by name.
+     *
+     * @return EloquentCollection|static|null
+     */
+    public static function findByName(string|array $names, array $columns = ['*'])
     {
+        $query = static::query()->select($columns);
+
         if (is_array($names)) {
-            return $query->select($columns)->whereIn('name', $names)->get();
+            return $query->whereIn('name', $names)->get();
         }
 
-        return $query->select($columns)->where('name', $names)->first();
+        return $query->where('name', $names)->first();
     }
 
     public function media(): BelongsToMany
@@ -61,7 +66,7 @@ class MediaCollection extends Model
             return $this->media()->sync($ids, $detaching);
         }
 
-        if (method_exists($fetch, 'getKey')) {
+        if (is_object($fetch) && method_exists($fetch, 'getKey')) {
             return $this->media()->sync($fetch->getKey());
         }
 
@@ -94,7 +99,7 @@ class MediaCollection extends Model
             return $attached > 0 ? $attached : null;
         }
 
-        if (method_exists($fetch, 'getKey')) {
+        if (is_object($fetch) && method_exists($fetch, 'getKey')) {
             $res = $this->media()->sync($fetch->getKey(), false);
 
             $attached = count($res['attached']);
@@ -125,7 +130,7 @@ class MediaCollection extends Model
             return $this->media()->detach($ids);
         }
 
-        if (method_exists($fetch, 'getKey')) {
+        if (is_object($fetch) && method_exists($fetch, 'getKey')) {
             return $this->media()->detach($fetch->getKey());
         }
 
@@ -166,7 +171,11 @@ class MediaCollection extends Model
         }
 
         if ($media instanceof BaseCollection) {
-            $ids = $media->map(fn ($item) => method_exists($item, 'getKey') ? $item->getKey() : $item)->all();
+            $ids = $media->map(
+                fn ($item) => is_object($item) && method_exists($item, 'getKey')
+                    ? $item->getKey()
+                    : $item
+            )->all();
 
             return $model::find($ids);
         }

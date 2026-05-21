@@ -37,14 +37,6 @@ class Media extends Model
 {
     use HasFactory, ResolvesModels, ResponsiveImages;
 
-    /**
-     * Create a new factory instance for the model.
-     */
-    protected static function newFactory()
-    {
-        return MediaFactory::new();
-    }
-
     const string DEFAULT_CHANNEL = 'default';
 
     const string CONVERSIONS_DIR = 'conversions';
@@ -229,14 +221,6 @@ class Media extends Model
     }
 
     /**
-     * Get file extension from a mime type with extended support.
-     */
-    public function getExtensionFromMimeType(string $mimeType): string
-    {
-        return MediaFormat::extensionFromMimeType($mimeType);
-    }
-
-    /**
      * Detect the format based on the conversion name.
      */
     protected function detectFormatFromConversionName(string $conversion): ?string
@@ -330,6 +314,22 @@ class Media extends Model
         } catch (Exception $e) {
             throw new Exception("Failed to write or delete on the disk [$diskName]. Error: ".$e->getMessage(), 0, $e);
         }
+    }
+
+    /**
+     * Create a new factory instance for the model.
+     */
+    protected static function newFactory()
+    {
+        return MediaFactory::new();
+    }
+
+    /**
+     * Get file extension from a mime type with extended support.
+     */
+    public function getExtensionFromMimeType(string $mimeType): string
+    {
+        return MediaFormat::extensionFromMimeType($mimeType);
     }
 
     /**
@@ -471,18 +471,6 @@ class Media extends Model
     }
 
     /**
-     * Find a media by media name
-     */
-    public function scopeFindByName($query, string|array $names, array $columns = ['*'])
-    {
-        if (is_array($names)) {
-            return $query->select($columns)->whereIn('name', $names)->get();
-        }
-
-        return $query->select($columns)->where('name', $names)->first();
-    }
-
-    /**
      * Sync collections of a media
      */
     public function syncCollections(Collection|BaseCollection|array|int|string|bool|Model|null $collections, $detaching = true): array
@@ -546,7 +534,11 @@ class Media extends Model
         }
 
         if ($collections instanceof BaseCollection) {
-            $ids = $collections->map(fn ($item) => method_exists($item, 'getKey') ? $item->getKey() : $item)->all();
+            $ids = $collections->map(
+                fn ($item) => is_object($item) && method_exists($item, 'getKey')
+                    ? $item->getKey()
+                    : $item
+            )->all();
 
             return $model::find($ids);
         }
@@ -579,6 +571,20 @@ class Media extends Model
     }
 
     /**
+     * Find one or many media by name.
+     */
+    public static function findByName(string|array $names, array $columns = ['*']): Collection|static|null
+    {
+        $query = static::query()->select($columns);
+
+        if (is_array($names)) {
+            return $query->whereIn('name', $names)->get();
+        }
+
+        return $query->where('name', $names)->first();
+    }
+
+    /**
      * Attach media to collections
      */
     public function attachCollections(Collection|BaseCollection|array|int|string|Model $collections): ?int
@@ -593,7 +599,7 @@ class Media extends Model
             return $attached > 0 ? $attached : null;
         }
 
-        if (method_exists($fetch, 'getKey')) {
+        if (is_object($fetch) && method_exists($fetch, 'getKey')) {
             $res = $this->collections()->sync($fetch->getKey(), false);
             $attached = count($res['attached']);
 
@@ -606,7 +612,7 @@ class Media extends Model
     /**
      * Detach media from collections
      */
-    public function detachCollections(Collection|int|bool|array|string|Model|null $collections): ?int
+    public function detachCollections(Collection|BaseCollection|int|bool|array|string|Model|null $collections): ?int
     {
         if ($this->shouldDetachAll($collections)) {
             return $this->collections()->detach();
@@ -620,7 +626,7 @@ class Media extends Model
             return $this->collections()->detach($ids);
         }
 
-        if (method_exists($fetch, 'getKey')) {
+        if (is_object($fetch) && method_exists($fetch, 'getKey')) {
             return $this->collections()->detach($fetch->getKey());
         }
 

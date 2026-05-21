@@ -2,6 +2,9 @@
 
 use Emaia\MediaMan\MediaUploader;
 use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\Models\MediaCollection;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Collection as BaseCollection;
 
 it('can create a collection', function () {
     $collection = $this->mediaCollection::firstOrCreate([
@@ -32,7 +35,7 @@ it('can delete a collection with associated pivot table data', function () {
         ->useCollection('images')
         ->upload();
 
-    $collection = $this->mediaCollection::with('media')->findByName('images');
+    $collection = MediaCollection::findByName('images');
     expect($collection->media()->count())->toEqual(2);
 
     $isDeleted = $collection->delete();
@@ -53,7 +56,7 @@ it('can retrieve media of a collection', function () {
         ->useCollection('images')
         ->upload();
 
-    $imageCollection = $this->mediaCollection->findByName('images');
+    $imageCollection = MediaCollection::findByName('images');
 
     $one = $imageCollection->media[0];
     $two = $imageCollection->media[1];
@@ -80,7 +83,7 @@ it('can sync media of a collection', function () {
         ->useCollection('Images')
         ->upload();
 
-    $imageCollection = $this->mediaCollection->with('media')->findByName('Images');
+    $imageCollection = MediaCollection::findByName('Images');
     expect($imageCollection->media()->count())->toEqual(2);
 
     // detach all media by boolean true
@@ -116,7 +119,7 @@ it('can sync media of a collection', function () {
     $imageCollection->syncMedia(null);
     expect($imageCollection->media()->count())->toEqual(0);
 
-    $videoCollection = $this->mediaCollection->with('media')->findByName('Videos');
+    $videoCollection = MediaCollection::findByName('Videos');
     expect($videoCollection->media()->count())->toEqual(1);
 
     // detach all media by empty-string
@@ -148,7 +151,7 @@ it('can attach media to a collection', function () {
         ->useCollection('Images')
         ->upload();
 
-    $imageCollection = $this->mediaCollection->with('media')->findByName('Images');
+    $imageCollection = MediaCollection::findByName('Images');
     expect($imageCollection->media()->count())->toEqual(3);
     $imageCollection->syncMedia([]);
     expect($imageCollection->media()->count())->toEqual(0);
@@ -192,7 +195,7 @@ it('can detach media from a collection', function () {
         ->useCollection('Images')
         ->upload();
 
-    $imageCollection = $this->mediaCollection->with('media')->findByName('Images');
+    $imageCollection = MediaCollection::findByName('Images');
     expect($imageCollection->media()->count())->toEqual(3);
 
     // detach all media by boolean true
@@ -232,7 +235,7 @@ it('returns false for non existing or already attached media when attaching', fu
         ->useCollection('Images')
         ->upload();
 
-    $imageCollection = $this->mediaCollection->with('media')->findByName('Images');
+    $imageCollection = MediaCollection::findByName('Images');
 
     $a1 = $imageCollection->attachMedia(5);
     expect($a1)->toEqual(false);
@@ -274,7 +277,7 @@ it('returns false if all are non existing or already detached media when detachi
         ->useCollection('Images')
         ->upload();
 
-    $imageCollection = $this->mediaCollection->with('media')->findByName('Images');
+    $imageCollection = MediaCollection::findByName('Images');
 
     // if all are non-existing media, it will return false
     $b1 = $imageCollection->detachMedia(5);
@@ -297,7 +300,7 @@ it('returns number of detached media if at least one of these is existing attach
         ->useCollection('Images')
         ->upload();
 
-    $imageCollection = $this->mediaCollection->with('media')->findByName('Images');
+    $imageCollection = MediaCollection::findByName('Images');
 
     $b1 = $imageCollection->detachMedia(1);
     expect($b1)->toEqual(1);
@@ -311,7 +314,7 @@ it('returns false if it is a non existing media when synchronizing', function ()
         ->useCollection('Images')
         ->upload();
 
-    $imageCollection = $this->mediaCollection->with('media')->findByName('Images');
+    $imageCollection = MediaCollection::findByName('Images');
 
     // if all are non-existing media, it will return false
     $b1 = $imageCollection->syncMedia(5);
@@ -324,7 +327,7 @@ it('returns detailed array when synchronizing with existing non existing and alr
         ->useCollection('Images')
         ->upload();
 
-    $imageCollection = $this->mediaCollection->with('media')->findByName('Images');
+    $imageCollection = MediaCollection::findByName('Images');
 
     // all are non-existing
     $a1 = $imageCollection->syncMedia([10, 15]);
@@ -343,4 +346,48 @@ it('returns detailed array when synchronizing with existing non existing and alr
         'updated' => [],
     ];
     expect($a1)->toEqual($b1);
+});
+
+it('returns null from MediaCollection::findByName for a missing single name', function () {
+    expect(MediaCollection::findByName('does-not-exist'))->toBeNull();
+});
+
+it('returns null from Media::findByName for a missing single name', function () {
+    expect(Media::findByName('does-not-exist'))->toBeNull();
+});
+
+it('returns null from attachCollections when the collection name does not exist', function () {
+    $file = UploadedFile::fake()->image('test.jpg', 100, 100);
+    $media = MediaUploader::source($file)->upload();
+
+    expect($media->attachCollections('does-not-exist'))->toBeNull();
+});
+
+it('returns null from detachCollections when the collection name does not exist', function () {
+    $file = UploadedFile::fake()->image('test.jpg', 100, 100);
+    $media = MediaUploader::source($file)->upload();
+
+    expect($media->detachCollections('does-not-exist'))->toBeNull();
+});
+
+it('attaches collections from a BaseCollection of integer ids', function () {
+    $collection = MediaCollection::create(['name' => 'gallery']);
+    $file = UploadedFile::fake()->image('test.jpg', 100, 100);
+    $media = MediaUploader::source($file)->upload();
+
+    $attached = $media->attachCollections(new BaseCollection([$collection->id]));
+
+    expect($attached)->toEqual(1)
+        ->and($media->fresh()->collections->pluck('id')->toArray())->toContain($collection->id);
+});
+
+it('detaches collections from a BaseCollection of integer ids', function () {
+    $collection = MediaCollection::create(['name' => 'gallery']);
+    $file = UploadedFile::fake()->image('test.jpg', 100, 100);
+    $media = MediaUploader::source($file)->toCollection('gallery')->upload();
+
+    $detached = $media->detachCollections(new BaseCollection([$collection->id]));
+
+    expect($detached)->toEqual(1)
+        ->and($media->fresh()->collections)->toHaveCount(0);
 });
