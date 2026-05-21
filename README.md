@@ -67,9 +67,9 @@ There are a few key concepts that need to be understood before continuing:
 
 ## Requirements
 
-| Laravel | Package | PHP   |
-|---------|---------|-------|
-| v12–v13 | 1.x     | 8.3+  |
+| Laravel | Package | PHP  |
+|---------|---------|------|
+| v12–v13 | 1.x-2.x | 8.3+ |
 
 ## Installation
 
@@ -149,10 +149,10 @@ PHP image library to use via the `driver` config key:
 'driver' => env('MEDIAMAN_DRIVER', 'imagick'), // or 'gd'
 ```
 
-| Driver    | PHP Extension     | Notes                                      |
-|-----------|-------------------|--------------------------------------------|
-| `imagick` | ext-imagick       | Default. Higher quality, full color-space support |
-| `gd`      | ext-gd            | Lighter, bundled in most PHP installations |
+| Driver    | PHP Extension | Notes                                             |
+|-----------|---------------|---------------------------------------------------|
+| `imagick` | ext-imagick   | Default. Higher quality, full color-space support |
+| `gd`      | ext-gd        | Lighter, bundled in most PHP installations        |
 
 If an invalid value is set, an `InvalidArgumentException` will be thrown at runtime.
 
@@ -260,22 +260,22 @@ php artisan queue:work
 ],
 ```
 
-| Option             | Default                        | Description                                                                                       |
-|--------------------|--------------------------------|---------------------------------------------------------------------------------------------------|
-| `enabled`          | `true`                         | Enable/disable the feature globally                                                               |
-| `auto_generate`    | `false`                        | Automatically generate responsive images on every upload                                          |
-| `breakpoints`      | `[320, 640, 1024, 1366, 1920]` | Widths (in px) to generate                                                                        |
-| `quality`          | `85`                           | JPEG/WebP quality (1–100)                                                                         |
-| `formats`          | `['webp']`                     | Output formats to generate                                                                        |
-| `queue`            | `true`                         | Queue generation jobs instead of processing inline                                                |
-| `width_calculator` | `'breakpoint'`                 | `breakpoint` uses fixed widths; `file_size_optimized` selects widths based on file-size reduction |
-| `min_width`        | `320`                          | Images narrower than this won't generate a variant                                                |
-| `max_width`        | `2560`                         | Widths above this are capped                                                                      |
-| `file_size_optimized.reduction_factor` | `0.7`      | File-size reduction multiplier per iteration (0–1)                                                |
-| `file_size_optimized.min_width`        | `20`       | Stop iterating when calculated width falls below this (px)                                        |
-| `file_size_optimized.min_file_size_bytes` | `10240` | Stop when predicted file size falls below this (bytes)                                            |
-| `predefined_conversions.responsive_custom_widths` | `[400, 800, 1200]` | Widths for the `responsive-custom` conversion                               |
-| `predefined_conversions.responsive_hq_quality`    | `95`                 | Quality for the `responsive-hq` conversion                                  |
+| Option                                            | Default                        | Description                                                                                       |
+|---------------------------------------------------|--------------------------------|---------------------------------------------------------------------------------------------------|
+| `enabled`                                         | `true`                         | Enable/disable the feature globally                                                               |
+| `auto_generate`                                   | `false`                        | Automatically generate responsive images on every upload                                          |
+| `breakpoints`                                     | `[320, 640, 1024, 1366, 1920]` | Widths (in px) to generate                                                                        |
+| `quality`                                         | `85`                           | JPEG/WebP quality (1–100)                                                                         |
+| `formats`                                         | `['webp']`                     | Output formats to generate                                                                        |
+| `queue`                                           | `true`                         | Queue generation jobs instead of processing inline                                                |
+| `width_calculator`                                | `'breakpoint'`                 | `breakpoint` uses fixed widths; `file_size_optimized` selects widths based on file-size reduction |
+| `min_width`                                       | `320`                          | Images narrower than this won't generate a variant                                                |
+| `max_width`                                       | `2560`                         | Widths above this are capped                                                                      |
+| `file_size_optimized.reduction_factor`            | `0.7`                          | File-size reduction multiplier per iteration (0–1)                                                |
+| `file_size_optimized.min_width`                   | `20`                           | Stop iterating when calculated width falls below this (px)                                        |
+| `file_size_optimized.min_file_size_bytes`         | `10240`                        | Stop when predicted file size falls below this (bytes)                                            |
+| `predefined_conversions.responsive_custom_widths` | `[400, 800, 1200]`             | Widths for the `responsive-custom` conversion                                                     |
+| `predefined_conversions.responsive_hq_quality`    | `95`                           | Quality for the `responsive-hq` conversion                                                        |
 
 -----
 
@@ -991,14 +991,15 @@ This removes all variant files from storage and clears the metadata from `custom
 
 ## Events
 
-MediaMan dispatches events at key points in the media lifecycle, allowing you to hook into the process with standard Laravel listeners.
+MediaMan dispatches events at key points in the media lifecycle, allowing you to hook into the process with standard
+Laravel listeners.
 
-| Event | Dispatched When | Properties |
-|-------|----------------|------------|
-| `MediaUploaded` | A file is uploaded via `MediaUploader` | `$event->media` |
-| `MediaDeleted` | A media record is deleted | `$event->media` |
-| `ConversionCompleted` | Image conversions finish (queued job) | `$event->media`, `$event->conversions` |
-| `ResponsiveImagesGenerated` | Responsive variants finish (queued job) | `$event->media`, `$event->options` |
+| Event                       | Dispatched When                         | Properties                             |
+|-----------------------------|-----------------------------------------|----------------------------------------|
+| `MediaUploaded`             | A file is uploaded via `MediaUploader`  | `$event->media`                        |
+| `MediaDeleted`              | A media record is deleted               | `$event->media`                        |
+| `ConversionCompleted`       | Image conversions finish (queued job)   | `$event->media`, `$event->conversions` |
+| `ResponsiveImagesGenerated` | Responsive variants finish (queued job) | `$event->media`, `$event->options`     |
 
 All event classes live under the `Emaia\MediaMan\Events` namespace.
 
