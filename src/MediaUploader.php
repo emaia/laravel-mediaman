@@ -4,6 +4,7 @@ namespace Emaia\MediaMan;
 
 use Emaia\MediaMan\Enums\MediaType;
 use Emaia\MediaMan\Events\MediaUploaded;
+use Emaia\MediaMan\Exceptions\FileSizeExceeded;
 use Emaia\MediaMan\Exceptions\MimeTypeNotAllowed;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Traits\ResolvesModels;
@@ -32,6 +33,8 @@ class MediaUploader
     protected $custom_properties = [];
 
     protected ?array $allowedMimeTypes = null;
+
+    protected ?int $maxFileSize = null;
 
     /**
      * Enable automatic responsive image generation.
@@ -202,11 +205,25 @@ class MediaUploader
     }
 
     /**
+     * Set the maximum allowed file size for this upload, in bytes.
+     *
+     * Overrides the global `mediaman.max_file_size` config.
+     * Pass 0 to disable the check for this upload.
+     */
+    public function maxFileSize(int $bytes): MediaUploader
+    {
+        $this->maxFileSize = $bytes;
+
+        return $this;
+    }
+
+    /**
      * Upload the file to the specified disk.
      */
     public function upload(): Media
     {
         $this->validateMimeType();
+        $this->validateFileSize();
 
         $model = $this->mediaModel();
 
@@ -320,6 +337,26 @@ class MediaUploader
         }
 
         throw MimeTypeNotAllowed::forMimeType($mimeType);
+    }
+
+    /**
+     * Validate the file size against the configured maximum.
+     *
+     * @throws FileSizeExceeded
+     */
+    protected function validateFileSize(): void
+    {
+        $maxBytes = $this->maxFileSize ?? (int) config('mediaman.max_file_size', 0);
+
+        if ($maxBytes <= 0) {
+            return;
+        }
+
+        $actualBytes = (int) $this->file->getSize();
+
+        if ($actualBytes > $maxBytes) {
+            throw FileSizeExceeded::forSize($actualBytes, $maxBytes);
+        }
     }
 
     /**

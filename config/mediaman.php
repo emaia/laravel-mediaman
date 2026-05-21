@@ -55,6 +55,23 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Maximum File Size
+    |--------------------------------------------------------------------------
+    |
+    | Maximum allowed file size for uploads, in bytes. Set to 0 (default)
+    | to disable the check. The limit is enforced before the file touches
+    | disk, complementing PHP's `upload_max_filesize` / `post_max_size`.
+    |
+    | Examples:
+    |   5 * 1024 * 1024   // 5 MB
+    |   100 * 1024 * 1024 // 100 MB
+    |
+    */
+
+    'max_file_size' => env('MEDIAMAN_MAX_FILE_SIZE', 0),
+
+    /*
+    |--------------------------------------------------------------------------
     | The queue that should be used to perform image conversions
     |--------------------------------------------------------------------------
     |
