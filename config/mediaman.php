@@ -193,6 +193,31 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Temporary URL Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Settings for generating temporary signed URLs for cloud disks.
+    |
+    */
+
+    'temporary_url' => [
+
+        /*
+        |--------------------------------------------------------------------------
+        | Default Lifetime (minutes)
+        |--------------------------------------------------------------------------
+        |
+        | The default expiration time for temporary URLs when no explicit
+        | expiration is provided. Default is 5 minutes.
+        |
+        */
+
+        'default_lifetime_minutes' => 5,
+
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | The queue that should be used to perform image conversions
     |--------------------------------------------------------------------------
     |
