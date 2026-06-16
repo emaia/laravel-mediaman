@@ -332,6 +332,109 @@ retrieve a random file. More on customization will be added later.
 **Reminder: MediaMan treats any file (instance of `Illuminate\Http\UploadedFile`) as a media source. If you want a
 certain file type can be uploaded, you can use Laravel's validator.**
 
+### Upload from other sources
+
+Beyond `source($file)`, `MediaUploader` can ingest files from a Laravel disk, a base64-encoded payload, or a remote
+URL.
+
+#### From a Laravel disk
+
+```php
+$media = MediaUploader::fromDisk('uploads/photo.jpg', 'public')->upload();
+```
+
+The source file stays on the original disk; MediaMan copies it into the target disk through the standard upload
+pipeline. All fluent options (`useName`, `useCollection`, `useDisk`, `withCustomProperties`, etc.) still apply:
+
+```php
+$media = MediaUploader::fromDisk('imports/legacy.png', 'staging')
+            ->useCollection('Imports')
+            ->useDisk('media')
+            ->upload();
+```
+
+#### From a base64 string or data URI
+
+```php
+// Raw base64
+$media = MediaUploader::fromBase64(base64_encode($bytes), 'photo.jpg')->upload();
+
+// Data URI (e.g. produced by a browser canvas)
+$media = MediaUploader::fromBase64('data:image/png;base64,iVBORw0...', 'photo.png')->upload();
+
+// Optional custom display name (third argument)
+$media = MediaUploader::fromBase64($data, 'photo.png', 'User Avatar')->upload();
+```
+
+The raw payload size is checked **before** decoding to prevent memory blow-ups. Configure the limit in
+`config/mediaman.php`:
+
+```php
+'base64' => [
+    'max_size_bytes' => 50 * 1024 * 1024, // 50 MB default
+],
+```
+
+Payloads above the limit throw `Emaia\MediaMan\Exceptions\FileSizeExceeded` **before** any decode happens. Invalid
+base64 or a malformed data URI throws `Emaia\MediaMan\Exceptions\InvalidBase64Data`.
+
+#### From a remote URL
+
+```php
+$media = MediaUploader::fromUrl('https://example.com/photo.jpg')->upload();
+```
+
+`fromUrl` requires the **ext-curl** PHP extension (declared in `composer.json`).
+
+The URL passes through SSRF validation before any HTTP request leaves your server. By default, requests to
+private and reserved IPs (`10/8`, `127/8`, `169.254/16` AWS/GCP metadata, `172.16/12`, `192.168/16`, IPv6 ULA, etc.)
+are rejected with `Emaia\MediaMan\Exceptions\UrlNotAllowed`. The resolved IPs are then pinned via `CURLOPT_RESOLVE`
+so the actual download targets exactly what the guard validated — mitigating DNS rebinding.
+
+Configure in `config/mediaman.php`:
+
+```php
+'url_sources' => [
+    'allow_private_hosts' => false,             // opt out of SSRF protection
+    'timeout_seconds'     => 30,
+    'max_size_bytes'      => 100 * 1024 * 1024, // 100 MB
+    'verify_ssl'          => true,
+    'user_agent'          => 'MediaMan/2.x',
+],
+```
+
+Download safety runs in layers:
+
+1. **Scheme + host validation** — only `http`/`https`; private/loopback/metadata IPs rejected
+2. **HEAD `Content-Length` pre-check** — oversized files rejected before bytes are downloaded
+3. **In-stream size guard** — download aborts mid-stream if `max_size_bytes` is exceeded
+4. **Post-download filesize verification** — defense in depth
+
+#### Custom downloader
+
+`fromUrl` dispatches the download through the `Emaia\MediaMan\Downloaders\Downloader` interface, bound by default
+to `HttpDownloader` (Laravel HTTP client). Swap it in a service provider to use a different HTTP stack, add
+retries, or instrument logging:
+
+```php
+use Emaia\MediaMan\Downloaders\Downloader;
+
+$this->app->bind(Downloader::class, MyCustomDownloader::class);
+```
+
+In tests, mock the interface to avoid real network calls:
+
+```php
+$mock = Mockery::mock(Downloader::class);
+$mock->shouldReceive('download')->andReturn([
+    'path' => $tmpPath,
+    'mime' => 'image/jpeg',
+    'size' => 12345,
+]);
+
+app()->instance(Downloader::class, $mock);
+```
+
 ### Retrieve media
 
 You can use any Eloquent operation to retrieve a media, plus we've added findByName().

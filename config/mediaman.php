@@ -167,6 +167,32 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Base64 Upload Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Settings for uploading files from base64-encoded data (fromBase64).
+    |
+    */
+
+    'base64' => [
+
+        /*
+        |--------------------------------------------------------------------------
+        | Maximum Payload Size (bytes)
+        |--------------------------------------------------------------------------
+        |
+        | Maximum size of the raw base64 string before decoding.
+        | The check runs before any memory-intensive decode operation.
+        | Default is 50 MB.
+        |
+        */
+
+        'max_size_bytes' => 50 * 1024 * 1024,
+
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | The queue that should be used to perform image conversions
     |--------------------------------------------------------------------------
     |
