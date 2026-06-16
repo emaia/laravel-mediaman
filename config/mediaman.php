@@ -72,6 +72,25 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Disallowed File Extensions
+    |--------------------------------------------------------------------------
+    |
+    | File extensions that are blocked from upload for security reasons.
+    | These are checked regardless of the MIME type validation.
+    |
+    | Set `block_disallowed_extensions` to false to disable this check.
+    |
+    */
+
+    'block_disallowed_extensions' => true,
+
+    'disallowed_extensions' => [
+        'php', 'phtml', 'phar', 'shtml', 'htaccess',
+        'cgi', 'pl', 'asp', 'aspx', 'jsp', 'jspx',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | The queue that should be used to perform image conversions
     |--------------------------------------------------------------------------
     |

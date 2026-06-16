@@ -4,6 +4,7 @@ namespace Emaia\MediaMan;
 
 use Emaia\MediaMan\Enums\MediaType;
 use Emaia\MediaMan\Events\MediaUploaded;
+use Emaia\MediaMan\Exceptions\DisallowedExtension;
 use Emaia\MediaMan\Exceptions\FileSizeExceeded;
 use Emaia\MediaMan\Exceptions\MimeTypeNotAllowed;
 use Emaia\MediaMan\Models\Media;
@@ -222,6 +223,7 @@ class MediaUploader
      */
     public function upload(): Media
     {
+        $this->validateExtension();
         $this->validateMimeType();
         $this->validateFileSize();
 
@@ -357,6 +359,38 @@ class MediaUploader
         if ($actualBytes > $maxBytes) {
             throw FileSizeExceeded::forSize($actualBytes, $maxBytes);
         }
+    }
+
+    /**
+     * Validate the file extension against disallowed extensions.
+     *
+     * @throws DisallowedExtension
+     */
+    protected function validateExtension(): void
+    {
+        if (! config('mediaman.block_disallowed_extensions', true)) {
+            return;
+        }
+
+        $disallowed = $this->getDisallowedExtensions();
+
+        if (empty($disallowed)) {
+            return;
+        }
+
+        $extension = strtolower(pathinfo($this->fileName, PATHINFO_EXTENSION));
+
+        if ($extension !== '' && in_array($extension, $disallowed, true)) {
+            throw DisallowedExtension::forExtension($extension);
+        }
+    }
+
+    protected function getDisallowedExtensions(): array
+    {
+        return config('mediaman.disallowed_extensions') ?? [
+            'php', 'phtml', 'phar', 'shtml', 'htaccess',
+            'cgi', 'pl', 'asp', 'aspx', 'jsp', 'jspx',
+        ];
     }
 
     /**
