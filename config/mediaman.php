@@ -91,6 +91,82 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | URL Source Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Settings for downloading files from remote URLs (fromUrl).
+    |
+    */
+
+    'url_sources' => [
+
+        /*
+        |--------------------------------------------------------------------------
+        | Allow Private Hosts
+        |--------------------------------------------------------------------------
+        |
+        | When false, URLs that resolve to private or reserved IP addresses
+        | (localhost, 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16,
+        | 169.254.0.0/16) will be rejected to prevent SSRF attacks.
+        |
+        | Set to true when your app needs to download from internal networks.
+        |
+        */
+
+        'allow_private_hosts' => false,
+
+        /*
+        |--------------------------------------------------------------------------
+        | Timeout (seconds)
+        |--------------------------------------------------------------------------
+        |
+        | Maximum time to wait for a response when downloading a file from
+        | a remote URL.
+        |
+        */
+
+        'timeout_seconds' => 30,
+
+        /*
+        |--------------------------------------------------------------------------
+        | Maximum Download Size (bytes)
+        |--------------------------------------------------------------------------
+        |
+        | Maximum file size to download from a remote URL. Default is 100 MB.
+        | Downloads exceeding this limit will be aborted mid-stream.
+        |
+        */
+
+        'max_size_bytes' => 100 * 1024 * 1024,
+
+        /*
+        |--------------------------------------------------------------------------
+        | Verify SSL Certificates
+        |--------------------------------------------------------------------------
+        |
+        | When true, SSL certificates presented by the remote server will be
+        | verified. Set to false only for development or internal APIs with
+        | self-signed certificates.
+        |
+        */
+
+        'verify_ssl' => true,
+
+        /*
+        |--------------------------------------------------------------------------
+        | User Agent
+        |--------------------------------------------------------------------------
+        |
+        | The User-Agent header sent with remote download requests.
+        |
+        */
+
+        'user_agent' => 'MediaMan/2.x',
+
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | The queue that should be used to perform image conversions
     |--------------------------------------------------------------------------
     |
