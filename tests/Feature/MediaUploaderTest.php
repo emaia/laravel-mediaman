@@ -93,6 +93,14 @@ it('sanitizes double extensions', function () {
     expect($media->file_name)->toEqual('malware-php.jpg');
 });
 
+it('sanitization defuses double-extension before validation runs', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->create('legit.php.jpg', 100))->upload();
+
+    expect($media)->toBeInstanceOf(Media::class)
+        ->and($media->file_name)->not->toContain('.php')
+        ->and($media->file_name)->toEndWith('.jpg');
+});
+
 it('strips unicode control characters from file name', function () {
     $media = MediaUploader::source(UploadedFile::fake()->image('file.jpg'))
         ->useFileName("file\xE2\x80\x8Bname.jpg")  // zero-width space
