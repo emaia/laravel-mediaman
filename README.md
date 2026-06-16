@@ -1,3 +1,7 @@
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/emaia/laravel-mediaman.svg?style=flat-square)](https://packagist.org/packages/emaia/laravel-mediaman)
+[![GitHub Tests Action Status](https://img.shields.io/github/actions/workflow/status/emaia/laravel-mediaman/ci.yml?branch=main&label=tests&style=flat-square)](https://github.com/emaia/laravel-mediaman/actions?query=workflow%3Aci+branch%3Amain)
+[![Total Downloads](https://img.shields.io/packagist/dt/emaia/laravel-mediaman.svg?style=flat-square)](https://packagist.org/packages/emaia/laravel-mediaman)
+
 # Laravel MediaMan
 
 MediaMan is an elegant and powerful media management package for Laravel Apps with support for painless `uploader`,
