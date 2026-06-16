@@ -301,6 +301,62 @@ trait HasMedia
     }
 
     /**
+     * Get the last media item in the specified channel.
+     */
+    public function getLastMedia(?string $channel = Media::DEFAULT_CHANNEL)
+    {
+        return $this->getMedia($channel)->last();
+    }
+
+    /**
+     * Get the URL of the last media item with automatic format detection.
+     */
+    public function getLastMediaUrl(?string $channel = Media::DEFAULT_CHANNEL, string $conversion = ''): string
+    {
+        if (! $media = $this->getLastMedia($channel)) {
+            return '';
+        }
+
+        return $media->getUrl($conversion);
+    }
+
+    /**
+     * Get the URL with fallback for the last media item.
+     */
+    public function getLastMediaUrlWithFallback(?string $channel = Media::DEFAULT_CHANNEL, string $conversion = ''): string
+    {
+        if (! $media = $this->getLastMedia($channel)) {
+            return '';
+        }
+
+        return $media->getUrlWithFallback($conversion);
+    }
+
+    /**
+     * Get conversion URL only if it exists for the last media item.
+     */
+    public function getLastMediaConversionUrl(?string $channel = Media::DEFAULT_CHANNEL, string $conversion = ''): ?string
+    {
+        if (! $media = $this->getLastMedia($channel)) {
+            return null;
+        }
+
+        return $media->getConversionUrl($conversion);
+    }
+
+    /**
+     * Check if the last media item has a specific conversion.
+     */
+    public function hasLastMediaConversion(?string $channel = Media::DEFAULT_CHANNEL, string $conversion = ''): bool
+    {
+        if (! $media = $this->getLastMedia($channel)) {
+            return false;
+        }
+
+        return $media->hasConversion($conversion);
+    }
+
+    /**
      * Register a new media group.
      */
     protected function addMediaChannel(string $name): MediaChannel

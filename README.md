@@ -60,11 +60,17 @@ There are a few key concepts that need to be understood before continuing:
 * [Installation](#installation)
 * [Configuration](#configuration)
 * [Media](#media)
+  * [Upload media](#upload-media)
+  * [Upload from other sources](#upload-from-other-sources)
+  * [HTTP responses & mail](#http-responses--mail)
+  * [Custom Properties](#custom-properties)
 * [Media & Models](#media--models)
+  * [getFirst* / getLast* helpers](#retrieve-media-of-a-model)
 * [Collections](#collections)
 * [Media & Collections](#media--collections)
 * [Media, Models & Conversions](#conversions)
 * [Responsive Images](#responsive-images)
+* [Security](#security)
 * [Events](#events)
 * [Artisan Commands](#artisan-commands)
 * [Contribution and License](#contribution-and-license)
@@ -159,6 +165,27 @@ PHP image library to use via the `driver` config key:
 | `gd`      | ext-gd        | Lighter, bundled in most PHP installations        |
 
 If an invalid value is set, an `InvalidArgumentException` will be thrown at runtime.
+
+### Allowed MIME types and file size
+
+```php
+// file: config/mediaman.php
+'allowed_mime_types' => ['image/jpeg', 'image/png', 'application/pdf'],  // empty = allow all
+'max_file_size' => 10 * 1024 * 1024,  // 10 MB; 0 = unlimited
+```
+
+### Disallowed extensions and temporary URLs
+
+```php
+// Block dangerous file extensions on upload (default: true)
+'block_disallowed_extensions' => true,
+'disallowed_extensions' => ['php', 'phtml', 'phar', 'shtml', 'htaccess', 'cgi', 'pl', 'asp', 'aspx', 'jsp', 'jspx'],
+
+// Temporary URL lifetime for cloud disks (minutes)
+'temporary_url' => [
+    'default_lifetime_minutes' => 5,
+],
+```
 
 ### Custom Models
 
@@ -495,6 +522,69 @@ $media->getPath('conversion-name')
 $media->getDirectory()
 ```
 
+### HTTP responses & mail
+
+Media models can generate ready-to-use HTTP responses, stream resources, and mail attachments:
+
+```php
+// StreamedResponse with Content-Disposition: attachment
+return $media->toResponse();
+
+// StreamedResponse for inline browser display
+return $media->toInlineResponse();
+
+// Raw stream resource (for custom handling)
+$stream = $media->getStream();
+```
+
+All three accept an optional `$conversion` name to serve a specific conversion instead of the original:
+
+```php
+return $media->toResponse('thumb');
+return $media->toInlineResponse('thumb');
+$stream = $media->getStream('thumb');
+```
+
+#### Temporary URLs (S3 / cloud disks)
+
+Generate a signed, time-limited URL for cloud disks that support it:
+
+```php
+use Emaia\MediaMan\Exceptions\TemporaryUrlNotSupported;
+
+try {
+    $url = $media->getTemporaryUrl(now()->addHour(), 'thumb');
+} catch (TemporaryUrlNotSupported $e) {
+    // local disk — fall back to a controller route
+}
+```
+
+The `$expiration` parameter defaults to `temporary_url.default_lifetime_minutes` (5 min) from the config when omitted.
+
+#### Mail attachments
+
+Media implements `Illuminate\Contracts\Mail\Attachable`, so you can pass a Media instance directly to a Mailable:
+
+```php
+use Illuminate\Mail\Mailable;
+
+class WelcomeMail extends Mailable
+{
+    public function build()
+    {
+        return $this->view('emails.welcome')
+                    ->attach(Media::find(1));
+    }
+}
+```
+
+For inline usage or explicit conversion selection, use `mailAttachment()`:
+
+```php
+$attachment = $media->mailAttachment();           // original
+$attachment = $media->mailAttachment('thumb');     // specific conversion
+```
+
 ### Custom Properties
 
 You can store arbitrary metadata alongside any media item using custom properties.
@@ -714,6 +804,37 @@ $post->hasMediaConversion('featured-image', 'thumb'); // bool
 ```
 
 *Tip:* `getFirstMediaUrl()` accepts two optional arguments: channel name & conversion name.
+
+### getLastMedia helpers
+
+Mirroring `getFirst*`, MediaMan provides a complete set of `getLast*` methods for retrieving the most recently
+attached media:
+
+```php
+// Last media item from the default channel
+$post->getLastMedia();
+
+// Last media item from the specified channel
+$post->getLastMedia('featured-image');
+
+// URL of the last media item from the default channel
+$post->getLastMediaUrl();
+
+// URL of the last media item from the specified channel
+$post->getLastMediaUrl('featured-image');
+
+// URL of a conversion of the last media item (returns '' if not found)
+$post->getLastMediaUrl('featured-image', 'thumb');
+
+// URL with fallback to original if the conversion doesn't exist
+$post->getLastMediaUrlWithFallback('featured-image', 'thumb');
+
+// URL only if the conversion exists, otherwise null
+$post->getLastMediaConversionUrl('featured-image', 'thumb');
+
+// Whether the last media item has a specific conversion
+$post->hasLastMediaConversion('featured-image', 'thumb'); // bool
+```
 
 ### Disassociate media
 
@@ -1096,6 +1217,61 @@ This removes all variant files from storage and clears the metadata from `custom
 
 -----
 
+## Security
+
+### Disallowed file extensions
+
+MediaMan blocks executable and server-side file extensions by default to prevent malicious file uploads.
+The blocklist includes: `php`, `phtml`, `phar`, `shtml`, `htaccess`, `cgi`, `pl`, `asp`, `aspx`, `jsp`, `jspx`.
+
+Configure or disable in `config/mediaman.php`:
+
+```php
+'block_disallowed_extensions' => true,   // set to false to opt out
+'disallowed_extensions' => [
+    'php', 'phtml', 'phar', 'shtml', 'htaccess',
+    'cgi', 'pl', 'asp', 'aspx', 'jsp', 'jspx',
+],
+```
+
+Uploads with a disallowed extension throw `Emaia\MediaMan\Exceptions\DisallowedExtension`.
+The check runs against the **sanitized** filename, so double-extension attacks (`malware.php.jpg`)
+are defused before the validator runs (the dot is replaced: `malware-php.jpg` → extension is `jpg`).
+
+### SSRF protection for remote URLs
+
+`fromUrl()` validates every URL through `Emaia\MediaMan\Support\UrlGuard` before downloading:
+
+- **Schemes**: only `http` and `https` are allowed
+- **Hostnames**: `localhost` and `*.localhost` are rejected
+- **IPv4**: `0/8`, `10/8`, `127/8`, `169.254/16` (AWS/GCP metadata), `172.16/12`, `192.168/16`, `255.255.255.255`
+- **IPv6**: `::/128` (unspecified), `::1` (loopback), `fc00::/7` (ULA), `fe80::/10` (link-local), `::ffff:x.x.x.x` (IPv4-mapped), `2002::/16` (6to4), `2001::/32` (Teredo)
+- **DNS**: both A and AAAA records are resolved; if **any** resolved IP is private, the URL is rejected
+
+To allow downloads from internal networks, set `url_sources.allow_private_hosts` to `true`.
+
+### `mediaman:clean` — detect orphaned files
+
+```bash
+# Dry run (default) — reports without deleting
+php artisan mediaman:clean
+
+# Delete orphaned files (DB records are never auto-deleted)
+php artisan mediaman:clean --force
+
+# Scan a specific disk
+php artisan mediaman:clean --disk=s3-media
+```
+
+The command finds:
+- **Orphaned files**: files on disk whose directory does not match any Media record
+- **Reverse orphans**: Media records whose primary file is missing from disk
+
+Reverse orphans are only reported — their DB records are never auto-deleted to prevent accidental cascade
+loss (a record may belong to multiple collections or channels).
+
+-----
+
 ## Events
 
 MediaMan dispatches events at key points in the media lifecycle, allowing you to hook into the process with standard
@@ -1202,6 +1378,24 @@ php artisan mediaman:responsive-stats
 
 Output includes: total image count, images with variants, coverage percentage, and the active configuration (quality,
 formats, breakpoints, enabled status).
+
+### Clean orphaned files
+
+Detect and remove files on disk that no longer have a corresponding Media record:
+
+```bash
+# Dry run (default) — reports without deleting
+php artisan mediaman:clean
+
+# Delete orphaned files
+php artisan mediaman:clean --force
+
+# Scan a specific disk
+php artisan mediaman:clean --disk=media
+```
+
+Also detects reverse orphans (Media records whose file is missing from disk) and reports them
+for manual review — DB records are never auto-deleted.
 
 -----
 

@@ -2,26 +2,31 @@
 
 namespace Emaia\MediaMan\Models;
 
+use DateTimeInterface;
 use Emaia\MediaMan\Casts\Json;
 use Emaia\MediaMan\ConversionRegistry;
 use Emaia\MediaMan\Database\Factories\MediaFactory;
 use Emaia\MediaMan\Enums\MediaFormat;
 use Emaia\MediaMan\Enums\MediaType;
 use Emaia\MediaMan\Events\MediaDeleted;
+use Emaia\MediaMan\Exceptions\TemporaryUrlNotSupported;
 use Emaia\MediaMan\Traits\ResolvesModels;
 use Emaia\MediaMan\Traits\ResponsiveImages;
 use Exception;
 use Illuminate\Contracts\Filesystem\Filesystem;
+use Illuminate\Contracts\Mail\Attachable;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Mail\Attachment;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection as BaseCollection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * @property int $id
@@ -33,7 +38,7 @@ use InvalidArgumentException;
  * @property float|int $size
  * @property array $custom_properties
  */
-class Media extends Model
+class Media extends Model implements Attachable
 {
     use HasFactory, ResolvesModels, ResponsiveImages;
 
@@ -652,6 +657,83 @@ class Media extends Model
         $this->custom_properties = $customProperties;
 
         return $this;
+    }
+
+    /**
+     * Stream the file as a downloadable HTTP response.
+     */
+    public function toResponse(?string $conversion = null): StreamedResponse
+    {
+        return $this->filesystem()->download(
+            $this->getPath($conversion ?? ''),
+            $this->file_name
+        );
+    }
+
+    /**
+     * Stream the file as an inline HTTP response (browsers display in-tab).
+     */
+    public function toInlineResponse(?string $conversion = null): StreamedResponse
+    {
+        return $this->filesystem()->response(
+            $this->getPath($conversion ?? ''),
+            $this->file_name
+        );
+    }
+
+    /**
+     * Open a read stream to the underlying file. Caller is responsible for closing it.
+     *
+     * @return resource
+     */
+    public function getStream(?string $conversion = null)
+    {
+        return $this->filesystem()->readStream(
+            $this->getPath($conversion ?? '')
+        );
+    }
+
+    /**
+     * Generate a temporary signed URL for cloud disks that support it.
+     *
+     * @throws TemporaryUrlNotSupported when the disk has no temporary URL support
+     */
+    public function getTemporaryUrl(?DateTimeInterface $expiration = null, ?string $conversion = null): string
+    {
+        $filesystem = $this->filesystem();
+
+        if (! method_exists($filesystem, 'providesTemporaryUrls') || ! $filesystem->providesTemporaryUrls()) {
+            throw TemporaryUrlNotSupported::forDisk($this->disk);
+        }
+
+        $expiration ??= now()->addMinutes(
+            (int) config('mediaman.temporary_url.default_lifetime_minutes', 5)
+        );
+
+        return $filesystem->temporaryUrl(
+            $this->getPath($conversion ?? ''),
+            $expiration
+        );
+    }
+
+    /**
+     * Build a Mail Attachment for use in Laravel Mailables.
+     * Pass an optional conversion name to attach a specific variant.
+     */
+    public function mailAttachment(?string $conversion = null): Attachment
+    {
+        return Attachment::fromStorageDisk($this->disk, $this->getPath($conversion ?? ''))
+            ->as($this->file_name)
+            ->withMime($this->mime_type);
+    }
+
+    /**
+     * Attachable contract method — Laravel calls this when $mailable->attach($media)
+     * is used. Returns the attachment for the original file (no conversion).
+     */
+    public function toMailAttachment(): Attachment
+    {
+        return $this->mailAttachment();
     }
 
     public function forgetCustomProperty(string $name): self
