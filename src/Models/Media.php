@@ -521,8 +521,8 @@ class Media extends Model implements Attachable
         return $this->belongsToMany(
             $this->collectionModel(),
             config('mediaman.tables.collection_media'),
-            'collection_id',
-            'media_id');
+            'media_id',
+            'collection_id');
     }
 
     /**

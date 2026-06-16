@@ -4,26 +4,24 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-class CreateMediaManTables extends Migration
+return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
-        // Collections table
         Schema::create(config('mediaman.tables.collections'), function (Blueprint $table) {
             $table->bigIncrements('id');
             $table->string('name');
+            $table->integer('max_items')->nullable();
+            $table->json('allowed_mime_types')->nullable();
+            $table->string('fallback_url')->nullable();
+            $table->string('fallback_path')->nullable();
             $table->timestamps();
         });
 
-        // Default seed for collections
         $collection = resolve(config('mediaman.models.collection'));
         $collection->name = 'Default';
         $collection->save();
 
-        // Media table
         Schema::create(config('mediaman.tables.media'), function (Blueprint $table) {
             $table->bigIncrements('id');
             $table->string('disk');
@@ -35,7 +33,6 @@ class CreateMediaManTables extends Migration
             $table->timestamps();
         });
 
-        // Collection & Media pivot table
         Schema::create(config('mediaman.tables.collection_media'), function (Blueprint $table) {
             $table->unsignedBigInteger('collection_id')
                 ->constraint(config('mediaman.tables.collections'))
@@ -48,7 +45,6 @@ class CreateMediaManTables extends Migration
             $table->primary(['collection_id', 'media_id']);
         });
 
-        // Mediable table
         Schema::create(config('mediaman.tables.mediables'), function (Blueprint $table) {
             $table->bigIncrements('id');
             $table->unsignedBigInteger('media_id')->index();
@@ -64,16 +60,12 @@ class CreateMediaManTables extends Migration
             $table->index(['mediable_type', 'mediable_id', 'channel']);
         });
 
-        // Test Subject table
         Schema::create('subjects', function (Blueprint $table) {
             $table->bigIncrements('id');
             $table->timestamps();
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists(config('mediaman.tables.collections'));
@@ -82,4 +74,4 @@ class CreateMediaManTables extends Migration
         Schema::dropIfExists(config('mediaman.tables.mediables'));
         Schema::dropIfExists('subjects');
     }
-}
+};

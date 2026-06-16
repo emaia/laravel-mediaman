@@ -2,6 +2,7 @@
 
 namespace Emaia\MediaMan\Models;
 
+use Emaia\MediaMan\Exceptions\MediaNotAcceptedByCollection;
 use Emaia\MediaMan\Traits\ResolvesModels;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
@@ -11,13 +12,24 @@ use Illuminate\Support\Collection as BaseCollection;
 
 /**
  * @property int $id
+ * @property string $name
+ * @property int|null $max_items
+ * @property array|null $allowed_mime_types
+ * @property string|null $fallback_url
+ * @property string|null $fallback_path
  */
 class MediaCollection extends Model
 {
     use ResolvesModels;
 
     protected $fillable = [
-        'name', 'created_at', 'updated_at',
+        'name', 'max_items', 'allowed_mime_types', 'fallback_url', 'fallback_path',
+        'created_at', 'updated_at',
+    ];
+
+    protected $casts = [
+        'max_items' => 'integer',
+        'allowed_mime_types' => 'json',
     ];
 
     public function getTable(): string
@@ -25,11 +37,6 @@ class MediaCollection extends Model
         return config('mediaman.tables.collections', 'mediaman_collections');
     }
 
-    /**
-     * Find one or many collections by name.
-     *
-     * @return EloquentCollection|static|null
-     */
     public static function findByName(string|array $names, array $columns = ['*'])
     {
         $query = static::query()->select($columns);
@@ -43,12 +50,138 @@ class MediaCollection extends Model
 
     public function media(): BelongsToMany
     {
-        return $this->belongsToMany($this->mediaModel(), config('mediaman.tables.collection_media'), 'media_id', 'collection_id');
+        return $this->belongsToMany(
+            $this->mediaModel(),
+            config('mediaman.tables.collection_media'),
+            'collection_id',
+            'media_id'
+        );
     }
 
+    // ─── Fluent setters ──────────────────────────────────────────────
+
+    public function singleFile(): self
+    {
+        return $this->onlyKeepLatest(1);
+    }
+
+    public function onlyKeepLatest(int $count): self
+    {
+        $this->max_items = $count;
+
+        return $this;
+    }
+
+    public function acceptsMimeTypes(array $types): self
+    {
+        $this->allowed_mime_types = $types;
+
+        return $this;
+    }
+
+    // ─── Validation ───────────────────────────────────────────────────
+
+    public function validateMedia(Media $media): void
+    {
+        $allowed = $this->allowed_mime_types;
+
+        if ($allowed === null || $allowed === []) {
+            return;
+        }
+
+        $mimeType = $media->mime_type;
+
+        foreach ($allowed as $pattern) {
+            if ($this->mimeTypeMatches($mimeType, $pattern)) {
+                return;
+            }
+        }
+
+        throw MediaNotAcceptedByCollection::mimeTypeNotAllowed($mimeType, $this->name);
+    }
+
+    private function mimeTypeMatches(string $mimeType, string $pattern): bool
+    {
+        if ($pattern === $mimeType) {
+            return true;
+        }
+
+        if (str_ends_with($pattern, '/*')) {
+            return str_starts_with($mimeType, substr($pattern, 0, -1));
+        }
+
+        return false;
+    }
+
+    // ─── Auto-prune ───────────────────────────────────────────────────
+
     /**
-     * Sync media of a collection
+     * TODO: for collections with very large item counts, consider chunking
+     * or a sub-query approach instead of loading all media into memory.
      */
+    public function enforceMaxItems(): void
+    {
+        $max = $this->max_items;
+
+        if ($max === null || $max < 1) {
+            return;
+        }
+
+        $table = config('mediaman.tables.media');
+
+        $attached = $this->media()
+            ->orderBy("{$table}.created_at", 'asc')
+            ->orderBy("{$table}.id", 'asc')
+            ->get();
+
+        if ($attached->count() <= $max) {
+            return;
+        }
+
+        $toDetach = $attached->take($attached->count() - $max);
+
+        $this->media()->detach($toDetach->modelKeys());
+    }
+
+    // ─── Attach / Sync / Detach (with hooks) ──────────────────────────
+
+    public function attachMedia($media): ?int
+    {
+        if (! $fetch = $this->fetchMedia($media)) {
+            return null;
+        }
+
+        if (is_countable($fetch)) {
+            /** @var Collection $fetch */
+            $mediaItems = $fetch;
+
+            foreach ($mediaItems as $item) {
+                if ($item instanceof Media) {
+                    $this->validateMedia($item);
+                }
+            }
+
+            $ids = $mediaItems->modelKeys();
+            $res = $this->media()->sync($ids, false);
+
+            $attached = count($res['attached']);
+        } elseif (is_object($fetch) && method_exists($fetch, 'getKey')) {
+            if ($fetch instanceof Media) {
+                $this->validateMedia($fetch);
+            }
+
+            $res = $this->media()->sync($fetch->getKey(), false);
+
+            $attached = count($res['attached']);
+        } else {
+            return null;
+        }
+
+        $this->enforceMaxItems();
+
+        return $attached > 0 ? $attached : null;
+    }
+
     public function syncMedia($media, bool $detaching = true): ?array
     {
         if ($this->shouldDetachAll($media)) {
@@ -61,58 +194,35 @@ class MediaCollection extends Model
 
         if (is_countable($fetch)) {
             /** @var Collection $fetch */
-            $ids = $fetch->modelKeys();
+            foreach ($fetch as $item) {
+                if ($item instanceof Media) {
+                    $this->validateMedia($item);
+                }
+            }
 
-            return $this->media()->sync($ids, $detaching);
+            $ids = $fetch->modelKeys();
+            $result = $this->media()->sync($ids, $detaching);
+
+            $this->enforceMaxItems();
+
+            return $result;
         }
 
         if (is_object($fetch) && method_exists($fetch, 'getKey')) {
-            return $this->media()->sync($fetch->getKey());
+            if ($fetch instanceof Media) {
+                $this->validateMedia($fetch);
+            }
+
+            $result = $this->media()->sync($fetch->getKey(), $detaching);
+
+            $this->enforceMaxItems();
+
+            return $result;
         }
 
         return null;
     }
 
-    /**
-     * Attach media to a collection
-     *
-     * @param  null|int|string|array|Media|EloquentCollection  $media
-     * @return int|null number of attached media or null
-     */
-    public function attachMedia($media): ?int
-    {
-        $fetch = $this->fetchMedia($media);
-
-        if (! $fetch = $this->fetchMedia($media)) {
-            return null;
-        }
-
-        // to be consistent with the return type of detach method
-        // which returns number of detached model, we're using sync without detachment
-        if (is_countable($fetch)) {
-            /** @var Collection $fetch */
-            $ids = $fetch->modelKeys();
-            $res = $this->media()->sync($ids, false);
-
-            $attached = count($res['attached']);
-
-            return $attached > 0 ? $attached : null;
-        }
-
-        if (is_object($fetch) && method_exists($fetch, 'getKey')) {
-            $res = $this->media()->sync($fetch->getKey(), false);
-
-            $attached = count($res['attached']);
-
-            return $attached > 0 ? $attached : null;
-        }
-
-        return null;
-    }
-
-    /**
-     * Detach media from a collection
-     */
     public function detachMedia(mixed $media): ?int
     {
         if ($this->shouldDetachAll($media)) {
@@ -137,9 +247,6 @@ class MediaCollection extends Model
         return null;
     }
 
-    /**
-     * Check if all media should be detached
-     */
     private function shouldDetachAll($media): bool
     {
         if (is_bool($media) || empty($media)) {
@@ -153,19 +260,10 @@ class MediaCollection extends Model
         return false;
     }
 
-    /**
-     * Fetch media
-     *
-     * returns single collection for single item
-     * and multiple collections for multiple items
-     * todo: exception / strict return types
-     */
     private function fetchMedia(mixed $media): mixed
     {
         $model = $this->mediaModel();
 
-        // an eloquent collection doesn't need to be fetched again
-        // it's treated as a valid source of Media resource
         if ($media instanceof EloquentCollection) {
             return $media;
         }
@@ -192,11 +290,13 @@ class MediaCollection extends Model
             return $model::findByName($media);
         }
 
-        // all array items should be of same type
-        // find by id or name based on the type of first item in the array
         if (is_array($media) && isset($media[0])) {
             if ($media[0] instanceof BaseCollection) {
                 return $media;
+            }
+
+            if ($media[0] instanceof Model) {
+                return $model::find(collect($media)->map(fn ($m) => $m->getKey())->all());
             }
 
             if (is_numeric($media[0])) {

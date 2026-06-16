@@ -457,14 +457,18 @@ class MediaUploader
                 'name' => $this->collections[0],
             ]);
 
+            $collection->validateMedia($media);
             $media->collections()->attach($collection->getKey());
+            $collection->enforceMaxItems();
         } else {
             // add to the default collection
             // todo: allow not to add in the default collection
             $collectionModel = $this->collectionModel();
             $collection = $collectionModel::findByName(config('mediaman.collection'));
             if ($collection) {
+                $collection->validateMedia($media);
                 $media->collections()->attach($collection->getKey());
+                $collection->enforceMaxItems();
             }
         }
 
