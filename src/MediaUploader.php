@@ -2,14 +2,19 @@
 
 namespace Emaia\MediaMan;
 
+use Emaia\MediaMan\Downloaders\Downloader;
+use Emaia\MediaMan\Enums\MediaFormat;
 use Emaia\MediaMan\Enums\MediaType;
 use Emaia\MediaMan\Events\MediaUploaded;
 use Emaia\MediaMan\Exceptions\DisallowedExtension;
 use Emaia\MediaMan\Exceptions\FileSizeExceeded;
+use Emaia\MediaMan\Exceptions\InvalidBase64Data;
 use Emaia\MediaMan\Exceptions\MimeTypeNotAllowed;
 use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\Support\UrlGuard;
 use Emaia\MediaMan\Traits\ResolvesModels;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 
 class MediaUploader
 {
@@ -55,6 +60,205 @@ class MediaUploader
     public static function source(UploadedFile $file): MediaUploader
     {
         return new self($file);
+    }
+
+    /**
+     * Create an uploader from a file on an existing filesystem disk.
+     *
+     * TODO: use readStream/writeStream to avoid loading the entire file
+     * into memory at once (relevant for very large files on cloud disks).
+     */
+    public static function fromDisk(string $path, string $disk): MediaUploader
+    {
+        $filesystem = Storage::disk($disk);
+
+        if (! $filesystem->exists($path)) {
+            throw new \RuntimeException("File [{$path}] not found on disk [{$disk}].");
+        }
+
+        $tmpPath = tempnam(sys_get_temp_dir(), 'mediaman_');
+
+        try {
+            file_put_contents($tmpPath, $filesystem->get($path));
+
+            $uploadedFile = new UploadedFile(
+                $tmpPath,
+                basename($path),
+                $filesystem->mimeType($path),
+                null,
+                true
+            );
+
+            return new self($uploadedFile);
+        } catch (\Throwable $e) {
+            @unlink($tmpPath);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Create an uploader from a base64-encoded string.
+     */
+    public static function fromBase64(string $data, string $filename, ?string $name = null): MediaUploader
+    {
+        $maxBytes = (int) config('mediaman.base64.max_size_bytes', 50 * 1024 * 1024);
+
+        if ($maxBytes > 0 && strlen($data) > $maxBytes) {
+            throw FileSizeExceeded::forSize(strlen($data), $maxBytes);
+        }
+
+        if (str_starts_with($data, 'data:')) {
+            $commaPos = strpos($data, ',');
+
+            if ($commaPos === false) {
+                throw InvalidBase64Data::invalidDataUri();
+            }
+
+            $data = substr($data, $commaPos + 1);
+        }
+
+        $decoded = base64_decode($data, true);
+
+        if ($decoded === false) {
+            throw InvalidBase64Data::invalid();
+        }
+
+        $tmpPath = tempnam(sys_get_temp_dir(), 'mediaman_');
+
+        try {
+            file_put_contents($tmpPath, $decoded);
+
+            $fileInfo = finfo_open(FILEINFO_MIME_TYPE);
+            $mimeType = finfo_file($fileInfo, $tmpPath);
+            finfo_close($fileInfo);
+
+            $mimeType = $mimeType !== false ? $mimeType : 'application/octet-stream';
+
+            $uploadedFile = new UploadedFile(
+                $tmpPath,
+                $filename,
+                $mimeType,
+                null,
+                true
+            );
+
+            $instance = new self($uploadedFile);
+
+            if ($name !== null) {
+                $instance->setName($name);
+            }
+
+            return $instance;
+        } catch (\Throwable $e) {
+            @unlink($tmpPath);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Create an uploader from a remote URL.
+     */
+    public static function fromUrl(string $url): MediaUploader
+    {
+        $resolved = UrlGuard::resolve($url);
+
+        // Defensive normalization: rebuild the URL with the lowercased host so
+        // curl's CURLOPT_RESOLVE entries (also lowercased) match unambiguously.
+        $downloadUrl = self::normalizeUrlHost($url, $resolved['host']);
+
+        $tmpPath = tempnam(sys_get_temp_dir(), 'mediaman_');
+
+        try {
+            $downloader = app(Downloader::class);
+            $result = $downloader->download($downloadUrl, $tmpPath, $resolved);
+
+            $suggestedName = basename(parse_url($url, PHP_URL_PATH) ?: '');
+
+            if ($suggestedName === '') {
+                $suggestedName = 'download';
+            }
+
+            if (pathinfo($suggestedName, PATHINFO_EXTENSION) === '') {
+                $ext = self::extensionForMime($result['mime']);
+
+                if ($ext !== '') {
+                    $suggestedName .= '.'.$ext;
+                }
+            }
+
+            $uploadedFile = new UploadedFile(
+                $tmpPath,
+                $suggestedName,
+                $result['mime'],
+                null,
+                true
+            );
+
+            return new self($uploadedFile);
+        } catch (\Throwable $e) {
+            @unlink($tmpPath);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Pick a file extension for a MIME type. Uses the format map for images
+     * (authoritative) and falls back to the MIME subtype for other types.
+     */
+    private static function extensionForMime(string $mimeType): string
+    {
+        if (str_starts_with($mimeType, 'image/')) {
+            return MediaFormat::extensionFromMimeType($mimeType);
+        }
+
+        $slash = strrpos($mimeType, '/');
+
+        return $slash !== false ? substr($mimeType, $slash + 1) : '';
+    }
+
+    /**
+     * Rebuild a URL with a lowercased host component, preserving the rest.
+     */
+    private static function normalizeUrlHost(string $url, string $lowercaseHost): string
+    {
+        $parts = parse_url($url);
+
+        if (! is_array($parts) || ! isset($parts['host']) || $parts['host'] === $lowercaseHost) {
+            return $url;
+        }
+
+        $rebuilt = ($parts['scheme'] ?? 'http').'://';
+
+        if (isset($parts['user'])) {
+            $rebuilt .= $parts['user'];
+
+            if (isset($parts['pass'])) {
+                $rebuilt .= ':'.$parts['pass'];
+            }
+
+            $rebuilt .= '@';
+        }
+
+        $rebuilt .= $lowercaseHost;
+
+        if (isset($parts['port'])) {
+            $rebuilt .= ':'.$parts['port'];
+        }
+
+        $rebuilt .= $parts['path'] ?? '';
+
+        if (isset($parts['query'])) {
+            $rebuilt .= '?'.$parts['query'];
+        }
+
+        if (isset($parts['fragment'])) {
+            $rebuilt .= '#'.$parts['fragment'];
+        }
+
+        return $rebuilt;
     }
 
     /**

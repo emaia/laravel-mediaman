@@ -25,6 +25,47 @@ class UrlGuard
 
     public static function check(string $url): void
     {
+        self::parseAndValidate($url);
+    }
+
+    /**
+     * Validate a URL and return the resolved IP addresses.
+     *
+     * Use this instead of check() when you need to pin the resolved
+     * IPs in a subsequent HTTP request to prevent DNS rebinding.
+     *
+     * @return array{host: string, port: int, ips: string[]}
+     */
+    public static function resolve(string $url): array
+    {
+        $parts = self::parseAndValidate($url);
+
+        $host = strtolower($parts['host']);
+        $port = isset($parts['port'])
+            ? (int) $parts['port']
+            : (strtolower($parts['scheme']) === 'https' ? 443 : 80);
+
+        $ips = [];
+
+        // allow_private_hosts=true means the user has opted out of SSRF
+        // protection; returning an empty ips array skips CURLOPT_RESOLVE
+        // pinning downstream and lets curl resolve freely.
+        if (! config('mediaman.url_sources.allow_private_hosts', false)) {
+            $ips = self::resolveHost($host);
+        }
+
+        return [
+            'host' => $host,
+            'port' => $port,
+            'ips' => $ips,
+        ];
+    }
+
+    /**
+     * @return array{scheme?: string, host: string, port?: int}
+     */
+    private static function parseAndValidate(string $url): array
+    {
         $parts = @parse_url($url);
 
         if ($parts === false || ! isset($parts['host'])) {
@@ -44,6 +85,8 @@ class UrlGuard
         }
 
         self::checkHost($host);
+
+        return $parts;
     }
 
     private static function checkHost(string $host): void
@@ -169,9 +212,6 @@ class UrlGuard
 
     /**
      * @return string[]
-     *
-     * TODO(2.4): pin resolved IPs in HttpDownloader via CURLOPT_RESOLVE
-     * to prevent DNS rebinding between this check and the actual fetch.
      */
     private static function resolveHost(string $host): array
     {

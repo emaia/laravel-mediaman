@@ -8,6 +8,8 @@ use Emaia\MediaMan\Console\Commands\MediamanCleanCommand;
 use Emaia\MediaMan\Console\Commands\MediamanPublishConfigCommand;
 use Emaia\MediaMan\Console\Commands\MediamanPublishMigrationCommand;
 use Emaia\MediaMan\Console\Commands\ResponsiveImagesStatsCommand;
+use Emaia\MediaMan\Downloaders\Downloader;
+use Emaia\MediaMan\Downloaders\HttpDownloader;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveConversions;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\BreakpointWidthCalculator;
@@ -32,6 +34,8 @@ class MediaManServiceProvider extends ServiceProvider
         );
 
         $this->app->singleton(ConversionRegistry::class);
+
+        $this->app->bind(Downloader::class, HttpDownloader::class);
 
         $this->registerImageManager();
         $this->registerResponsiveImageServices();
