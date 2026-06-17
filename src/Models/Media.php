@@ -459,6 +459,37 @@ class Media extends Model implements Attachable
     }
 
     /**
+     * Return the LQIP placeholder data URI generated at upload time, or null
+     * if none was generated (non-image, disabled in config, or failure).
+     */
+    public function getPlaceholder(): ?string
+    {
+        $value = $this->getCustomProperty('placeholder');
+
+        return is_string($value) ? $value : null;
+    }
+
+    /**
+     * Return the conversion URL when the variant exists on disk; otherwise
+     * return the LQIP placeholder data URI; if neither is available, fall
+     * back to the original URL.
+     *
+     * Useful right after upload when queued conversions have not run yet.
+     */
+    public function getUrlOrPlaceholder(string $conversion = ''): string
+    {
+        if ($conversion !== '' && ! $this->hasConversion($conversion)) {
+            $placeholder = $this->getPlaceholder();
+
+            if ($placeholder !== null) {
+                return $placeholder;
+            }
+        }
+
+        return $this->getUrl($conversion);
+    }
+
+    /**
      * Get URL with fallback - returns conversion URL if exists, otherwise original.
      */
     public function getUrlWithFallback(string $conversion = ''): string

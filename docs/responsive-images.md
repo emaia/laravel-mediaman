@@ -7,6 +7,7 @@
 - [Inspecting variants](#inspecting-variants)
 - [Getting a URL](#getting-a-url)
 - [srcset and `<picture>` HTML](#srcset-and-picture-html)
+- [Placeholder integration](#placeholder-integration)
 - [Clearing variants](#clearing-variants)
 - [Width calculators](#width-calculators)
 
@@ -134,6 +135,36 @@ Simple `<img>` (no `<picture>`):
 ```php
 echo $media->getSimpleImgHtml(['class' => 'hero-image', 'loading' => 'lazy']);
 // <img src="…/image.jpg" alt="My image" class="hero-image" loading="lazy">
+```
+
+## Placeholder integration
+
+When the LQIP placeholder (see [Media → Placeholder](media.md#placeholder-for-pending-conversions)) was generated at upload time (the feature is opt-in), `getPictureHtml()` and `getSimpleImgHtml()` inject it automatically as a CSS background-image on the inner `<img>`:
+
+```html
+<picture>
+    <source ...>
+    <img
+        src="…/image.jpg"
+        srcset="…"
+        style="background-image:url('data:image/jpeg;base64,…');background-size:cover;background-position:center;"
+        alt="…"
+    >
+</picture>
+```
+
+The background covers the slot during three real-world cases:
+
+- Right after upload, while the responsive job is still in the queue.
+- During the network download from the CDN.
+- For lazy-loaded media offscreen (`loading="lazy"`).
+
+The injection is silent when no placeholder exists (non-image upload, placeholder disabled in config, or generation failure). Disable per call with `['placeholder' => false]`:
+
+```php
+echo $media->getPictureHtml();                          // includes blur (default)
+echo $media->getPictureHtml(['placeholder' => false]);  // skip
+echo $media->getSimpleImgHtml(['style' => 'border-radius:8px']); // merges with your style
 ```
 
 ## Clearing variants

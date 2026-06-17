@@ -21,6 +21,7 @@ The config file is organized in four blocks: essentials, validation/security def
 - [Base64 uploads](#base64-uploads)
 - [Temporary URLs](#temporary-urls)
 - [URL generation](#url-generation)
+- [Placeholder](#placeholder)
 - [Responsive images](#responsive-images)
 
 **Customization**
@@ -33,7 +34,7 @@ The config file is organized in four blocks: essentials, validation/security def
 
 ## Storage disk
 
-By default media is written to Laravel's default filesystem disk. To dedicate a disk to MediaMan:
+`config('mediaman.disk')` falls back to `config('filesystems.default')` when null — set it explicitly to dedicate a separate disk to MediaMan, or leave it null to inherit Laravel's default. To wire up a separate disk:
 
 ```php
 // config/filesystems.php
@@ -66,18 +67,18 @@ MediaMan supports all of Laravel's storage drivers (Local, S3, SFTP, FTP, Dropbo
 
 ## Image driver
 
-MediaMan uses [intervention/image](https://github.com/Intervention/image) under the hood. Pick the PHP image library:
+MediaMan uses [intervention/image](https://github.com/Intervention/image) under the hood. The driver is **auto-detected** at boot — `imagick` when the PHP extension is loaded, otherwise `gd`. Set the config (or env) explicitly to force one:
 
 ```php
-'driver' => env('MEDIAMAN_DRIVER', 'imagick'), // or 'gd'
+'driver' => env('MEDIAMAN_DRIVER'), // null = auto-detect, 'imagick', or 'gd'
 ```
 
-| Driver    | PHP extension | Notes                                             |
-|-----------|---------------|---------------------------------------------------|
-| `imagick` | ext-imagick   | Default. Higher quality, full color-space support |
-| `gd`      | ext-gd        | Lighter, bundled in most PHP installations        |
+| Driver    | PHP extension | Notes                                                 |
+|-----------|---------------|-------------------------------------------------------|
+| `imagick` | ext-imagick   | Higher quality, full color-space support. Preferred. |
+| `gd`      | ext-gd        | Lighter, bundled in most PHP installations.          |
 
-An invalid value throws `InvalidArgumentException` at runtime.
+An invalid explicit value throws `InvalidArgumentException` at runtime.
 
 ## Queue
 
@@ -176,6 +177,25 @@ Apply a CDN prefix and/or cache-busting query string to all generated URLs (see 
 ```
 
 For absolute storage URLs (S3-style), the prefix correctly strips scheme+host before reapplying. Temporary signed URLs are **not** prefixed or version-tagged.
+
+## Placeholder
+
+Low-quality image placeholder (LQIP) — a tiny blurred JPEG generated synchronously on image upload, stored as a base64 data URI in `custom_properties.placeholder`. See [Media → Placeholder](media.md#placeholder-for-pending-conversions) for usage.
+
+**Opt-in by default.** Set `enabled=true` (or `MEDIAMAN_PLACEHOLDER_ENABLED=true`) to turn it on:
+
+```php
+'placeholder' => [
+    'enabled' => env('MEDIAMAN_PLACEHOLDER_ENABLED', false),
+    'width'   => 32,  // px
+    'blur'    => 20,
+    'quality' => 40,  // JPEG quality (1-100)
+],
+```
+
+When on, adds ~50 ms per image upload and ~2 KB to `custom_properties`. Generation only fires for `image/*` MIME types; failures (corrupt image, unsupported format) fall back to `null` without breaking the upload.
+
+When off, `Media::getPlaceholder()` returns `null`, `getUrlOrPlaceholder()` behaves like `getUrl()`, and `getPictureHtml()`/`getSimpleImgHtml()` skip the background-image injection silently.
 
 ## Responsive images
 
