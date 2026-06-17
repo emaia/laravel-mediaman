@@ -88,7 +88,7 @@ class MediaManServiceProvider extends ServiceProvider
     protected function registerImageManager(): void
     {
         $this->app->singleton(ImageManager::class, function () {
-            $driver = config('mediaman.driver');
+            $driver = config('mediaman.driver') ?? $this->autoDetectImageDriver();
 
             return match ($driver) {
                 'imagick' => ImageManager::usingDriver(ImagickDriver::class),
@@ -98,6 +98,15 @@ class MediaManServiceProvider extends ServiceProvider
                 ),
             };
         });
+    }
+
+    /**
+     * Pick an image driver based on which PHP extensions are loaded.
+     * Prefers imagick (higher quality), falls back to gd.
+     */
+    protected function autoDetectImageDriver(): string
+    {
+        return extension_loaded('imagick') ? 'imagick' : 'gd';
     }
 
     /**

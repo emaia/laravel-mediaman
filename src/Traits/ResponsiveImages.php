@@ -35,10 +35,17 @@ trait ResponsiveImages
             return '';
         }
 
+        [$injectPlaceholder, $attributes] = $this->extractPlaceholderOption($attributes);
+
         $availableFormats = $this->getAvailableResponsiveFormats();
 
         // If no responsive images, return simple img tag
         if (empty($availableFormats) || $availableFormats === ['original']) {
+            // Re-inject opt-out so getSimpleImgHtml honors the same decision.
+            if (! $injectPlaceholder) {
+                $attributes['placeholder'] = false;
+            }
+
             return $this->getSimpleImgHtml($attributes, $sizes);
         }
 
@@ -88,6 +95,7 @@ trait ResponsiveImages
         }
 
         $imgAttributes = array_merge($defaultAttributes, $attributes);
+        $imgAttributes = $this->applyPlaceholderStyle($imgAttributes, $injectPlaceholder);
         $imgAttributesString = $this->attributesToString($imgAttributes);
 
         // Generate picture element
@@ -98,6 +106,48 @@ trait ResponsiveImages
         $sourcesString = implode("\n    ", $sources);
 
         return "<picture>\n    $sourcesString\n    <img $imgAttributesString>\n</picture>";
+    }
+
+    /**
+     * Pop the `placeholder` key out of the attributes array. Returns
+     * [bool $shouldInject, array $remainingAttributes] so callers can
+     * decide whether to add the blur background later without leaking
+     * the option into the rendered HTML.
+     */
+    protected function extractPlaceholderOption(array $attributes): array
+    {
+        $shouldInject = $attributes['placeholder'] ?? true;
+        unset($attributes['placeholder']);
+
+        return [(bool) $shouldInject, $attributes];
+    }
+
+    /**
+     * Append the LQIP placeholder as a CSS background-image on the <img>
+     * attributes when one was generated and the call opted in.
+     */
+    protected function applyPlaceholderStyle(array $attributes, bool $shouldInject): array
+    {
+        if (! $shouldInject) {
+            return $attributes;
+        }
+
+        $placeholder = $this->getPlaceholder();
+
+        if ($placeholder === null) {
+            return $attributes;
+        }
+
+        $background = "background-image:url('{$placeholder}');background-size:cover;background-position:center;";
+        $existing = trim($attributes['style'] ?? '');
+
+        if ($existing !== '') {
+            $existing = rtrim($existing, ';').';';
+        }
+
+        $attributes['style'] = $existing.$background;
+
+        return $attributes;
     }
 
     /**
@@ -146,7 +196,10 @@ trait ResponsiveImages
             return '';
         }
 
+        [$injectPlaceholder, $attributes] = $this->extractPlaceholderOption($attributes);
+
         $imgAttributes = array_merge($this->setDefaultImgAttributes($sizes), $attributes);
+        $imgAttributes = $this->applyPlaceholderStyle($imgAttributes, $injectPlaceholder);
         $imgAttributesString = $this->attributesToString($imgAttributes);
 
         return "<img $imgAttributesString>";

@@ -4,6 +4,28 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- `mediaman.driver` default is now `null` and **auto-detected** at boot — `imagick` when ext-imagick is loaded, `gd` otherwise. Previously hardcoded to `imagick`, which threw `InvalidArgumentException` at runtime on servers without ext-imagick. Existing installations that set `MEDIAMAN_DRIVER` explicitly are unaffected.
+- `mediaman.disk` default is now `null` and **falls back to** `config('filesystems.default')`. Previously hardcoded to `'public'`. Existing installations that set the value explicitly are unaffected; in practice Laravel's default disk is also `'public'` in fresh apps, so behavior matches for the common case.
+
+### Tooling
+
+- CI now runs `phpstan` and `pint --test` jobs in parallel with the test matrix. Previously only pest ran on PRs.
+- New `.github/workflows/release.yml` creates a GitHub Release automatically when a `v*` tag is pushed, extracting the matching section from `CHANGELOG.md`. The manual `gh release create --notes-file …` step is no longer needed.
+- New `.github/PULL_REQUEST_TEMPLATE.md` prompts contributors to update the CHANGELOG and relevant docs.
+
+### Added
+
+- **LQIP placeholder is now a native (opt-in) feature.** Enable via `MEDIAMAN_PLACEHOLDER_ENABLED=true` to have image uploads generate a tiny blurred JPEG (~2 KB) stored as a base64 data URI in `custom_properties.placeholder`. New methods on `Media`:
+  - `getPlaceholder(): ?string` — returns the data URI or null
+  - `getUrlOrPlaceholder(string $conversion = ''): string` — returns conversion URL when the file exists, falls back to placeholder, then to the original URL. Useful right after upload when queued conversions have not run yet.
+  - `getPictureHtml()` and `getSimpleImgHtml()` automatically inject the placeholder as a CSS background-image on the inner `<img>`. Opt out per call with `['placeholder' => false]`. Silent when no placeholder exists.
+  - Configurable via `mediaman.placeholder` (enabled, width, blur, quality). Default off, matching the package convention of opt-in feature toggles (mirrors `responsive_images.auto_generate`). Only fires for `image/*` uploads; failures fall back to `null` without breaking the upload.
+- `docs/recipes.md` — seven pluggable patterns for needs that MediaMan deliberately doesn't ship (image optimization, PDF/video thumbnails, SVG rasterization, ZIP downloads, multi-file uploads, string/stream uploads). Each recipe consumes the package's events + `custom_properties` + `PathGenerator` to slot cleanly into the existing pipeline.
+
+## [2.10.0] — 2026-06-17
+
 ### Added
 
 - `mediaman:publish` artisan command — publishes config and migration in one step. Individual `mediaman:publish-config` and `mediaman:publish-migration` remain for selective use.

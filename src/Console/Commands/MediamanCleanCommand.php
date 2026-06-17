@@ -19,7 +19,9 @@ or responsive files within a valid media directory are not flagged.';
 
     public function handle(): int
     {
-        $diskName = $this->option('disk') ?? config('mediaman.disk');
+        $diskName = $this->option('disk')
+            ?? config('mediaman.disk')
+            ?? config('filesystems.default');
         $dryRun = ! $this->option('force');
 
         try {

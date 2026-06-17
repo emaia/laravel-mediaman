@@ -17,6 +17,8 @@ use Emaia\MediaMan\Traits\ResolvesModels;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Intervention\Image\Format;
+use Intervention\Image\ImageManager;
 
 class MediaUploader
 {
@@ -434,10 +436,22 @@ class MediaUploader
 
         $media->name = $this->name;
         $media->file_name = $this->fileName;
-        $media->disk = $this->disk ?: config('mediaman.disk');
+        $media->disk = $this->disk
+            ?: config('mediaman.disk')
+            ?: config('filesystems.default');
         $media->mime_type = $this->file->getMimeType();
         $media->size = $this->file->getSize();
-        $media->custom_properties = $this->custom_properties;
+        $properties = $this->custom_properties;
+
+        if ($this->shouldGeneratePlaceholder()) {
+            $placeholder = $this->generatePlaceholder($this->file->getPathname());
+
+            if ($placeholder !== null) {
+                $properties['placeholder'] = $placeholder;
+            }
+        }
+
+        $media->custom_properties = $properties;
 
         $media->save();
 
@@ -490,6 +504,41 @@ class MediaUploader
         $this->responsiveOptions = $options;
 
         return $this;
+    }
+
+    /**
+     * Determine whether to generate a placeholder for this upload.
+     */
+    protected function shouldGeneratePlaceholder(): bool
+    {
+        if (! config('mediaman.placeholder.enabled', true)) {
+            return false;
+        }
+
+        return str_starts_with($this->file->getMimeType() ?? '', 'image/');
+    }
+
+    /**
+     * Generate a tiny blurred placeholder data URI for an image file.
+     * Returns null on failure so the upload never breaks because of it.
+     */
+    protected function generatePlaceholder(string $path): ?string
+    {
+        try {
+            $width = (int) config('mediaman.placeholder.width', 32);
+            $blur = (int) config('mediaman.placeholder.blur', 20);
+            $quality = (int) config('mediaman.placeholder.quality', 40);
+
+            $encoded = app(ImageManager::class)
+                ->decode(file_get_contents($path))
+                ->scaleDown($width)
+                ->blur($blur)
+                ->encodeUsingFormat(Format::JPEG, quality: $quality);
+
+            return 'data:image/jpeg;base64,'.base64_encode((string) $encoded);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**

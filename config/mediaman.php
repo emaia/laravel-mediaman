@@ -18,18 +18,20 @@ return [
     */
 
     /*
-    | The default disk where files should be uploaded.
+    | The default disk where files should be uploaded. When null, falls
+    | back to Laravel's default filesystem disk (config/filesystems.php).
     */
 
-    'disk' => 'public',
+    'disk' => env('MEDIAMAN_DISK'),
 
     /*
     | Image processing driver for intervention/image.
     | Supported: "imagick" (ImageMagick) or "gd" (GD Library).
-    | Make sure the corresponding PHP extension is installed.
+    | When null, auto-detected — prefers imagick when ext-imagick is loaded,
+    | falls back to gd otherwise. Set explicitly when you need a guarantee.
     */
 
-    'driver' => env('MEDIAMAN_DRIVER', 'imagick'),
+    'driver' => env('MEDIAMAN_DRIVER'),
 
     /*
     | The queue used for image conversions and responsive image generation.
@@ -182,6 +184,20 @@ return [
         // Optional CDN/origin prefix (e.g. 'https://cdn.example.com').
         // Absolute storage URLs (S3-style) are stripped before prefixing.
         'prefix' => null,
+    ],
+
+    /*
+    | Low-quality image placeholder (LQIP). Generated synchronously on
+    | upload for images, stored as a base64 data URI in custom_properties.
+    | Useful as a fallback while queued conversions catch up or as a CSS
+    | background-image for lazy-loaded media. Adds ~50ms per image upload.
+    */
+
+    'placeholder' => [
+        'enabled' => env('MEDIAMAN_PLACEHOLDER_ENABLED', false),
+        'width' => 32,    // px
+        'blur' => 20,
+        'quality' => 40,  // JPEG quality (1-100)
     ],
 
     /*

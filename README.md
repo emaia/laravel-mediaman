@@ -43,6 +43,7 @@ $post->attachMedia($media, 'featured-image-channel');
 | [**Security**](docs/security.md)                   | Disallowed extensions, SSRF guard, orphan cleanup                                 |
 | [**Events**](docs/events.md)                       | The four package events                                                           |
 | [**Artisan commands**](docs/commands.md)           | Publish assets, orphan cleanup, responsive image generation and stats             |
+| [**Recipes**](docs/recipes.md)                     | PDF/video thumbnails, image optimization, ZIP downloads, multi-file uploads       |
 | [**API reference**](docs/api.md)                   | Public surface by class/trait                                                     |
 
 Release history: [CHANGELOG.md](CHANGELOG.md).
@@ -59,8 +60,7 @@ Release history: [CHANGELOG.md](CHANGELOG.md).
 
 ```bash
 composer require emaia/laravel-mediaman
-php artisan mediaman:publish-config
-php artisan mediaman:publish-migration
+php artisan mediaman:publish
 php artisan storage:link
 php artisan migrate
 ```

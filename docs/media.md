@@ -6,6 +6,7 @@
 - [Attributes](#attributes)
 - [URL and path methods](#url-and-path-methods)
 - [HTTP responses](#http-responses)
+- [Placeholder for pending conversions](#placeholder-for-pending-conversions)
 - [Mail attachments](#mail-attachments)
 - [Custom properties](#custom-properties)
 - [Update](#update)
@@ -86,6 +87,42 @@ try {
 ```
 
 Default expiration via `temporary_url.default_lifetime_minutes` (5 min). Signed temporary URLs do **not** apply the `url.prefix` or `version_query` config.
+
+## Placeholder for pending conversions
+
+When the LQIP feature is enabled, MediaMan generates a tiny blurred JPEG (~2 KB) on image upload and stores it as a base64 data URI in `custom_properties.placeholder`. This is the LQIP (Low-Quality Image Placeholder) pattern — useful in two scenarios:
+
+- **Right after upload**, before the queued conversion job has finished, the conversion file doesn't exist yet on disk. Calling `getUrl('thumb')` would return a path to a missing file.
+- **Lazy-loaded galleries**, where you want a fast-rendering preview while the real image downloads.
+
+The feature is **opt-in** — enable it via [`placeholder` config](configuration.md#placeholder) or `MEDIAMAN_PLACEHOLDER_ENABLED=true`. Generated only for image uploads (`mime_type` starting with `image/`).
+
+```php
+$media->getPlaceholder();                 // 'data:image/jpeg;base64,...' or null
+
+// Return the placeholder when the conversion isn't on disk yet, otherwise the URL:
+$media->getUrlOrPlaceholder('thumb');
+```
+
+Manual rendering example:
+
+```blade
+<img
+    src="{{ $media->getUrlOrPlaceholder('thumb') }}"
+    style="background-image: url('{{ $media->getPlaceholder() }}'); background-size: cover;"
+    loading="lazy"
+    alt="{{ $media->name }}"
+>
+```
+
+`getPictureHtml()` and `getSimpleImgHtml()` already do this for you — the placeholder is injected as a CSS background-image on the `<img>` when one was generated. Opt out per call with `['placeholder' => false]`:
+
+```php
+echo $media->getPictureHtml();                          // includes background blur
+echo $media->getPictureHtml(['placeholder' => false]);  // skip the blur
+```
+
+See [Responsive images → Placeholder integration](responsive-images.md#placeholder-integration).
 
 ## Mail attachments
 
