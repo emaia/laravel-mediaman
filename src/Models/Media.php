@@ -11,6 +11,9 @@ use Emaia\MediaMan\Enums\MediaType;
 use Emaia\MediaMan\Events\MediaDeleted;
 use Emaia\MediaMan\Exceptions\InvalidCopyTarget;
 use Emaia\MediaMan\Exceptions\TemporaryUrlNotSupported;
+use Emaia\MediaMan\Generators\FileNamer;
+use Emaia\MediaMan\Generators\PathGenerator;
+use Emaia\MediaMan\Generators\UrlGenerator;
 use Emaia\MediaMan\Traits\ResolvesModels;
 use Emaia\MediaMan\Traits\ResponsiveImages;
 use Exception;
@@ -119,7 +122,7 @@ class Media extends Model implements Attachable
      */
     public function getDirectory(): string
     {
-        return $this->getKey().'-'.md5($this->getKey().config('app.key'));
+        return app(PathGenerator::class)->getDirectory($this);
     }
 
     /**
@@ -135,18 +138,19 @@ class Media extends Model implements Attachable
      */
     protected function getPathWithCorrectExtension(string $conversion = ''): string
     {
-        $directory = $this->getDirectory();
-        $fileName = $this->file_name;
-
         if ($conversion) {
-            $directory .= '/'.self::CONVERSIONS_DIR.'/'.$conversion;
-
-            // Try to detect the correct format for this conversion
-            $detectedExtension = $this->detectConversionFormat($conversion);
-
-            if ($detectedExtension) {
-                $fileName = $this->replaceFileExtension($this->file_name, $detectedExtension);
-            }
+            $directory = app(PathGenerator::class)->getPathForConversion($this, $conversion);
+            $originalName = $this->file_name ?? '';
+            $extension = $this->detectConversionFormat($conversion)
+                ?: pathinfo($originalName, PATHINFO_EXTENSION);
+            $fileName = app(FileNamer::class)->getConversionFileName(
+                $originalName,
+                $conversion,
+                $extension
+            );
+        } else {
+            $directory = $this->getDirectory();
+            $fileName = $this->file_name;
         }
 
         return $directory.'/'.$fileName;
@@ -261,7 +265,7 @@ class Media extends Model implements Attachable
     protected function detectFormatFromExistingFile(string $conversion): ?string
     {
         $formats = array_map(fn (MediaFormat $f) => $f->value, MediaFormat::detectableFormats());
-        $baseDirectory = $this->getDirectory().'/'.self::CONVERSIONS_DIR.'/'.$conversion;
+        $baseDirectory = app(PathGenerator::class)->getPathForConversion($this, $conversion);
         $baseFileName = pathinfo($this->file_name, PATHINFO_FILENAME);
 
         foreach ($formats as $format) {
@@ -412,10 +416,10 @@ class Media extends Model implements Attachable
      */
     public function getOriginalPath(string $conversion = ''): string
     {
-        $directory = $this->getDirectory();
-
         if ($conversion) {
-            $directory .= '/'.self::CONVERSIONS_DIR.'/'.$conversion;
+            $directory = app(PathGenerator::class)->getPathForConversion($this, $conversion);
+        } else {
+            $directory = $this->getDirectory();
         }
 
         return $directory.'/'.$this->file_name;
@@ -448,8 +452,9 @@ class Media extends Model implements Attachable
      */
     public function getUrl(string $conversion = ''): string
     {
-        return $this->filesystem()->url(
-            $this->getPathWithCorrectExtension($conversion)
+        return app(UrlGenerator::class)->getUrl(
+            $this,
+            $conversion !== '' ? $conversion : null
         );
     }
 
@@ -712,9 +717,10 @@ class Media extends Model implements Attachable
             (int) config('mediaman.temporary_url.default_lifetime_minutes', 5)
         );
 
-        return $filesystem->temporaryUrl(
-            $this->getPath($conversion ?? ''),
-            $expiration
+        return app(UrlGenerator::class)->getTemporaryUrl(
+            $this,
+            $expiration,
+            $conversion !== '' ? $conversion : null
         );
     }
 

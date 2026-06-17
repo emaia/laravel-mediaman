@@ -1,5 +1,8 @@
 <?php
 
+use Emaia\MediaMan\Generators\DefaultFileNamer;
+use Emaia\MediaMan\Generators\DefaultPathGenerator;
+use Emaia\MediaMan\Generators\DefaultUrlGenerator;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Models\MediaCollection;
 
@@ -214,6 +217,37 @@ return [
 
         'default_lifetime_minutes' => 5,
 
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Generator Classes
+    |--------------------------------------------------------------------------
+    |
+    | Customize how media paths, URLs, and file names are generated.
+    | Swap any class with your own implementation — defaults preserve
+    | the existing behaviour bit-for-bit.
+    |
+    */
+
+    'generators' => [
+        'path' => DefaultPathGenerator::class,
+        'url' => DefaultUrlGenerator::class,
+        'file_namer' => DefaultFileNamer::class,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | URL Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Options for generated media URLs (version query strings, CDN prefixes).
+    |
+    */
+
+    'url' => [
+        'version_query' => false,
+        'prefix' => null,
     ],
 
     /*
