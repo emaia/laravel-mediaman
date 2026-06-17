@@ -1,0 +1,156 @@
+# Changelog
+
+All notable changes to `emaia/laravel-mediaman` will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+
+- `mediaman:publish` artisan command — publishes config and migration in one step. Individual `mediaman:publish-config` and `mediaman:publish-migration` remain for selective use.
+- `MediaUploader::fromRequest($key = 'file', ?$request = null)` — convenience entry point for the most common case (pull a single file from the current HTTP request). The request is resolved from the container when not passed. Throws `InvalidArgumentException` when the field is missing or contains a multi-file array.
+
+### Changed
+
+- Split `README.md` into 12 topic-focused files under `docs/`. README is now a short index aligned with the package's core concepts.
+- Reorganized `config/mediaman.php` into four labeled sections (essentials, validation/security defaults, per-feature configuration, customization) to mirror the doc layout. Existing published configs are not affected.
+- Added per-file tables of contents to every `docs/*.md` page.
+
+### Added (docs)
+
+- `CHANGELOG.md` backfilled with entries for v2.2.0 → v2.9.0.
+- `docs/api.md` — public API reference by class/trait.
+
+## [2.9.0] — 2026-06-17
+
+### Added
+
+- **Pluggable `PathGenerator`, `UrlGenerator`, and `FileNamer`** interfaces under `Emaia\MediaMan\Generators` with bit-for-bit default implementations.
+- `config('mediaman.generators.*')` to swap implementations; container singletons.
+- `config('mediaman.url.prefix')` — CDN/origin prefix prepended to all generated URLs. Handles absolute storage URLs (S3-style) by stripping scheme+host before prefixing.
+- `config('mediaman.url.version_query')` — append `?v={updated_at}` for cache busting.
+- `FileNamer::getConversionFileName` and `getResponsiveFileName` wired into `Media`, `ImageManipulator`, and `ResponsiveImageGenerator` for full pluggability.
+
+### Notes
+
+- Temporary signed URLs are not prefixed or version-tagged (signatures cover expiration).
+
+## [2.8.0] — 2026-06-17
+
+### Added
+
+- **Ordering** via `order_column` on `mediaman_mediables`.
+  - `HasMedia::attachMedia($media, $channel, $conversions, ?int $order = null)` — optional position; auto-assigns `max(order_column)+1` when null.
+  - `HasMedia::syncMedia(..., ?int $startOrder = null)` — replaces previous `bool $preserveOrder`.
+  - `HasMedia::setMediaOrder(array $ids, $channel)` — batch reorder in a DB transaction. Throws `InvalidArgumentException` if any id isn't attached in the channel.
+  - `media()` / `getMedia()` order by `order_column` with NULLS LAST semantics (cross-DB).
+- **Channel fallbacks** via `MediaChannel::useFallbackUrl()` / `useFallbackPath()` with per-conversion overrides.
+- **`Media::copy($target, $channel)`** — clones record + primary file + conversions + responsive variants; rolls back the DB record if any file copy fails. Cross-disk copies stream.
+- **`Media::attachTo($target, $channel)`** — re-attach without touching disk (chainable).
+- New exception `Emaia\MediaMan\Exceptions\InvalidCopyTarget`.
+
+### Changed
+
+- `HasMedia::addMediaChannel()` widened from `protected` to `public` for ad-hoc channel configuration.
+
+### Breaking
+
+- `HasMedia::syncMedia` 5th parameter changed type/name (`bool $preserveOrder` → `?int $startOrder`).
+- `media()` / `getMedia()` now order results; code relying on insertion order may see different orderings.
+- Existing installations must add `order_column` to `mediaman_mediables` via a custom migration before upgrading.
+
+## [2.7.0] — 2026-06-17
+
+### Added
+
+- **Collection validation & auto-prune** via fluent setters on `MediaCollection`:
+  - `singleFile()`, `onlyKeepLatest($n)`, `acceptsMimeTypes([...])`.
+  - `validateMedia()` enforces MIME whitelist (supports wildcards like `image/*`); throws `MediaNotAcceptedByCollection`.
+  - `enforceMaxItems()` auto-detaches oldest media when count exceeds `max_items` (Media records are never deleted).
+- Validation and prune fire on **both** upload and direct attach paths.
+- New columns on `mediaman_collections`: `max_items`, `allowed_mime_types`, `fallback_url`, `fallback_path`.
+
+### Fixed
+
+- `Media::collections()` had its `BelongsToMany` foreign/related pivot keys swapped — `$media->collections` now correctly returns the collections the media belongs to.
+
+### Breaking
+
+- Fresh installs get the new columns automatically via the updated `create_mediaman_tables` stub. Existing v2.6.0 installations must add columns via a custom migration before upgrading.
+
+## [2.6.0] — 2026-06-16
+
+### Added
+
+- `Media::toResponse()` / `toInlineResponse()` (StreamedResponse for download / inline display).
+- `Media::getStream()` returning a read stream resource (caller closes).
+- `Media::getTemporaryUrl($expiration, $conversion)` with `providesTemporaryUrls()` capability detection; throws `TemporaryUrlNotSupported` on unsupported drivers.
+- `Media::mailAttachment()` and `Media implements Attachable` — pass `$media` directly to `$mailable->attach()`.
+- Complete `HasMedia::getLastMedia*` API mirroring `getFirstMedia*`.
+- `temporary_url.default_lifetime_minutes` config (default 5).
+- `TemporaryUrlNotSupported` exception.
+
+### Changed
+
+- README backfills a `Security` section covering extension blocking, SSRF guard, and `mediaman:clean`.
+
+## [2.5.0] — 2026-06-16
+
+### Added
+
+- **Multi-source uploads** on `MediaUploader`:
+  - `fromDisk(string $path, string $disk)` — preserves the source file on the original disk.
+  - `fromBase64(string $data, string $filename, ?string $name)` — pre-decode size check (`base64.max_size_bytes`, default 50 MB).
+  - `fromUrl(string $url)` — SSRF validation + `CURLOPT_RESOLVE` pinning to mitigate DNS rebinding.
+- `Downloader` interface + `HttpDownloader` (Laravel HTTP client) — bindable in container for testing.
+- Defense layers for `fromUrl`: HEAD `Content-Length` pre-check + in-stream size guard + post-download verification.
+- `InvalidBase64Data` exception.
+
+### Notes
+
+- `fromUrl()` requires **ext-curl** (declared in `composer.json`).
+- Uses the `url_sources` config block introduced in 2.3.0.
+
+## [2.4.0] — 2026-06-16
+
+### Added
+
+- `mediaman:clean` artisan command — detect orphan files on disk and Media records with missing files.
+  - Dry-run by default; `--force` deletes orphan files.
+  - DB records are never auto-deleted (cascade safety).
+  - `--disk` option scopes the scan.
+
+## [2.3.0] — 2026-06-16
+
+### Added
+
+- **SSRF `UrlGuard`** under `Emaia\MediaMan\Support` — validates remote URLs before fetching.
+  - Scheme allowlist (`http`, `https`).
+  - IPv4 blocks: `0/8`, `10/8`, `127/8`, `169.254/16` (AWS/GCP metadata), `172.16/12`, `192.168/16`, `255.255.255.255`.
+  - IPv6 blocks: `::`, `::1`, `fc00::/7`, `fe80::/10`, `::ffff:x.x.x.x`, `2002::/16`, `2001::/32`.
+  - DNS resolution checks A and AAAA records.
+- `url_sources` config block: `allow_private_hosts`, `timeout_seconds`, `max_size_bytes`, `verify_ssl`, `user_agent`.
+- `UrlNotAllowed` exception.
+
+### Notes
+
+- Standalone utility in 2.3.0 — wired into uploads in 2.5.0.
+
+## [2.2.0] — 2026-06-16
+
+### Added
+
+- **Block dangerous file extensions** on upload by default: `php`, `phtml`, `phar`, `shtml`, `htaccess`, `cgi`, `pl`, `asp`, `aspx`, `jsp`, `jspx`.
+- `block_disallowed_extensions` and `disallowed_extensions` config options.
+- `DisallowedExtension` exception.
+
+### Notes
+
+- The check runs against the **sanitized** filename so double-extension attacks like `legit.php.jpg` are defused before validation.
+
+### Breaking
+
+- Uploads with disallowed extensions now throw `DisallowedExtension`. Set `mediaman.block_disallowed_extensions = false` to restore previous behavior.
+
+---
+
+For releases v2.1.0 and earlier, see the [GitHub Releases page](https://github.com/emaia/laravel-mediaman/releases).
