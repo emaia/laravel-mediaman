@@ -7,6 +7,7 @@ use Emaia\MediaMan\MediaChannel;
 use Emaia\MediaMan\Models\Media;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -21,7 +22,7 @@ trait HasMedia
     protected array $mediaCache = [];
 
     /**
-     * Determine if there is any media in the specified group.
+     * Determine if there is any media in the specified channel.
      */
     public function hasMedia(string $channel = Media::DEFAULT_CHANNEL): bool
     {
@@ -29,7 +30,7 @@ trait HasMedia
     }
 
     /**
-     * Get all the media in the specified group.
+     * Get all the media in the specified channel.
      */
     public function getMedia(?string $channel = Media::DEFAULT_CHANNEL): Collection
     {
@@ -47,7 +48,11 @@ trait HasMedia
                 if ($channel === null) {
                     $this->mediaCache[$cacheKey] = $this->media()->get();
                 } else {
-                    $this->mediaCache[$cacheKey] = $this->media()->wherePivot('channel', $channel)->get();
+                    $table = config('mediaman.tables.mediables');
+                    $this->mediaCache[$cacheKey] = $this->media()
+                        ->wherePivot('channel', $channel)
+                        ->orderByRaw("({$table}.order_column IS NULL) ASC, {$table}.order_column ASC")
+                        ->get();
                 }
             }
         }
@@ -57,9 +62,12 @@ trait HasMedia
 
     public function media(): MorphToMany
     {
+        $table = config('mediaman.tables.mediables');
+
         return $this
-            ->morphToMany($this->mediaModel(), 'mediable', config('mediaman.tables.mediables'))
-            ->withPivot('channel');
+            ->morphToMany($this->mediaModel(), 'mediable', $table)
+            ->withPivot('channel', 'order_column')
+            ->orderByRaw("({$table}.order_column IS NULL) ASC, {$table}.order_column ASC");
     }
 
     /**
@@ -68,7 +76,7 @@ trait HasMedia
     public function getFirstMediaUrl(?string $channel = Media::DEFAULT_CHANNEL, string $conversion = ''): string
     {
         if (! $media = $this->getFirstMedia($channel)) {
-            return '';
+            return $this->getChannelFallbackUrl($channel, $conversion);
         }
 
         return $media->getUrl($conversion);
@@ -84,10 +92,13 @@ trait HasMedia
 
     /**
      * Attach media to the specified channel.
+     *
+     * If $order is null, new attaches receive the next sequential position
+     * in the channel. Pass an explicit integer to set the starting position.
      */
-    public function attachMedia($media, string $channel = Media::DEFAULT_CHANNEL, array $conversions = []): ?int
+    public function attachMedia($media, string $channel = Media::DEFAULT_CHANNEL, array $conversions = [], ?int $order = null): ?int
     {
-        $syncResult = $this->syncMedia($media, $channel, $conversions, false);
+        $syncResult = $this->syncMedia($media, $channel, $conversions, false, $order);
 
         $attachedCount = count($syncResult['attached'] ?? []);
 
@@ -97,10 +108,11 @@ trait HasMedia
     /**
      * Sync media to the specified channel.
      *
-     * This will remove the media that aren't in the provided list
-     * and add those which aren't already attached if $detaching is truthy.
+     * Removes media not in the provided list and attaches new ones (when
+     * $detaching is truthy). New attaches receive an order_column based on
+     * the channel's current max(order_column)+1, unless $startOrder is set.
      */
-    public function syncMedia(mixed $media, string $channel = Media::DEFAULT_CHANNEL, array $conversions = [], bool $detaching = true): ?array
+    public function syncMedia(mixed $media, string $channel = Media::DEFAULT_CHANNEL, array $conversions = [], bool $detaching = true, ?int $startOrder = null): ?array
     {
         $this->registerMediaChannels();
 
@@ -160,7 +172,17 @@ trait HasMedia
             }
 
             if (! empty($toAttach)) {
-                $this->media()->attach($toAttach, ['channel' => $channel]);
+                $baseOrder = $startOrder ?? $this->getNextOrder($channel);
+                $pivotData = [];
+
+                foreach ($toAttach as $index => $attachId) {
+                    $pivotData[$attachId] = [
+                        'channel' => $channel,
+                        'order_column' => $baseOrder + $index,
+                    ];
+                }
+
+                $this->media()->attach($pivotData);
                 $attached = $toAttach;
             }
 
@@ -178,6 +200,86 @@ trait HasMedia
     }
 
     /**
+     * Reorder media in the specified channel by the given array of ids.
+     * Positions are assigned 0..N-1 in the order of $ids.
+     *
+     * Throws InvalidArgumentException if any id is not currently attached
+     * to this model in the given channel.
+     */
+    public function setMediaOrder(array $ids, string $channel = Media::DEFAULT_CHANNEL): void
+    {
+        $table = config('mediaman.tables.mediables');
+        $morphType = $this->getMorphClass();
+
+        $attachedIds = DB::table($table)
+            ->where('mediable_type', $morphType)
+            ->where('mediable_id', $this->getKey())
+            ->where('channel', $channel)
+            ->pluck('media_id')
+            ->all();
+
+        $invalid = array_diff($ids, $attachedIds);
+
+        if (! empty($invalid)) {
+            throw new \InvalidArgumentException(
+                'Media ids not attached to this model in channel ['.$channel.']: '.implode(', ', $invalid)
+            );
+        }
+
+        DB::transaction(function () use ($ids, $channel, $table, $morphType) {
+            foreach ($ids as $index => $mediaId) {
+                DB::table($table)
+                    ->where('mediable_type', $morphType)
+                    ->where('mediable_id', $this->getKey())
+                    ->where('channel', $channel)
+                    ->where('media_id', $mediaId)
+                    ->update(['order_column' => $index]);
+            }
+        });
+
+        $this->clearMediaCache($channel);
+    }
+
+    protected function getChannelFallbackUrl(?string $channel, string $conversion): string
+    {
+        $mediaChannel = $this->getMediaChannel($channel ?? Media::DEFAULT_CHANNEL);
+
+        if ($mediaChannel === null) {
+            return '';
+        }
+
+        return $mediaChannel->getFallbackUrl($conversion !== '' ? $conversion : null);
+    }
+
+    protected function getChannelFallbackPath(?string $channel, string $conversion): string
+    {
+        $mediaChannel = $this->getMediaChannel($channel ?? Media::DEFAULT_CHANNEL);
+
+        if ($mediaChannel === null) {
+            return '';
+        }
+
+        return $mediaChannel->getFallbackPath($conversion !== '' ? $conversion : null);
+    }
+
+    /**
+     * Get the next sequential order_column value for a channel.
+     */
+    protected function getNextOrder(string $channel): int
+    {
+        $table = config('mediaman.tables.mediables');
+        $morphType = $this->getMorphClass();
+
+        $max = DB::table($table)
+            ->where('mediable_type', $morphType)
+            ->where('mediable_id', $this->getKey())
+            ->where('channel', $channel)
+            ->max('order_column');
+
+        return $max !== null ? (int) $max + 1 : 0;
+    }
+
+    /**
      * Register all the model's media channels.
      */
     public function registerMediaChannels(): void
@@ -186,9 +288,7 @@ trait HasMedia
     }
 
     /**
-     * Check if all media should be detached
-     *
-     * bool|null|empty-string|empty-array to detach all media
+     * Detach all media when given bool, null, empty string, or empty array.
      */
     protected function shouldDetachAll($media): bool
     {
@@ -213,7 +313,7 @@ trait HasMedia
     }
 
     /**
-     * Limpar cache de media para um channel específico ou todos.
+     * Clear cached media for a channel, or all channels when null.
      */
     protected function clearMediaCache(?string $channel = null): void
     {
@@ -241,7 +341,15 @@ trait HasMedia
             return [$media->getKey()];
         }
 
-        return (array) $media;
+        $ids = (array) $media;
+
+        return array_map(function ($id) {
+            if (is_object($id) && method_exists($id, 'getKey')) {
+                return $id->getKey();
+            }
+
+            return $id;
+        }, $ids);
     }
 
     /**
@@ -270,7 +378,7 @@ trait HasMedia
     public function getFirstMediaUrlWithFallback(?string $channel = Media::DEFAULT_CHANNEL, string $conversion = ''): string
     {
         if (! $media = $this->getFirstMedia($channel)) {
-            return '';
+            return $this->getChannelFallbackUrl($channel, $conversion);
         }
 
         return $media->getUrlWithFallback($conversion);
@@ -301,6 +409,18 @@ trait HasMedia
     }
 
     /**
+     * Get the absolute path of the first media item, or the channel fallback path.
+     */
+    public function getFirstMediaPath(?string $channel = Media::DEFAULT_CHANNEL, string $conversion = ''): string
+    {
+        if (! $media = $this->getFirstMedia($channel)) {
+            return $this->getChannelFallbackPath($channel, $conversion);
+        }
+
+        return $media->getFullPath($conversion);
+    }
+
+    /**
      * Get the last media item in the specified channel.
      */
     public function getLastMedia(?string $channel = Media::DEFAULT_CHANNEL)
@@ -314,7 +434,7 @@ trait HasMedia
     public function getLastMediaUrl(?string $channel = Media::DEFAULT_CHANNEL, string $conversion = ''): string
     {
         if (! $media = $this->getLastMedia($channel)) {
-            return '';
+            return $this->getChannelFallbackUrl($channel, $conversion);
         }
 
         return $media->getUrl($conversion);
@@ -326,7 +446,7 @@ trait HasMedia
     public function getLastMediaUrlWithFallback(?string $channel = Media::DEFAULT_CHANNEL, string $conversion = ''): string
     {
         if (! $media = $this->getLastMedia($channel)) {
-            return '';
+            return $this->getChannelFallbackUrl($channel, $conversion);
         }
 
         return $media->getUrlWithFallback($conversion);
@@ -357,9 +477,21 @@ trait HasMedia
     }
 
     /**
-     * Register a new media group.
+     * Get the absolute path of the last media item, or the channel fallback path.
      */
-    protected function addMediaChannel(string $name): MediaChannel
+    public function getLastMediaPath(?string $channel = Media::DEFAULT_CHANNEL, string $conversion = ''): string
+    {
+        if (! $media = $this->getLastMedia($channel)) {
+            return $this->getChannelFallbackPath($channel, $conversion);
+        }
+
+        return $media->getFullPath($conversion);
+    }
+
+    /**
+     * Register a new media channel.
+     */
+    public function addMediaChannel(string $name): MediaChannel
     {
         $channel = app(MediaChannel::class);
 

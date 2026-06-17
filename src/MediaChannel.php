@@ -6,11 +6,16 @@ class MediaChannel
 {
     protected array $conversions = [];
 
-    /**
-     * Register the conversions to be performed when media is attached.
-     *
-     * @return $this
-     */
+    protected string $fallbackUrl = '';
+
+    protected string $fallbackPath = '';
+
+    /** @var array<string, string> */
+    protected array $conversionFallbackUrls = [];
+
+    /** @var array<string, string> */
+    protected array $conversionFallbackPaths = [];
+
     public function performConversions(string ...$conversions): MediaChannel
     {
         $this->conversions = $conversions;
@@ -18,19 +23,53 @@ class MediaChannel
         return $this;
     }
 
-    /**
-     * Determine if there are any registered conversions.
-     */
     public function hasConversions(): bool
     {
         return ! empty($this->conversions);
     }
 
-    /**
-     * Get all the registered conversions.
-     */
     public function getConversions(): array
     {
         return $this->conversions;
+    }
+
+    public function useFallbackUrl(string $url, ?string $conversion = null): MediaChannel
+    {
+        if ($conversion === null) {
+            $this->fallbackUrl = $url;
+        } else {
+            $this->conversionFallbackUrls[$conversion] = $url;
+        }
+
+        return $this;
+    }
+
+    public function useFallbackPath(string $path, ?string $conversion = null): MediaChannel
+    {
+        if ($conversion === null) {
+            $this->fallbackPath = $path;
+        } else {
+            $this->conversionFallbackPaths[$conversion] = $path;
+        }
+
+        return $this;
+    }
+
+    public function getFallbackUrl(?string $conversion = null): string
+    {
+        if ($conversion !== null && isset($this->conversionFallbackUrls[$conversion])) {
+            return $this->conversionFallbackUrls[$conversion];
+        }
+
+        return $this->fallbackUrl;
+    }
+
+    public function getFallbackPath(?string $conversion = null): string
+    {
+        if ($conversion !== null && isset($this->conversionFallbackPaths[$conversion])) {
+            return $this->conversionFallbackPaths[$conversion];
+        }
+
+        return $this->fallbackPath;
     }
 }
