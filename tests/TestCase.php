@@ -28,6 +28,9 @@ class TestCase extends Orchestra
 
         $this->loadMigrationsFrom(__DIR__.'/database/migrations');
 
+        // Clean any auto-generated migrations in Testbench skeleton
+        $this->cleanTestbenchMigrations();
+
         // Use a test disk as the default disk...
         Config::set('mediaman.disk', self::DEFAULT_DISK);
 
@@ -64,5 +67,31 @@ class TestCase extends Orchestra
 
         // Load migrations
         $app['migrator']->path(__DIR__.'/../database/migrations');
+    }
+
+    /**
+     * Remove any *.php files from the Testbench skeleton's migrations dir.
+     *
+     * Tests for `mediaman:publish-migration` publish stub files into
+     * `base_path('database/migrations')` (the Testbench fake-app directory).
+     * RefreshDatabase auto-discovers files in that directory and would re-run
+     * them on the next test, conflicting with `loadMigrationsFrom` and
+     * `app['migrator']->path()` loaded above.
+     *
+     * Wiping the directory at setUp ensures isolation between tests.
+     */
+    protected function cleanTestbenchMigrations(): void
+    {
+        $dir = base_path('database/migrations');
+
+        if (! is_dir($dir)) {
+            return;
+        }
+
+        foreach (glob($dir.'/*.php') as $file) {
+            if (basename($file) !== '.gitkeep') {
+                unlink($file);
+            }
+        }
     }
 }

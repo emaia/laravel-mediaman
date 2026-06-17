@@ -67,6 +67,7 @@ There are a few key concepts that need to be understood before continuing:
 * [Media & Models](#media--models)
   * [getFirst* / getLast* helpers](#retrieve-media-of-a-model)
 * [Collections](#collections)
+  * [Collection validation and auto-prune](#collection-validation-and-auto-prune)
 * [Media & Collections](#media--collections)
 * [Media, Models & Conversions](#conversions)
 * [Responsive Images](#responsive-images)
@@ -935,6 +936,59 @@ This won't delete the media from the disk, but the bindings will be removed from
 
 *Heads Up!* deleteWithMedia() is a conceptual method that hasn't implemented yet, create a feature request if you need
 this. PRs are very much appreciated.
+
+### Collection validation and auto-prune
+
+Collections can declare which MIME types they accept and how many items they keep. Both rules are enforced on
+upload **and** on direct attach (`$collection->attachMedia(...)`).
+
+#### MIME type restriction
+
+```php
+$collection = MediaCollection::create(['name' => 'avatars']);
+
+// Single type
+$collection->acceptsMimeTypes(['image/png'])->save();
+
+// Multiple types
+$collection->acceptsMimeTypes(['image/png', 'image/jpeg'])->save();
+
+// Wildcard
+$collection->acceptsMimeTypes(['image/*'])->save();
+```
+
+Uploads or attaches of an unmatched MIME throw `Emaia\MediaMan\Exceptions\MediaNotAcceptedByCollection`.
+
+An empty array (`acceptsMimeTypes([])`) or `null` means "accept anything".
+
+#### Auto-prune oldest
+
+```php
+// Keep at most N items, prune oldest on overflow
+$collection = MediaCollection::create(['name' => 'gallery'])
+    ->onlyKeepLatest(5);
+$collection->save();
+
+// Shortcut for onlyKeepLatest(1)
+$avatar = MediaCollection::create(['name' => 'avatar'])
+    ->singleFile();
+$avatar->save();
+```
+
+When a new media is attached above the limit, the **oldest** media (by `created_at`, with id as tiebreaker) is
+**detached** from the collection. The Media record itself is **never deleted** — it may still be attached to other
+models, collections, or channels.
+
+Auto-prune fires from both upload (`MediaUploader::source()->useCollection(...)->upload()`) and direct attach
+(`$collection->attachMedia($media)`).
+
+#### Fluent setters require `->save()`
+
+The setters mutate the model in memory only — call `->save()` to persist (matches Eloquent convention):
+
+```php
+$collection->onlyKeepLatest(3)->acceptsMimeTypes(['image/jpeg'])->save();
+```
 
 ------
 
