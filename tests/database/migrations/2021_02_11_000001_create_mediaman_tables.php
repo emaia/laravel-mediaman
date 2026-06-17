@@ -51,6 +51,7 @@ return new class extends Migration
             $table->unsignedBigInteger('mediable_id')->index();
             $table->string('mediable_type');
             $table->string('channel');
+            $table->integer('order_column')->nullable()->index();
 
             $table->foreign('media_id')
                 ->references('id')

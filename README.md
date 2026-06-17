@@ -64,8 +64,11 @@ There are a few key concepts that need to be understood before continuing:
   * [Upload from other sources](#upload-from-other-sources)
   * [HTTP responses & mail](#http-responses--mail)
   * [Custom Properties](#custom-properties)
+  * [Copy and re-attach media](#copy-and-re-attach-media)
 * [Media & Models](#media--models)
   * [getFirst* / getLast* helpers](#retrieve-media-of-a-model)
+  * [Ordering media](#ordering-media)
+  * [Channel fallbacks](#channel-fallbacks)
 * [Collections](#collections)
   * [Collection validation and auto-prune](#collection-validation-and-auto-prune)
 * [Media & Collections](#media--collections)
@@ -682,6 +685,29 @@ $media->save();
 **Tip**: Enabling this check can preemptively spot storage issues but may add minor operational delays. Consider your
 system's needs and decide accordingly.
 
+### Copy and re-attach media
+
+`Media::copy()` clones a Media record, copies the physical file (plus conversions and responsive variants), and
+attaches the new copy to the target model. The original Media stays untouched.
+
+```php
+$copy = $media->copy($otherPost, 'featured');
+// $copy is a new Media row with a fresh id; both files exist on disk
+```
+
+If any file copy fails, the new Media DB record is rolled back so you don't end up with an orphan record. The target
+model must use the `HasMedia` trait — otherwise `Emaia\MediaMan\Exceptions\InvalidCopyTarget` is thrown.
+
+When source and target are on different disks, `copy()` streams files (`readStream` → `writeStream`) instead of
+loading them fully into memory.
+
+`Media::attachTo()` re-attaches the same Media to another model **without** touching disk — it's purely a pivot
+write, useful when you want the same file referenced from multiple models:
+
+```php
+$media->attachTo($otherPost, 'gallery'); // chainable, returns $media
+```
+
 ### Delete media
 
 You can delete a media by calling the delete() method on an instance of Media.
@@ -861,7 +887,7 @@ $post->clearMediaChannel('channel-name');
 
 You can sync media of a specified channel using the syncMedia() method. This provides a flexible way to maintain the
 association between your model and the related media records. The default method signature look like this:
-`syncMedia($media, string $channel = 'default', array $conversions = [], $detaching = true)`
+`syncMedia($media, string $channel = 'default', array $conversions = [], $detaching = true, ?int $startOrder = null)`
 
 This will remove the media that aren't in the provided list and add those which aren't already attached if $detaching is
 truthy.
@@ -876,6 +902,65 @@ $post->syncMedia($media);
 
 **Heads Up!:** None of the attachMedia, detachMedia, or syncMedia methods deletes the file, it just does as it means.
 Refer to delete a media section to know how to delete a media.
+
+### Ordering media
+
+The pivot table stores an `order_column` per attachment. When you call `attachMedia()` without an explicit position,
+media gets the next sequential slot (`max(order_column) + 1` for the channel). `getMedia()` and friends return rows
+ordered by `order_column` ascending, with `NULL` rows sorted **last** (cross-DB).
+
+```php
+// Auto-assigned sequential order: 0, 1, 2
+$post->attachMedia($m1);
+$post->attachMedia($m2);
+$post->attachMedia($m3);
+
+// Explicit starting position
+$post->attachMedia($m4, 'gallery', [], 10);          // pivot order_column = 10
+$post->attachMedia([$m5, $m6], 'gallery', [], 20);   // 20 and 21
+
+// Batch reorder a channel — positions become 0, 1, 2 in the array order
+$post->setMediaOrder([$m3->id, $m1->id, $m2->id]);
+
+// Scoped to a specific channel
+$post->setMediaOrder([$mB->id, $mA->id], 'gallery');
+```
+
+`setMediaOrder()` runs in a DB transaction. It throws `InvalidArgumentException` if any id is not currently attached
+to the model in the given channel.
+
+### Channel fallbacks
+
+A media channel can declare a fallback URL or path used when the channel has no media attached. Configure via
+`registerMediaChannels()` (or ad-hoc with `addMediaChannel()`):
+
+```php
+public function registerMediaChannels(): void
+{
+    $this->addMediaChannel('avatar')
+        ->useFallbackUrl('/img/default-avatar.png')
+        ->useFallbackPath(public_path('img/default-avatar.png'));
+}
+```
+
+`getFirstMediaUrl()`, `getFirstMediaUrlWithFallback()`, `getFirstMediaPath()`, and the matching `getLastMedia*`
+helpers return the configured fallback when the channel is empty:
+
+```php
+$post->getFirstMediaUrl('avatar');   // '/img/default-avatar.png' when no media attached
+$post->getFirstMediaPath('avatar');  // '/var/www/.../public/img/default-avatar.png'
+```
+
+Per-conversion overrides take precedence over the channel default:
+
+```php
+$this->addMediaChannel('avatar')
+    ->useFallbackUrl('/img/default-avatar.png')
+    ->useFallbackUrl('/img/avatar-thumb.png', 'thumb');
+
+$post->getFirstMediaUrl('avatar');          // '/img/default-avatar.png'
+$post->getFirstMediaUrl('avatar', 'thumb'); // '/img/avatar-thumb.png'
+```
 
 -----
 

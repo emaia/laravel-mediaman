@@ -9,6 +9,7 @@ use Emaia\MediaMan\Database\Factories\MediaFactory;
 use Emaia\MediaMan\Enums\MediaFormat;
 use Emaia\MediaMan\Enums\MediaType;
 use Emaia\MediaMan\Events\MediaDeleted;
+use Emaia\MediaMan\Exceptions\InvalidCopyTarget;
 use Emaia\MediaMan\Exceptions\TemporaryUrlNotSupported;
 use Emaia\MediaMan\Traits\ResolvesModels;
 use Emaia\MediaMan\Traits\ResponsiveImages;
@@ -27,6 +28,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Throwable;
 
 /**
  * @property int $id
@@ -745,5 +747,133 @@ class Media extends Model implements Attachable
         $this->custom_properties = $customProperties;
 
         return $this;
+    }
+
+    /**
+     * Copy this media to another model.
+     *
+     * Creates a new Media record, copies the physical file (and conversions
+     * and responsive variants), and attaches it to the target model. If any
+     * file copy fails, the new Media record is rolled back.
+     */
+    public function copy(object $target, string $channel = self::DEFAULT_CHANNEL): Media
+    {
+        if (! method_exists($target, 'attachMedia')) {
+            throw InvalidCopyTarget::missingTrait();
+        }
+
+        $copy = $this->replicate(['id']);
+        $copy->save();
+
+        try {
+            $this->copyPrimaryFile($copy);
+            $this->copyConversions($copy);
+            $this->copyResponsiveVariants($copy);
+        } catch (Throwable $e) {
+            $copy->delete();
+
+            throw $e;
+        }
+
+        $target->attachMedia($copy, $channel);
+
+        return $copy;
+    }
+
+    /**
+     * Attach this media to another model without duplicating the file.
+     *
+     * This is a purely relational operation — it does not touch the file on disk.
+     * To move between disks, change the `disk` attribute instead.
+     */
+    public function attachTo(object $target, string $channel = self::DEFAULT_CHANNEL): self
+    {
+        if (! method_exists($target, 'attachMedia')) {
+            throw InvalidCopyTarget::missingTrait();
+        }
+
+        $target->attachMedia($this, $channel);
+
+        return $this;
+    }
+
+    protected function copyPrimaryFile(Media $target): void
+    {
+        if ($this->disk === $target->disk) {
+            $this->filesystem()->copy($this->getPath(), $target->getPath());
+
+            return;
+        }
+
+        $stream = $this->filesystem()->readStream($this->getPath());
+
+        try {
+            $target->filesystem()->writeStream($target->getPath(), $stream);
+        } finally {
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
+        }
+    }
+
+    protected function copyConversions(Media $target): void
+    {
+        $conversionsDir = $this->getDirectory().'/'.self::CONVERSIONS_DIR;
+
+        if (! $this->filesystem()->exists($conversionsDir)) {
+            return;
+        }
+
+        $sameDisk = $this->disk === $target->disk;
+        $sourceFs = $this->filesystem();
+        $targetFs = $target->filesystem();
+
+        foreach ($sourceFs->allFiles($conversionsDir) as $file) {
+            $relativePath = substr($file, strlen($conversionsDir) + 1);
+            $targetPath = $target->getDirectory().'/'.self::CONVERSIONS_DIR.'/'.$relativePath;
+
+            if ($sameDisk) {
+                $sourceFs->copy($file, $targetPath);
+
+                continue;
+            }
+
+            $stream = $sourceFs->readStream($file);
+
+            try {
+                $targetFs->writeStream($targetPath, $stream);
+            } finally {
+                if (is_resource($stream)) {
+                    fclose($stream);
+                }
+            }
+        }
+    }
+
+    protected function copyResponsiveVariants(Media $target): void
+    {
+        $responsiveDir = $this->getDirectory().'/'.self::RESPONSIVE_DIR;
+
+        if (! $this->filesystem()->exists($responsiveDir)) {
+            return;
+        }
+
+        $allFiles = $this->filesystem()->allFiles($responsiveDir);
+
+        foreach ($allFiles as $file) {
+            $relativePath = substr($file, strlen($responsiveDir) + 1);
+            $targetPath = $target->getDirectory().'/'.self::RESPONSIVE_DIR.'/'.$relativePath;
+
+            if ($this->disk === $target->disk) {
+                $this->filesystem()->copy($file, $targetPath);
+            } else {
+                $stream = $this->filesystem()->readStream($file);
+                $target->filesystem()->writeStream($targetPath, $stream);
+
+                if (is_resource($stream)) {
+                    fclose($stream);
+                }
+            }
+        }
     }
 }
