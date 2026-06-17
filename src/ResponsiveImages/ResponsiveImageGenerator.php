@@ -4,6 +4,8 @@ namespace Emaia\MediaMan\ResponsiveImages;
 
 use Emaia\MediaMan\Enums\MediaFormat;
 use Emaia\MediaMan\Enums\MediaType;
+use Emaia\MediaMan\Generators\FileNamer;
+use Emaia\MediaMan\Generators\PathGenerator;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\WidthCalculator;
 use Intervention\Image\Format;
@@ -89,8 +91,8 @@ class ResponsiveImageGenerator
             default => $image->encodeUsingFormat(Format::JPEG, quality: $quality),
         };
 
-        $directory = $media->getDirectory().'/'.Media::RESPONSIVE_DIR;
-        $fileName = $this->generateResponsiveFileName($media->file_name, $targetWidth, $format);
+        $directory = app(PathGenerator::class)->getPathForResponsive($media);
+        $fileName = app(FileNamer::class)->getResponsiveFileName($media->file_name, $targetWidth, $format);
         $path = $directory.'/'.$fileName;
 
         $media->filesystem()->put($path, $encodedImage->toStream());
@@ -106,22 +108,11 @@ class ResponsiveImageGenerator
     }
 
     /**
-     * Generate filename for responsive image.
-     */
-    protected function generateResponsiveFileName(string $originalFileName, int $width, string $format): string
-    {
-        $pathInfo = pathinfo($originalFileName);
-        $baseName = $pathInfo['filename'];
-
-        return "{$baseName}_{$width}w.$format";
-    }
-
-    /**
      * Clear all responsive images for a media item.
      */
     public function clearResponsiveImages(Media $media): void
     {
-        $responsiveDir = $media->getDirectory().'/'.Media::RESPONSIVE_DIR;
+        $responsiveDir = app(PathGenerator::class)->getPathForResponsive($media);
         $filesystem = $media->filesystem();
 
         if ($filesystem->exists($responsiveDir)) {

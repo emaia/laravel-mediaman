@@ -4,6 +4,8 @@ namespace Emaia\MediaMan;
 
 use Emaia\MediaMan\Enums\MediaFormat;
 use Emaia\MediaMan\Enums\MediaType;
+use Emaia\MediaMan\Generators\FileNamer;
+use Emaia\MediaMan\Generators\PathGenerator;
 use Emaia\MediaMan\Models\Media;
 use Intervention\Image\EncodedImage;
 use Intervention\Image\Image;
@@ -72,8 +74,8 @@ class ImageManipulator
      */
     protected function getConversionPathWithExtension(Media $media, string $conversion, string $extension): string
     {
-        $directory = $media->getDirectory().'/'.Media::CONVERSIONS_DIR.'/'.$conversion;
-        $fileName = $media->replaceFileExtension($media->file_name, $extension);
+        $directory = app(PathGenerator::class)->getPathForConversion($media, $conversion);
+        $fileName = app(FileNamer::class)->getConversionFileName($media->file_name, $conversion, $extension);
 
         return $directory.'/'.$fileName;
     }
