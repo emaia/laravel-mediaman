@@ -14,6 +14,7 @@ use Emaia\MediaMan\Generators\FileNamer;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Support\UrlGuard;
 use Emaia\MediaMan\Traits\ResolvesModels;
+use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 
@@ -60,6 +61,27 @@ class MediaUploader
 
     public static function source(UploadedFile $file): MediaUploader
     {
+        return new self($file);
+    }
+
+    /**
+     * Create an uploader from a file present on the current HTTP request.
+     * The request is resolved from the container when not provided.
+     *
+     * @throws \InvalidArgumentException when the request field is missing,
+     *                                   empty, or contains an array (multi-file inputs are not supported here).
+     */
+    public static function fromRequest(string $key = 'file', ?Request $request = null): MediaUploader
+    {
+        $request ??= app(Request::class);
+        $file = $request->file($key);
+
+        if (! $file instanceof UploadedFile) {
+            throw new \InvalidArgumentException(
+                "No uploaded file in request field [{$key}]."
+            );
+        }
+
         return new self($file);
     }
 

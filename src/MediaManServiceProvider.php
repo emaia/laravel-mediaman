@@ -5,6 +5,7 @@ namespace Emaia\MediaMan;
 use Emaia\MediaMan\Console\Commands\ClearResponsiveImagesCommand;
 use Emaia\MediaMan\Console\Commands\GenerateResponsiveImagesCommand;
 use Emaia\MediaMan\Console\Commands\MediamanCleanCommand;
+use Emaia\MediaMan\Console\Commands\MediamanPublishCommand;
 use Emaia\MediaMan\Console\Commands\MediamanPublishConfigCommand;
 use Emaia\MediaMan\Console\Commands\MediamanPublishMigrationCommand;
 use Emaia\MediaMan\Console\Commands\ResponsiveImagesStatsCommand;
@@ -65,6 +66,7 @@ class MediaManServiceProvider extends ServiceProvider
 
         if ($this->app->runningInConsole()) {
             $this->commands([
+                MediamanPublishCommand::class,
                 MediamanPublishConfigCommand::class,
                 MediamanPublishMigrationCommand::class,
                 GenerateResponsiveImagesCommand::class,

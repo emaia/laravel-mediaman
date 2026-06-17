@@ -6,6 +6,8 @@ use Emaia\MediaMan\Exceptions\InvalidBase64Data;
 use Emaia\MediaMan\Exceptions\UrlNotAllowed;
 use Emaia\MediaMan\MediaUploader;
 use Emaia\MediaMan\Models\Media;
+use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -17,6 +19,58 @@ function fakeTmpFile(string $content = 'hello world'): string
 
     return $path;
 }
+
+// --- fromRequest ---
+
+it('fromRequest creates a Media from the default request field', function () {
+    $request = Request::create('/upload', 'POST', [], [], [
+        'file' => UploadedFile::fake()->image('photo.jpg'),
+    ]);
+
+    $media = MediaUploader::fromRequest('file', $request)->upload();
+
+    expect($media)->toBeInstanceOf(Media::class)
+        ->and($media->file_name)->toEndWith('.jpg');
+});
+
+it('fromRequest accepts a custom field name', function () {
+    $request = Request::create('/upload', 'POST', [], [], [
+        'avatar' => UploadedFile::fake()->image('avatar.png'),
+    ]);
+
+    $media = MediaUploader::fromRequest('avatar', $request)->upload();
+
+    expect($media)->toBeInstanceOf(Media::class);
+});
+
+it('fromRequest resolves the current request from the container when none is passed', function () {
+    $request = Request::create('/upload', 'POST', [], [], [
+        'file' => UploadedFile::fake()->image('photo.jpg'),
+    ]);
+
+    app()->instance('request', $request);
+
+    $media = MediaUploader::fromRequest()->upload();
+
+    expect($media)->toBeInstanceOf(Media::class);
+});
+
+it('fromRequest throws when the field is missing', function () {
+    $request = Request::create('/upload', 'POST');
+
+    MediaUploader::fromRequest('file', $request);
+})->throws(InvalidArgumentException::class, 'No uploaded file');
+
+it('fromRequest throws when the field is an array of files', function () {
+    $request = Request::create('/upload', 'POST', [], [], [
+        'photos' => [
+            UploadedFile::fake()->image('a.jpg'),
+            UploadedFile::fake()->image('b.jpg'),
+        ],
+    ]);
+
+    MediaUploader::fromRequest('photos', $request);
+})->throws(InvalidArgumentException::class);
 
 // --- fromDisk ---
 
