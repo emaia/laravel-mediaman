@@ -4,6 +4,8 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ## [Unreleased]
 
+## [2.11.0] — 2026-06-17
+
 ### Changed
 
 - `mediaman.driver` default is now `null` and **auto-detected** at boot — `imagick` when ext-imagick is loaded, `gd` otherwise. Previously hardcoded to `imagick`, which threw `InvalidArgumentException` at runtime on servers without ext-imagick. Existing installations that set `MEDIAMAN_DRIVER` explicitly are unaffected.
