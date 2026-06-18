@@ -49,36 +49,6 @@ it('preserves user-provided custom properties alongside placeholder', function (
         ->and($media->custom_properties)->toHaveKey('placeholder');
 });
 
-// --- getUrlOrPlaceholder ---
-
-it('getUrlOrPlaceholder returns the conversion URL when the file exists', function () {
-    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
-
-    // Without a conversion arg, returns the original URL
-    $url = $media->getUrlOrPlaceholder();
-
-    expect($url)->not->toStartWith('data:');
-});
-
-it('getUrlOrPlaceholder returns the placeholder when the conversion file is missing', function () {
-    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
-
-    // 'thumb' conversion never ran, file doesn't exist on disk
-    $url = $media->getUrlOrPlaceholder('thumb');
-
-    expect($url)->toStartWith('data:image/svg+xml;base64,');
-});
-
-it('getUrlOrPlaceholder falls back to the URL when placeholder is also missing', function () {
-    Config::set('mediaman.placeholder.enabled', false);
-
-    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
-
-    $url = $media->getUrlOrPlaceholder('thumb');
-
-    expect($url)->not->toStartWith('data:');
-});
-
 it('placeholder size stays within a reasonable budget (< 4 KB)', function () {
     $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 2000, 2000))->upload();
 

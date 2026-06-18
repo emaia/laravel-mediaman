@@ -195,7 +195,7 @@ Low-quality image placeholder (LQIP) — a tiny blurred JPEG generated synchrono
 
 When on, adds ~50 ms per image upload and ~2 KB to `custom_properties`. Generation only fires for `image/*` MIME types; failures (corrupt image, unsupported format) fall back to `null` without breaking the upload.
 
-When off, `Media::getPlaceholder()` returns `null`, `getUrlOrPlaceholder()` behaves like `getUrl()`, and `getPictureHtml()`/`getSimpleImgHtml()` skip the background-image injection silently.
+When off, `Media::getPlaceholder()` returns `null` and `getPictureHtml()`/`getSimpleImgHtml()` skip the srcset injection silently.
 
 ## Responsive images
 
