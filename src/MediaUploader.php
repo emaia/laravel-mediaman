@@ -12,12 +12,12 @@ use Emaia\MediaMan\Exceptions\InvalidBase64Data;
 use Emaia\MediaMan\Exceptions\MimeTypeNotAllowed;
 use Emaia\MediaMan\Generators\FileNamer;
 use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\Placeholders\PlaceholderGenerator;
 use Emaia\MediaMan\Support\UrlGuard;
 use Emaia\MediaMan\Traits\ResolvesModels;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
-use Intervention\Image\Format;
 use Intervention\Image\ImageManager;
 
 class MediaUploader
@@ -443,11 +443,23 @@ class MediaUploader
         $media->size = $this->file->getSize();
         $properties = $this->custom_properties;
 
-        if ($this->shouldGeneratePlaceholder()) {
-            $placeholder = $this->generatePlaceholder($this->file->getPathname());
+        if ($this->isImage()) {
+            $dimensions = $this->readImageDimensions($this->file->getPathname());
 
-            if ($placeholder !== null) {
-                $properties['placeholder'] = $placeholder;
+            if ($dimensions !== null) {
+                $properties[Media::PROPERTY_DIMENSIONS] = $dimensions;
+
+                if ($this->shouldGeneratePlaceholder()) {
+                    $placeholder = app(PlaceholderGenerator::class)->generate(
+                        $this->file->getPathname(),
+                        $dimensions['width'],
+                        $dimensions['height']
+                    );
+
+                    if ($placeholder !== null) {
+                        $properties['placeholder'] = $placeholder;
+                    }
+                }
             }
         }
 
@@ -506,36 +518,35 @@ class MediaUploader
         return $this;
     }
 
+    protected function isImage(): bool
+    {
+        return str_starts_with($this->file->getMimeType() ?? '', 'image/');
+    }
+
     /**
      * Determine whether to generate a placeholder for this upload.
      */
     protected function shouldGeneratePlaceholder(): bool
     {
-        if (! config('mediaman.placeholder.enabled', true)) {
-            return false;
-        }
-
-        return str_starts_with($this->file->getMimeType() ?? '', 'image/');
+        return (bool) config('mediaman.placeholder.enabled', true);
     }
 
     /**
-     * Generate a tiny blurred placeholder data URI for an image file.
-     * Returns null on failure so the upload never breaks because of it.
+     * Read the original width/height from an image file. Returns null
+     * when the dimensions can't be read so the upload doesn't break.
      */
-    protected function generatePlaceholder(string $path): ?string
+    protected function readImageDimensions(string $path): ?array
     {
         try {
-            $width = (int) config('mediaman.placeholder.width', 32);
-            $blur = (int) config('mediaman.placeholder.blur', 20);
-            $quality = (int) config('mediaman.placeholder.quality', 40);
+            $image = app(ImageManager::class)->decode(file_get_contents($path));
+            $width = $image->width();
+            $height = $image->height();
 
-            $encoded = app(ImageManager::class)
-                ->decode(file_get_contents($path))
-                ->scaleDown($width)
-                ->blur($blur)
-                ->encodeUsingFormat(Format::JPEG, quality: $quality);
+            if ($width <= 0 || $height <= 0) {
+                return null;
+            }
 
-            return 'data:image/jpeg;base64,'.base64_encode((string) $encoded);
+            return ['width' => $width, 'height' => $height];
         } catch (\Throwable) {
             return null;
         }

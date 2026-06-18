@@ -15,7 +15,7 @@ it('generates a placeholder data URI for image uploads', function () {
     $placeholder = $media->getPlaceholder();
 
     expect($placeholder)->not->toBeNull()
-        ->and($placeholder)->toStartWith('data:image/jpeg;base64,');
+        ->and($placeholder)->toStartWith('data:image/svg+xml;base64,');
 });
 
 it('does not generate a placeholder for non-image uploads', function () {
@@ -36,7 +36,7 @@ it('stores the placeholder under custom_properties', function () {
     $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
 
     expect($media->custom_properties)->toHaveKey('placeholder')
-        ->and($media->custom_properties['placeholder'])->toStartWith('data:image/jpeg;base64,');
+        ->and($media->custom_properties['placeholder'])->toStartWith('data:image/svg+xml;base64,');
 });
 
 it('preserves user-provided custom properties alongside placeholder', function () {
@@ -66,7 +66,7 @@ it('getUrlOrPlaceholder returns the placeholder when the conversion file is miss
     // 'thumb' conversion never ran, file doesn't exist on disk
     $url = $media->getUrlOrPlaceholder('thumb');
 
-    expect($url)->toStartWith('data:image/jpeg;base64,');
+    expect($url)->toStartWith('data:image/svg+xml;base64,');
 });
 
 it('getUrlOrPlaceholder falls back to the URL when placeholder is also missing', function () {
@@ -95,7 +95,7 @@ it('getSimpleImgHtml injects the placeholder as background-image when available'
     $html = $media->getSimpleImgHtml();
 
     expect($html)->toContain('background-image:url(')
-        ->and($html)->toContain('data:image/jpeg;base64,');
+        ->and($html)->toContain('data:image/svg+xml;base64,');
 });
 
 it('getSimpleImgHtml omits the background when placeholder is disabled globally', function () {
@@ -132,7 +132,7 @@ it('getPictureHtml injects the placeholder on the inner img tag', function () {
     $html = $media->getPictureHtml();
 
     expect($html)->toContain('background-image:url(')
-        ->and($html)->toContain('data:image/jpeg;base64,');
+        ->and($html)->toContain('data:image/svg+xml;base64,');
 });
 
 it('getPictureHtml honors the placeholder=false opt-out', function () {
