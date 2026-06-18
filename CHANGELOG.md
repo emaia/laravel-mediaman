@@ -4,14 +4,19 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ## [Unreleased]
 
-## [2.13.0] — 2026-06-18
+## [2.14.0] — 2026-06-18
 
 ### Added
 
 - **Two lightweight `PlaceholderGenerator` implementations** alongside the default `BlurredSvgPlaceholder`:
   - `DominantColorPlaceholder` — single area-weighted average color wrapped in a flat-fill SVG. ~150 bytes regardless of source size. Pure ASCII. Ideal for galleries, bandwidth-sensitive contexts, and CSS skeletons.
-  - `GeometricBlurPlaceholder` — N×N color grid (default 4×4) sampled from the source, rendered as `<rect>`s under an `feGaussianBlur` filter. ~2 KB at grid=4 (regardless of source size); grid=8 (~6–8 KB) trades size for visual richness. Pure ASCII, CSP-friendly. Two new config knobs: `mediaman.placeholder.grid_size` and `mediaman.placeholder.blur_std_deviation`.
+  - `GeometricBlurPlaceholder` — N×N color grid (default 4×4) sampled from the source, rendered as `<rect>`s under an `feGaussianBlur` filter. ~2 KB at grid=4 (regardless of source size); grid=8 (~6–8 KB) trades size for visual richness. Pure ASCII, CSP-friendly. Two new config knobs under their own sub-block: `mediaman.placeholder.geometric_blur.{grid_size, blur_std_deviation}`.
   - See [Responsive images → Choosing a placeholder generator](docs/responsive-images.md#choosing-a-placeholder-generator) for the trade-off table.
+
+## [2.13.0] — 2026-06-18
+
+### Added
+
 - **Pluggable LQIP via `Emaia\MediaMan\Placeholders\PlaceholderGenerator`.** Swap via `mediaman.placeholder.generator` or rebind the interface (mirrors the v2.9 generators pattern). Default implementation `BlurredSvgPlaceholder` wraps a tiny blurred JPEG inside an SVG with the original `viewBox` and returns a percent-encoded `data:image/svg+xml,…` URI (~16% smaller than the equivalent base64 wrapper, readable in DevTools).
 - Image meta (`width`, `height`, `dominant_color`) is now persisted in `custom_properties.image_meta` for every image upload in a single decode pass, independent of the placeholder feature. The struct was previously named `dimensions` and held only width/height.
 - `Media::getPlaceholderColor(): ?string` — hex CSS color sampled at upload (average of the source). ~10 bytes, ideal as a `background-color` skeleton anywhere the LQIP data URI is too heavy: email, SSR, JSON APIs, container backgrounds. Composes naturally with `getPictureHtml()` for a three-stage progressive paint (color → SVG LQIP → responsive image).
