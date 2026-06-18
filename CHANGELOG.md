@@ -4,6 +4,8 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ## [Unreleased]
 
+## [2.13.0] — 2026-06-18
+
 ### Added
 
 - **Pluggable LQIP via `Emaia\MediaMan\Placeholders\PlaceholderGenerator`.** Swap via `mediaman.placeholder.generator` or rebind the interface (mirrors the v2.9 generators pattern). Default implementation `BlurredSvgPlaceholder` wraps a tiny blurred JPEG inside an SVG with the original `viewBox` and returns a percent-encoded `data:image/svg+xml,…` URI (~16% smaller than the equivalent base64 wrapper, readable in DevTools).
