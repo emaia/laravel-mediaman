@@ -194,6 +194,11 @@ Low-quality image placeholder (LQIP) — a tiny blurred JPEG generated synchrono
         'blur'    => 20,
         'quality' => 40,  // JPEG quality (1-100)
     ],
+
+    'geometric_blur' => [
+        'grid_size'          => 4,   // N×N sampled grid
+        'blur_std_deviation' => 20,  // feGaussianBlur intensity
+    ],
 ],
 ```
 
@@ -201,9 +206,9 @@ When on, adds ~50 ms per image upload and ~3 KB to `custom_properties`. Generati
 
 When off, `Media::getPlaceholder()` returns `null`, `getUrlOrPlaceholder()` behaves like `getUrl()`, and `getPictureHtml()`/`getSimpleImgHtml()` skip the srcset injection silently. Image meta (`width`, `height`, `dominant_color`) is still persisted at upload time, so the `<img>` keeps its `width`/`height` for zero CLS and `Media::getPlaceholderColor()` keeps returning a usable CSS color.
 
-`generator` accepts any class implementing `Emaia\MediaMan\Placeholders\PlaceholderGenerator`. The default `BlurredSvgPlaceholder` wraps a tiny blurred JPEG inside an SVG with the original `viewBox`; swap it for BlurHash, ThumbHash, dominant color, etc.
+`generator` accepts any class implementing `Emaia\MediaMan\Placeholders\PlaceholderGenerator`. Three implementations ship out of the box: `BlurredSvgPlaceholder` (default — photographic, ~3 KB), `GeometricBlurPlaceholder` (stylized blocks, ~2 KB at grid=4, pure ASCII so CSP-friendly), and `DominantColorPlaceholder` (flat ~150 B). See [Responsive images → Choosing a placeholder generator](responsive-images.md#choosing-a-placeholder-generator).
 
-**Per-generator tuning is scoped to its own sub-block.** `mediaman.placeholder.blurred_svg.{width, blur, quality}` only applies when the active `generator` is `BlurredSvgPlaceholder`. Swapping generators ignores knobs that don't belong to them — no silent reuse, no namespace collisions.
+**Per-generator tuning is scoped to its own sub-block.** `mediaman.placeholder.blurred_svg.{width, blur, quality}` only applies when the active `generator` is `BlurredSvgPlaceholder`; `mediaman.placeholder.geometric_blur.{grid_size, blur_std_deviation}` only applies to `GeometricBlurPlaceholder`. Swapping generators ignores knobs that don't belong to them — no silent reuse, no namespace collisions.
 
 ## Responsive images
 

@@ -188,6 +188,31 @@ echo $media->getPictureHtml(['loading' => 'lazy']);
 
 The combination — solid color → SVG blur → responsive image — gives three progressive paints with one persisted value each. Works inside email and other contexts where `<picture>` doesn't apply too: drop the picture call and the color alone is a decent skeleton.
 
+### Choosing a placeholder generator
+
+The default `BlurredSvgPlaceholder` works for most apps, but the package ships two lightweight alternatives. Swap via `mediaman.placeholder.generator`:
+
+| Generator | Payload (typical) | Visual character | Best for |
+|---|---|---|---|
+| `BlurredSvgPlaceholder` (default) | ~3 KB | Photographic blur (real thumbnail of the source, smoothed) | Editorial / blog / portfolio — quality of the preview matters |
+| `GeometricBlurPlaceholder` | ~2 KB (grid=4), ~6–8 KB (grid=8) | Stylized geometric blocks — you can see where the bright and dark regions live, but it never looks "photographic" | Performance-focused apps that still want a visible hint of composition; CSP-strict environments (no embedded binary) |
+| `DominantColorPlaceholder` | ~150 B | Flat solid color (area-weighted average) | Galleries / grids with many thumbnails; bandwidth-sensitive contexts; fallback for when the LQIP isn't worth its own payload |
+
+All three return the same `data:image/svg+xml,…` URI shape, so the rendering pipeline (`getPictureHtml` / `getSimpleImgHtml` / `getUrlOrPlaceholder`) is generator-agnostic.
+
+```php
+// config/mediaman.php
+'placeholder' => [
+    'enabled' => true,
+    'generator' => Emaia\MediaMan\Placeholders\GeometricBlurPlaceholder::class,
+    'grid_size' => 4,            // N×N color grid (GeometricBlur)
+    'blur_std_deviation' => 20,  // feGaussianBlur intensity (GeometricBlur)
+    // width / blur / quality apply to BlurredSvgPlaceholder (the default)
+],
+```
+
+Need a custom strategy (BlurHash, ThumbHash, dominant color from a palette, etc.)? Implement `Emaia\MediaMan\Placeholders\PlaceholderGenerator` and bind it. See [API → Placeholders](api.md#placeholders).
+
 ## Clearing variants
 
 ```php
