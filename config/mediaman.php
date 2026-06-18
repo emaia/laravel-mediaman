@@ -5,6 +5,7 @@ use Emaia\MediaMan\Generators\DefaultPathGenerator;
 use Emaia\MediaMan\Generators\DefaultUrlGenerator;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Models\MediaCollection;
+use Emaia\MediaMan\Placeholders\BlurredSvgPlaceholder;
 
 return [
 
@@ -188,14 +189,17 @@ return [
 
     /*
     | Low-quality image placeholder (LQIP). Generated synchronously on
-    | upload for images, stored as a base64 data URI in custom_properties.
-    | Useful as a fallback while queued conversions catch up or as a CSS
-    | background-image for lazy-loaded media. Adds ~50ms per image upload.
+    | upload for images and stored as a data URI in custom_properties.
+    | The default generator wraps a tiny blurred JPEG in an SVG with the
+    | original viewBox, producing a placeholder that pins aspect ratio
+    | (zero CLS) and is injected into the responsive `srcset`.
+    | The `generator` key accepts any class implementing PlaceholderGenerator.
     */
 
     'placeholder' => [
         'enabled' => env('MEDIAMAN_PLACEHOLDER_ENABLED', false),
-        'width' => 32,    // px
+        'generator' => BlurredSvgPlaceholder::class,
+        'width' => 32,    // tiny JPEG width in px
         'blur' => 20,
         'quality' => 40,  // JPEG quality (1-100)
     ],
