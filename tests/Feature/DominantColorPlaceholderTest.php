@@ -8,10 +8,11 @@ use Illuminate\Support\Facades\Config;
 
 beforeEach(function () {
     Config::set('mediaman.placeholder.enabled', true);
-    // Bind the instance directly so the swap is unambiguous within the test
-    // — the closure bind reads the configured generator lazily, but the
-    // singleton caches the first resolve.
-    app()->instance(PlaceholderGenerator::class, app(DominantColorPlaceholder::class));
+    Config::set('mediaman.placeholder.generator', DominantColorPlaceholder::class);
+    // The closure bind reads config lazily, but the singleton caches the
+    // first resolve. Forget so the next app() call picks up the swapped
+    // generator from config.
+    app()->forgetInstance(PlaceholderGenerator::class);
 });
 
 it('produces a single-fill SVG with the original viewBox', function () {

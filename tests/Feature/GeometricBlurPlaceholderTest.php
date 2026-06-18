@@ -8,10 +8,11 @@ use Illuminate\Support\Facades\Config;
 
 beforeEach(function () {
     Config::set('mediaman.placeholder.enabled', true);
-    // The closure bind reads the configured generator lazily, but the
-    // singleton caches the first resolve. Bind an instance directly so the
-    // swap is unambiguous within the test.
-    app()->instance(PlaceholderGenerator::class, app(GeometricBlurPlaceholder::class));
+    Config::set('mediaman.placeholder.generator', GeometricBlurPlaceholder::class);
+    // The closure bind reads config lazily, but the singleton caches the
+    // first resolve. Forget so the next app() call picks up the swapped
+    // generator from config.
+    app()->forgetInstance(PlaceholderGenerator::class);
 });
 
 function decodeGeometricSvg(string $dataUri): string
