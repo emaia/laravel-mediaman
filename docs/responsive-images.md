@@ -108,7 +108,7 @@ $media->getSrcset();          // best format
 $media->getSrcset('webp');    // specific format
 ```
 
-`getPictureHtml()` produces a `<picture>` element with `<source>` tags per available format (modern formats first) and an `<img>` fallback. Without variants it falls back to a plain `<img>`.
+`getPictureHtml()` always produces a `<picture>` element: one `<source>` per responsive format (modern formats first) plus an `<img>` fallback pointing at the original file. When no responsive variants exist the wrapper stays — `<picture><img></picture>` — so callers can rely on a single markup shape regardless of pipeline state.
 
 ```php
 echo $media->getPictureHtml();
@@ -120,17 +120,19 @@ echo $media->getPictureHtml(['class' => 'hero-image'], '(max-width: 640px) 100vw
 echo $media->getPictureHtml([], 'auto');  // sizes computed from breakpoints
 ```
 
-Example output:
+Example output with two responsive formats and a JPEG original:
 
 ```html
 <picture>
     <source type="image/avif" srcset="…/image-320.avif 320w, …/image-640.avif 640w, …" sizes="…">
     <source type="image/webp" srcset="…/image-320.webp 320w, …/image-640.webp 640w, …" sizes="…">
-    <img src="…/image.jpg" alt="My image" srcset="…/image-320.jpg 320w, …" sizes="…">
+    <img src="…/image.jpg" alt="My image" srcset="…/image.jpg 1920w">
 </picture>
 ```
 
-Simple `<img>` (no `<picture>`):
+Browsers that understand AVIF pick from the first `<source>`; older ones fall through to WebP; the `<img>` covers anything that supports neither. The `<img srcset>` exposes the original's native width as a single candidate so the fallback path is still width-aware.
+
+Need a bare `<img>` without the wrapper (email templates, very constrained markup)? Use `getSimpleImgHtml()`:
 
 ```php
 echo $media->getSimpleImgHtml(['class' => 'hero-image', 'loading' => 'lazy']);

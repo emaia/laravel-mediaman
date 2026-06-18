@@ -4,6 +4,16 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- `getPictureHtml()` always emits a `<picture>` wrapper, even when no responsive variants exist (`<picture><img></picture>`). Previously the method silently fell through to `getSimpleImgHtml()` and returned a bare `<img>` in that case — and also when only a single responsive format was configured (the default `formats=['webp']`), which left the rendered output without a `<picture>` despite the variants being there. Markup shape is now consistent across all states.
+- `<source>` elements now cover **every** responsive format. Previously the last format was reserved for the inner `<img>` srcset, which mis-categorised single-format setups (e.g. WebP variants attached to a JPEG original) by mixing formats inside `<img srcset>`. The `<img>` always points at the original file now, with its native width as a single `srcset` candidate.
+- `getSrcset()` filters out responsive entries with empty URL or zero width before assembling the string — degenerate data no longer surfaces as malformed `<source>` tags.
+
+### Notes
+
+- `getSimpleImgHtml()` is unchanged and remains the explicit escape hatch when callers need a bare `<img>` (email templates, etc.).
+
 ## [2.12.0] — 2026-06-17
 
 ### Added

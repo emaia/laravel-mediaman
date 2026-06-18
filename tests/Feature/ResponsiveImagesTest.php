@@ -276,13 +276,15 @@ it('clears responsive images via the trait', function () {
     expect($media->clearResponsiveImages())->toBe($media);
 });
 
-it('returns simple img html when only original format is available', function () {
+it('wraps the img in <picture> even when no responsive variants exist', function () {
     $file = UploadedFile::fake()->image('test.jpg', 800, 600);
     $media = MediaUploader::source($file)->upload();
 
     $html = $media->getPictureHtml();
-    expect($html)->toStartWith('<img ')
-        ->not->toContain('<picture>');
+    expect($html)->toStartWith('<picture>')
+        ->and($html)->toContain('<img ')
+        ->and($html)->not->toContain('<source')
+        ->and($html)->toEndWith('</picture>');
 });
 
 it('escapes html attributes when building img tag', function () {
@@ -480,15 +482,16 @@ it('returns getUrl for non-image when calling getResponsiveUrl', function () {
     expect($media->getResponsiveUrl(500, 'webp'))->toEqual($media->getUrl());
 });
 
-it('falls back to img tag when sources cannot be built', function () {
-    // Single non-priority format with no srcset (empty url) — degrades to plain <img>
+it('skips malformed <source> entries when their srcset is empty', function () {
+    // Degenerate responsive entry (empty url + width 0) — should not produce a <source>.
     $media = buildMediaWithResponsiveData([
         ['width' => 0, 'height' => 0, 'format' => 'webp', 'path' => '', 'url' => '', 'size' => 0],
     ]);
 
     $html = $media->getPictureHtml();
-    expect($html)->toStartWith('<img ')
-        ->not->toContain('<picture>');
+    expect($html)->toStartWith('<picture>')
+        ->and($html)->not->toContain('<source')
+        ->and($html)->toContain('<img ');
 });
 
 it('returns 0 dimensions when calculateImageDimensions fails', function () {
