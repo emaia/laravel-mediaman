@@ -196,7 +196,7 @@ Low-quality image placeholder (LQIP) — a tiny blurred JPEG generated synchrono
 
 When on, adds ~50 ms per image upload and ~3 KB to `custom_properties`. Generation only fires for `image/*` MIME types; failures (corrupt image, unsupported format) fall back to `null` without breaking the upload.
 
-When off, `Media::getPlaceholder()` returns `null` and `getPictureHtml()`/`getSimpleImgHtml()` skip the srcset injection silently. Image dimensions are still persisted at upload time, so the `<img>` keeps its `width`/`height` for zero CLS.
+When off, `Media::getPlaceholder()` returns `null`, `getUrlOrPlaceholder()` behaves like `getUrl()`, and `getPictureHtml()`/`getSimpleImgHtml()` skip the srcset injection silently. Image dimensions are still persisted at upload time, so the `<img>` keeps its `width`/`height` for zero CLS.
 
 `generator` accepts any class implementing `Emaia\MediaMan\Placeholders\PlaceholderGenerator`. The default `BlurredSvgPlaceholder` wraps a tiny blurred JPEG inside an SVG with the original `viewBox`; swap it for BlurHash, ThumbHash, dominant color, etc.
 

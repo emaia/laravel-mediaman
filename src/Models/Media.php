@@ -470,6 +470,30 @@ class Media extends Model implements Attachable
     }
 
     /**
+     * Single-URL helper for contexts that can't use srcset: email HTML, JSON
+     * payloads, OG/Twitter meta tags, CSS `background-image`. Returns the
+     * conversion URL when the variant exists on disk, falls back to the LQIP
+     * placeholder data URI when it doesn't (e.g. right after upload while the
+     * conversion job is queued), and finally to the original URL.
+     *
+     * For rendering an actual `<img>` / `<picture>`, use getPictureHtml() or
+     * getSimpleImgHtml() — those carry the placeholder inside srcset and
+     * progressively swap to the real image without any caller-side fallback.
+     */
+    public function getUrlOrPlaceholder(string $conversion = ''): string
+    {
+        if ($conversion !== '' && ! $this->hasConversion($conversion)) {
+            $placeholder = $this->getPlaceholder();
+
+            if ($placeholder !== null) {
+                return $placeholder;
+            }
+        }
+
+        return $this->getUrl($conversion);
+    }
+
+    /**
      * Get URL with fallback - returns conversion URL if exists, otherwise original.
      */
     public function getUrlWithFallback(string $conversion = ''): string

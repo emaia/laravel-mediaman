@@ -19,6 +19,7 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 - **Pluggable LQIP via `Emaia\MediaMan\Placeholders\PlaceholderGenerator`.** Swap via `mediaman.placeholder.generator` or rebind the interface (mirrors the v2.9 generators pattern). Default implementation `BlurredSvgPlaceholder` wraps a tiny blurred JPEG inside an SVG with the original `viewBox` and returns a percent-encoded `data:image/svg+xml,…` URI (~16% smaller than the equivalent base64 wrapper, readable in DevTools).
 - Image dimensions are now persisted in `custom_properties.dimensions` for every image upload, independent of the placeholder feature.
+- `Media::getUrlOrPlaceholder($conversion)` — single-URL helper for non-srcset contexts (email HTML, JSON payloads, OG/Twitter tags, CSS `background-image`). Returns the conversion URL when the file exists, the LQIP data URI as fallback, and finally the original URL.
 
 ### Changed
 
@@ -28,7 +29,6 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ### Removed
 
-- `Media::getUrlOrPlaceholder()` — superseded by the srcset-based pipeline. Render with `getPictureHtml()` / `getSimpleImgHtml()`.
 - Inline `style="background-image:url('data:image/jpeg;…')"` injection in `getPictureHtml()` / `getSimpleImgHtml()`.
 
 ### Upgrading
