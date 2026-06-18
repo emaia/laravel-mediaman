@@ -36,9 +36,10 @@ Public surface of the package, organized by class/trait. Each entry links back t
 |----------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `getUrl(string $conversion = ''): string`                                                    | Public URL (with `url.prefix` and `url.version_query` if configured).                                                                                                         |
 | `getUrlWithFallback(string $conversion = ''): string`                                        | Conversion URL or the original if missing.                                                                                                                                    |
-| `getUrlOrPlaceholder(string $conversion = ''): string`                                       | Conversion URL when the file exists, otherwise the LQIP placeholder data URI, otherwise the original URL. Useful right after upload when queued conversions have not run yet. |
 | `getConversionUrl(string $conversion): ?string`                                              | Conversion URL or `null` if missing.                                                                                                                                          |
-| `getPlaceholder(): ?string`                                                                  | LQIP placeholder data URI generated at upload time, or `null` if none was generated.                                                                                          |
+| `getPlaceholder(): ?string`                                                                  | LQIP placeholder data URI (SVG wrapper with original `viewBox` and an embedded tiny blurred JPEG) generated at upload time, or `null` if none was generated.                  |
+| `getPlaceholderColor(): ?string`                                                             | Hex CSS color (`#rrggbb`) sampled at upload as the average of the source image. ~10 bytes, perfect for CSS skeleton backgrounds. `null` on non-image media.                   |
+| `getUrlOrPlaceholder(string $conversion = ''): string`                                       | Single-URL helper for non-srcset contexts (email, JSON, OG tags, CSS): conversion URL when the file exists, else the LQIP placeholder data URI, else the original URL.        |
 | `getTemporaryUrl(?DateTimeInterface $expiration = null, ?string $conversion = null): string` | Signed URL on cloud disks. Throws `TemporaryUrlNotSupported` otherwise.                                                                                                       |
 | `getPath(string $conversion = ''): string`                                                   | Path on disk (with extension detection).                                                                                                                                      |
 | `getOriginalPath(string $conversion = ''): string`                                           | Path on disk using `file_name` as-is.                                                                                                                                         |
@@ -322,6 +323,29 @@ Bind any generator in a service provider:
 use Emaia\MediaMan\Generators\PathGenerator;
 
 $this->app->bind(PathGenerator::class, MyTenantPathGenerator::class);
+```
+
+---
+
+## Placeholders
+
+### `PlaceholderGenerator`
+
+```php
+interface PlaceholderGenerator
+{
+    public function generate(string $sourcePath, int $width, int $height): ?string;
+}
+```
+
+Default: `BlurredSvgPlaceholder` — wraps a tiny blurred JPEG in an SVG with the original `viewBox` and returns a percent-encoded `data:image/svg+xml,…` URI (~16% smaller than the equivalent base64 wrapper, and readable in DevTools). Returns `null` on any failure so the upload pipeline keeps going.
+
+Swap via `mediaman.placeholder.generator` config or rebind the interface:
+
+```php
+use Emaia\MediaMan\Placeholders\PlaceholderGenerator;
+
+$this->app->bind(PlaceholderGenerator::class, BlurHashPlaceholder::class);
 ```
 
 ---

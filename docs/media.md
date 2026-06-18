@@ -90,7 +90,7 @@ Default expiration via `temporary_url.default_lifetime_minutes` (5 min). Signed 
 
 ## Placeholder for pending conversions
 
-When the LQIP feature is enabled, MediaMan generates a tiny blurred JPEG (~2 KB) on image upload and stores it as a base64 data URI in `custom_properties.placeholder`. This is the LQIP (Low-Quality Image Placeholder) pattern — useful in two scenarios:
+When the LQIP feature is enabled, MediaMan generates a tiny blurred JPEG, embeds it in an SVG with the original `viewBox`, and stores the percent-encoded data URI (~3 KB) in `custom_properties.placeholder`. The SVG wrapper pins the aspect ratio for zero CLS and lives inside `srcset` rather than as inline CSS. Useful in two scenarios:
 
 - **Right after upload**, before the queued conversion job has finished, the conversion file doesn't exist yet on disk. Calling `getUrl('thumb')` would return a path to a missing file.
 - **Lazy-loaded galleries**, where you want a fast-rendering preview while the real image downloads.
@@ -98,24 +98,10 @@ When the LQIP feature is enabled, MediaMan generates a tiny blurred JPEG (~2 KB)
 The feature is **opt-in** — enable it via [`placeholder` config](configuration.md#placeholder) or `MEDIAMAN_PLACEHOLDER_ENABLED=true`. Generated only for image uploads (`mime_type` starting with `image/`).
 
 ```php
-$media->getPlaceholder();                 // 'data:image/jpeg;base64,...' or null
-
-// Return the placeholder when the conversion isn't on disk yet, otherwise the URL:
-$media->getUrlOrPlaceholder('thumb');
+$media->getPlaceholder();                 // 'data:image/svg+xml,...' or null
 ```
 
-Manual rendering example:
-
-```blade
-<img
-    src="{{ $media->getUrlOrPlaceholder('thumb') }}"
-    style="background-image: url('{{ $media->getPlaceholder() }}'); background-size: cover;"
-    loading="lazy"
-    alt="{{ $media->name }}"
->
-```
-
-`getPictureHtml()` and `getSimpleImgHtml()` already do this for you — the placeholder is injected as a CSS background-image on the `<img>` when one was generated. Opt out per call with `['placeholder' => false]`:
+`getPictureHtml()` and `getSimpleImgHtml()` already do this for you — the placeholder is appended as the smallest entry of every `srcset` so the browser pins the aspect ratio (via the SVG `viewBox`) and surfaces the blurred preview while the real image is fetched. Opt out per call with `['placeholder' => false]`:
 
 ```php
 echo $media->getPictureHtml();                          // includes background blur
@@ -123,6 +109,44 @@ echo $media->getPictureHtml(['placeholder' => false]);  // skip the blur
 ```
 
 See [Responsive images → Placeholder integration](responsive-images.md#placeholder-integration).
+
+### Dominant color helper
+
+```php
+$media->getPlaceholderColor(); // '#a1b2c3' — or null on non-image media
+```
+
+Hex CSS color sampled at upload as the average of the source image (~10 bytes, persisted in `custom_properties.image_meta`). Works as a CSS `background-color` skeleton wherever the LQIP data URI is too heavy: email, SSR, JSON APIs, container backgrounds. Stack it underneath `getPictureHtml()` for an instant first paint:
+
+```blade
+<div style="background-color: {{ $media->getPlaceholderColor() }}">
+    {!! $media->getPictureHtml() !!}
+</div>
+```
+
+### Single-URL helper for non-srcset contexts
+
+`<picture>`/`srcset` don't apply to email HTML, JSON API payloads, OG/Twitter meta tags, or CSS `background-image`. For those, `getUrlOrPlaceholder()` returns one URL — the conversion if it exists, otherwise the LQIP data URI, otherwise the original:
+
+```php
+$media->getUrlOrPlaceholder('thumb');
+// 1. "/storage/.../thumb.webp"            (conversion is on disk)
+// 2. "data:image/svg+xml,%3Csvg…%3E"      (conversion still queued, LQIP enabled)
+// 3. "/storage/.../original.jpg"          (no conversion, no LQIP)
+```
+
+```blade
+{{-- Email template --}}
+<img src="{{ $media->getUrlOrPlaceholder('thumb') }}" alt="{{ $media->name }}">
+
+{{-- OG tag --}}
+<meta property="og:image" content="{{ $media->getUrlOrPlaceholder('social') }}">
+
+{{-- CSS background --}}
+<div style="background-image: url('{{ $media->getUrlOrPlaceholder('hero') }}')"></div>
+```
+
+For rendering an actual `<img>` / `<picture>`, prefer `getPictureHtml()` / `getSimpleImgHtml()` — they carry the placeholder inside `srcset` and progressively swap to the real image without a caller-side fallback.
 
 ## Mail attachments
 

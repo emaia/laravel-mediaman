@@ -15,6 +15,7 @@ use Emaia\MediaMan\Downloaders\HttpDownloader;
 use Emaia\MediaMan\Generators\FileNamer;
 use Emaia\MediaMan\Generators\PathGenerator;
 use Emaia\MediaMan\Generators\UrlGenerator;
+use Emaia\MediaMan\Placeholders\PlaceholderGenerator;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveConversions;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\BreakpointWidthCalculator;
@@ -45,6 +46,14 @@ class MediaManServiceProvider extends ServiceProvider
         $this->app->singleton(PathGenerator::class, config('mediaman.generators.path'));
         $this->app->singleton(UrlGenerator::class, config('mediaman.generators.url'));
         $this->app->singleton(FileNamer::class, config('mediaman.generators.file_namer'));
+        // Resolve via closure so config('mediaman.placeholder.generator') is
+        // evaluated at first resolve time, not at register time — lets tests
+        // (and apps) swap the implementation via Config::set without forcing
+        // an instance() override.
+        $this->app->singleton(
+            PlaceholderGenerator::class,
+            fn ($app) => $app->make(config('mediaman.placeholder.generator'))
+        );
 
         $this->registerImageManager();
         $this->registerResponsiveImageServices();

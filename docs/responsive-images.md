@@ -141,33 +141,52 @@ echo $media->getSimpleImgHtml(['class' => 'hero-image', 'loading' => 'lazy']);
 
 ## Placeholder integration
 
-When the LQIP placeholder (see [Media → Placeholder](media.md#placeholder-for-pending-conversions)) was generated at upload time (the feature is opt-in), `getPictureHtml()` and `getSimpleImgHtml()` inject it automatically as a CSS background-image on the inner `<img>`:
+When the LQIP placeholder (see [Media → Placeholder](media.md#placeholder-for-pending-conversions)) was generated at upload time (the feature is opt-in), `getPictureHtml()` and `getSimpleImgHtml()` append it as the **smallest entry of every `srcset`** — including each `<source>` inside `<picture>`:
 
 ```html
 <picture>
-    <source ...>
+    <source type="image/webp" srcset="…/320.webp 320w, …/640.webp 640w, data:image/svg+xml,…%3Csvg…%3E 32w" sizes="…">
     <img
         src="…/image.jpg"
-        srcset="…"
-        style="background-image:url('data:image/jpeg;base64,…');background-size:cover;background-position:center;"
-        alt="…"
+        srcset="…/320.jpg 320w, …/640.jpg 640w, data:image/svg+xml,…%3Csvg…%3E 32w"
+        width="1280" height="720" alt="…"
     >
 </picture>
 ```
 
-The background covers the slot during three real-world cases:
+The placeholder is a tiny blurred JPEG wrapped in an SVG with the original `viewBox`. That gives three properties at once:
 
-- Right after upload, while the responsive job is still in the queue.
-- During the network download from the CDN.
-- For lazy-loaded media offscreen (`loading="lazy"`).
+- **Zero CLS** — the SVG `viewBox` pins the aspect ratio before any pixel data arrives, so the browser reserves the correct slot from the first paint.
+- **Renders inside `<picture>`** — every `<source>` carries the placeholder in its srcset, so the format the browser picks already includes it.
+- **CSP-friendly** — no inline `style` injection; the data URI lives in `srcset`, which only requires `img-src 'self' data:`.
 
-The injection is silent when no placeholder exists (non-image upload, placeholder disabled in config, or generation failure). Disable per call with `['placeholder' => false]`:
+The injection is silent when no placeholder exists (non-image upload, placeholder disabled in config, or generation failure). Opt out per call with `['placeholder' => false]`:
 
 ```php
-echo $media->getPictureHtml();                          // includes blur (default)
+echo $media->getPictureHtml();                          // includes the SVG entry (default)
 echo $media->getPictureHtml(['placeholder' => false]);  // skip
-echo $media->getSimpleImgHtml(['style' => 'border-radius:8px']); // merges with your style
+echo $media->getSimpleImgHtml(['style' => 'border-radius:8px']); // your style is preserved untouched
 ```
+
+Independent of the placeholder feature, `getPictureHtml()` and `getSimpleImgHtml()` now always set `width` and `height` on the `<img>` from the dimensions persisted at upload (`custom_properties.image_meta`) — so CLS is fixed even when LQIP is off.
+
+`decoding="async"` is also set by default — the browser decodes the bitmap off the main thread, smoothing scroll/animation while images come in. Override it per call with `['decoding' => 'sync']` (or `'auto'`) if needed. We deliberately do **not** default `loading="lazy"`: applying it to above-the-fold images defers their fetch and hurts LCP. Opt in per call when you know the image is below the fold:
+
+```php
+echo $media->getPictureHtml(['loading' => 'lazy']);
+```
+
+### Composing with the dominant color
+
+`Media::getPlaceholderColor()` returns a hex CSS color sampled from the upload (~10 bytes). Stack it underneath the picture for an instant first paint — the color renders before any data URI decodes, the SVG LQIP swaps in next, then the responsive image lands:
+
+```blade
+<div style="background-color: {{ $media->getPlaceholderColor() }}">
+    {!! $media->getPictureHtml() !!}
+</div>
+```
+
+The combination — solid color → SVG blur → responsive image — gives three progressive paints with one persisted value each. Works inside email and other contexts where `<picture>` doesn't apply too: drop the picture call and the color alone is a decent skeleton.
 
 ## Clearing variants
 

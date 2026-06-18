@@ -55,7 +55,7 @@ class Media extends Model implements Attachable
 
     const string PROPERTY_RESPONSIVE_IMAGES = 'responsive_images';
 
-    const string PROPERTY_DIMENSIONS = 'dimensions';
+    const string PROPERTY_IMAGE_META = 'image_meta';
 
     protected $fillable = [
         'name', 'file_name', 'mime_type', 'size', 'disk', 'custom_properties',
@@ -470,11 +470,32 @@ class Media extends Model implements Attachable
     }
 
     /**
-     * Return the conversion URL when the variant exists on disk; otherwise
-     * return the LQIP placeholder data URI; if neither is available, fall
-     * back to the original URL.
+     * Hex CSS color (`#rrggbb`) sampled at upload time as the average of the
+     * source image. Useful as a CSS `background-color` skeleton — paints
+     * instantly, costs ~10 bytes, works in email/SSR/anywhere the SVG LQIP
+     * isn't viable. Returns null on non-image media or pre-v2.13 records.
+     */
+    public function getPlaceholderColor(): ?string
+    {
+        $meta = $this->getCustomProperty(self::PROPERTY_IMAGE_META);
+
+        if (! is_array($meta) || ! isset($meta['dominant_color'])) {
+            return null;
+        }
+
+        return (string) $meta['dominant_color'];
+    }
+
+    /**
+     * Single-URL helper for contexts that can't use srcset: email HTML, JSON
+     * payloads, OG/Twitter meta tags, CSS `background-image`. Returns the
+     * conversion URL when the variant exists on disk, falls back to the LQIP
+     * placeholder data URI when it doesn't (e.g. right after upload while the
+     * conversion job is queued), and finally to the original URL.
      *
-     * Useful right after upload when queued conversions have not run yet.
+     * For rendering an actual `<img>` / `<picture>`, use getPictureHtml() or
+     * getSimpleImgHtml() — those carry the placeholder inside srcset and
+     * progressively swap to the real image without any caller-side fallback.
      */
     public function getUrlOrPlaceholder(string $conversion = ''): string
     {

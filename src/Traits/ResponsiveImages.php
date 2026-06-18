@@ -43,21 +43,24 @@ trait ResponsiveImages
         }
 
         [$injectPlaceholder, $attributes] = $this->extractPlaceholderOption($attributes);
+        $placeholderUri = $injectPlaceholder ? $this->getPlaceholder() : null;
 
         $defaultAttributes = $this->setDefaultImgAttributes($sizes);
 
-        $sources = $this->buildResponsiveSourceElements($defaultAttributes['sizes'] ?? null);
+        $sources = $this->buildResponsiveSourceElements($defaultAttributes['sizes'] ?? null, $placeholderUri);
 
         // The <img> fallback always carries the original file. Its srcset
         // declares the original at its native width so browsers that ignore
-        // every <source> still receive a width-aware candidate.
+        // every <source> still receive a width-aware candidate; the LQIP
+        // placeholder rides along as the lowest-width entry.
         $originalWidth = $this->getImageWidth();
-        if ($originalWidth > 0) {
-            $defaultAttributes['srcset'] = $this->getUrl().' '.$originalWidth.'w';
+        $imgSrcset = $originalWidth > 0 ? $this->getUrl().' '.$originalWidth.'w' : '';
+        $imgSrcset = $this->injectPlaceholderIntoSrcset($imgSrcset, $placeholderUri);
+        if ($imgSrcset !== '') {
+            $defaultAttributes['srcset'] = $imgSrcset;
         }
 
         $imgAttributes = array_merge($defaultAttributes, $attributes);
-        $imgAttributes = $this->applyPlaceholderStyle($imgAttributes, $injectPlaceholder);
         $imgAttributesString = $this->attributesToString($imgAttributes);
 
         if (empty($sources)) {
@@ -71,9 +74,11 @@ trait ResponsiveImages
 
     /**
      * Build one `<source>` per responsive format, ordered modern-first.
-     * Returns an empty array when no responsive variants exist.
+     * Each source's srcset gets the LQIP placeholder appended as the lowest
+     * `32w` entry when one was generated. Returns an empty array when no
+     * responsive variants exist.
      */
-    protected function buildResponsiveSourceElements(?string $sizes): array
+    protected function buildResponsiveSourceElements(?string $sizes, ?string $placeholderUri): array
     {
         $availableFormats = $this->getAvailableResponsiveFormats();
 
@@ -103,6 +108,8 @@ trait ResponsiveImages
                 continue;
             }
 
+            $srcset = $this->injectPlaceholderIntoSrcset($srcset, $placeholderUri);
+
             $mimeType = $this->formatToMimeType($format);
             $sourceHtml = "<source type=\"{$mimeType}\" srcset=\"{$srcset}\"";
             if (! empty($sizes)) {
@@ -119,8 +126,8 @@ trait ResponsiveImages
     /**
      * Pop the `placeholder` key out of the attributes array. Returns
      * [bool $shouldInject, array $remainingAttributes] so callers can
-     * decide whether to add the blur background later without leaking
-     * the option into the rendered HTML.
+     * decide whether to add the placeholder to the srcset later without
+     * leaking the option into the rendered HTML.
      */
     protected function extractPlaceholderOption(array $attributes): array
     {
@@ -131,31 +138,20 @@ trait ResponsiveImages
     }
 
     /**
-     * Append the LQIP placeholder as a CSS background-image on the <img>
-     * attributes when one was generated and the call opted in.
+     * Append the LQIP placeholder as the lowest-width entry of a srcset
+     * so the browser can pin the aspect ratio (via the SVG viewBox) and
+     * surface the blurred preview while the real image is fetched.
      */
-    protected function applyPlaceholderStyle(array $attributes, bool $shouldInject): array
+    protected function injectPlaceholderIntoSrcset(string $srcset, ?string $placeholderUri): string
     {
-        if (! $shouldInject) {
-            return $attributes;
+        if ($placeholderUri === null) {
+            return $srcset;
         }
 
-        $placeholder = $this->getPlaceholder();
+        $srcset = trim($srcset);
+        $entry = $placeholderUri.' 32w';
 
-        if ($placeholder === null) {
-            return $attributes;
-        }
-
-        $background = "background-image:url('{$placeholder}');background-size:cover;background-position:center;";
-        $existing = trim($attributes['style'] ?? '');
-
-        if ($existing !== '') {
-            $existing = rtrim($existing, ';').';';
-        }
-
-        $attributes['style'] = $existing.$background;
-
-        return $attributes;
+        return $srcset === '' ? $entry : $srcset.', '.$entry;
     }
 
     /**
@@ -205,9 +201,21 @@ trait ResponsiveImages
         }
 
         [$injectPlaceholder, $attributes] = $this->extractPlaceholderOption($attributes);
+        $placeholderUri = $injectPlaceholder ? $this->getPlaceholder() : null;
 
         $imgAttributes = array_merge($this->setDefaultImgAttributes($sizes), $attributes);
-        $imgAttributes = $this->applyPlaceholderStyle($imgAttributes, $injectPlaceholder);
+
+        if ($placeholderUri !== null) {
+            $existingSrcset = (string) ($imgAttributes['srcset'] ?? '');
+            if ($existingSrcset === '') {
+                $width = $this->getImageWidth();
+                if ($width > 0) {
+                    $existingSrcset = $this->getUrl().' '.$width.'w';
+                }
+            }
+            $imgAttributes['srcset'] = $this->injectPlaceholderIntoSrcset($existingSrcset, $placeholderUri);
+        }
+
         $imgAttributesString = $this->attributesToString($imgAttributes);
 
         return "<img $imgAttributesString>";
@@ -218,22 +226,27 @@ trait ResponsiveImages
         $defaultAttributes = [
             'src' => $this->getUrl(),
             'alt' => $this->name ?? '',
+            // decoding=async lets the browser decode the bitmap off the main
+            // thread. Pure upside (no LCP penalty unlike loading=lazy), and
+            // overridable by passing `decoding` in the call's $attributes.
+            'decoding' => 'async',
         ];
+
+        $width = $this->getImageWidth();
+        $height = $this->getImageHeight();
+
+        if ($width > 0 && $height > 0) {
+            $defaultAttributes['width'] = $width;
+            $defaultAttributes['height'] = $height;
+        }
 
         if (! empty($sizes)) {
             if ($sizes === 'auto') {
+                $widths = $this->getResponsiveImages()->pluck('width');
 
-                $sizesFromGeneratedResponsiveImages = $this->getResponsiveImages();
-
-                $minWidth = $sizesFromGeneratedResponsiveImages->pluck('width')->min();
-                $minHeight = $sizesFromGeneratedResponsiveImages->pluck('height')->min();
-
-                $defaultAttributes['width'] = $minWidth;
-                $defaultAttributes['height'] = $minHeight;
-
-                $sizes = $sizesFromGeneratedResponsiveImages->pluck('width')->slice(0, -1)->map(function ($w) {
+                $sizes = $widths->slice(0, -1)->map(function ($w) {
                     return '(min-width: '.$w * 0.7.'px) '.$w.'px';
-                })->push($sizesFromGeneratedResponsiveImages->pluck('width')->last() * 0.7.'px')->implode(', ');
+                })->push($widths->last() * 0.7.'px')->implode(', ');
             }
 
             $defaultAttributes['sizes'] = $sizes;
@@ -301,23 +314,23 @@ trait ResponsiveImages
             return 0;
         }
 
-        // Try to get from responsive images data first
+        $meta = $this->getCustomProperty(Media::PROPERTY_IMAGE_META);
+        if (is_array($meta) && isset($meta['width'])) {
+            return (int) $meta['width'];
+        }
+
         $responsiveImages = $this->getResponsiveImages();
         if ($responsiveImages->isNotEmpty()) {
-            return $responsiveImages->max('width');
+            return (int) $responsiveImages->max('width');
         }
 
-        // Check if we have dimensions stored in data
-        if ($this->getCustomProperty('width') !== null) {
-            return (int) $this->getCustomProperty('width');
-        }
-
-        // Fallback: read from original file
         return $this->calculateImageDimensions()['width'] ?? 0;
     }
 
     /**
-     * Calculate and cache image dimensions.
+     * Lazy fallback when image_meta wasn't persisted at upload (pre-v2.13
+     * records or non-MediaUploader-created models). Only computes width and
+     * height — dominant_color requires the upload pipeline.
      */
     protected function calculateImageDimensions(): array
     {
@@ -325,15 +338,15 @@ trait ResponsiveImages
             $image = app(ImageManager::class)
                 ->decode($this->filesystem()->get($this->getOriginalPath()));
 
-            $dimensions = [
+            $meta = [
                 'width' => $image->width(),
                 'height' => $image->height(),
             ];
 
-            $this->setCustomProperty(Media::PROPERTY_DIMENSIONS, $dimensions);
+            $this->setCustomProperty(Media::PROPERTY_IMAGE_META, $meta);
             $this->save();
 
-            return $dimensions;
+            return $meta;
         } catch (Exception $e) {
             Log::warning('MediaMan: Failed to calculate image dimensions', [
                 'media_id' => $this->id,
@@ -495,21 +508,18 @@ trait ResponsiveImages
             return 0;
         }
 
-        // Try to get from responsive images data first
+        $meta = $this->getCustomProperty(Media::PROPERTY_IMAGE_META);
+        if (is_array($meta) && isset($meta['height'])) {
+            return (int) $meta['height'];
+        }
+
         $responsiveImages = $this->getResponsiveImages();
         if ($responsiveImages->isNotEmpty()) {
-            // Find the original dimensions (largest width)
             $largestImage = $responsiveImages->where('width', $this->getImageWidth())->first();
 
-            return $largestImage ? $largestImage->height : 0;
+            return $largestImage ? (int) $largestImage->height : 0;
         }
 
-        // Check if we have dimensions stored in data
-        if ($this->getCustomProperty('height') !== null) {
-            return (int) $this->getCustomProperty('height');
-        }
-
-        // Fallback: read from original file
         return $this->calculateImageDimensions()['height'] ?? 0;
     }
 }

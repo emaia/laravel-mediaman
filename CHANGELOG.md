@@ -4,15 +4,37 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Pluggable LQIP via `Emaia\MediaMan\Placeholders\PlaceholderGenerator`.** Swap via `mediaman.placeholder.generator` or rebind the interface (mirrors the v2.9 generators pattern). Default implementation `BlurredSvgPlaceholder` wraps a tiny blurred JPEG inside an SVG with the original `viewBox` and returns a percent-encoded `data:image/svg+xml,…` URI (~16% smaller than the equivalent base64 wrapper, readable in DevTools).
+- Image meta (`width`, `height`, `dominant_color`) is now persisted in `custom_properties.image_meta` for every image upload in a single decode pass, independent of the placeholder feature. The struct was previously named `dimensions` and held only width/height.
+- `Media::getPlaceholderColor(): ?string` — hex CSS color sampled at upload (average of the source). ~10 bytes, ideal as a `background-color` skeleton anywhere the LQIP data URI is too heavy: email, SSR, JSON APIs, container backgrounds. Composes naturally with `getPictureHtml()` for a three-stage progressive paint (color → SVG LQIP → responsive image).
+- `Media::getUrlOrPlaceholder($conversion)` — single-URL helper for non-srcset contexts (email HTML, JSON payloads, OG/Twitter tags, CSS `background-image`). Returns the conversion URL when the file exists, the LQIP data URI as fallback, and finally the original URL.
+
 ### Changed
 
 - `getPictureHtml()` always emits a `<picture>` wrapper, even when no responsive variants exist (`<picture><img></picture>`). Previously the method silently fell through to `getSimpleImgHtml()` and returned a bare `<img>` in that case — and also when only a single responsive format was configured (the default `formats=['webp']`), which left the rendered output without a `<picture>` despite the variants being there. Markup shape is now consistent across all states.
 - `<source>` elements now cover **every** responsive format. Previously the last format was reserved for the inner `<img>` srcset, which mis-categorised single-format setups (e.g. WebP variants attached to a JPEG original) by mixing formats inside `<img srcset>`. The `<img>` always points at the original file now, with its native width as a single `srcset` candidate.
 - `getSrcset()` filters out responsive entries with empty URL or zero width before assembling the string — degenerate data no longer surfaces as malformed `<source>` tags.
+- **LQIP payload is an SVG wrapper instead of a raw JPEG.** The SVG `viewBox` pins the aspect ratio before any pixel data arrives, eliminating CLS, working inside `<picture>` (every `<source srcset>` now carries the placeholder), and removing the previous CSP friction from inline `style="background-image:…"` injection.
+- `getPictureHtml()` and `getSimpleImgHtml()` always populate `width` and `height` on the `<img>` (from `custom_properties.image_meta`), not only with `sizes='auto'` — CLS is fixed even when LQIP is off. The `sizes='auto'` branch no longer overrides `width`/`height` with the smallest responsive variant.
+- `decoding="async"` is now set by default on the rendered `<img>`. Override per call with `['decoding' => 'sync']`. `loading="lazy"` is **not** defaulted (it hurts LCP on above-the-fold images); opt in per call where appropriate.
+- `getImageWidth()` / `getImageHeight()` read from `custom_properties.image_meta` first, then fall back to responsive variants, then lazy-decode.
+- `Media::PROPERTY_DIMENSIONS` constant renamed to `Media::PROPERTY_IMAGE_META` (and the underlying key `dimensions` → `image_meta`) to make room for the additional fields. Pre-v2.13 records keep working — the lazy fallback re-populates the new key on first read.
+- Placeholder config keys for the default generator moved to a `blurred_svg` sub-block: `mediaman.placeholder.{width, blur, quality}` → `mediaman.placeholder.blurred_svg.{width, blur, quality}`. Per-generator knobs are now scoped to their own namespace — swapping `generator` to a different implementation no longer silently reuses or ignores unrelated keys.
+- `PlaceholderGenerator` service-container bind resolves the configured class lazily via a closure (instead of capturing the FQCN at register time). Apps and tests can swap the implementation via `Config::set('mediaman.placeholder.generator', …)` without having to call `app()->instance()` to force a rebind.
+
+### Removed
+
+- Inline `style="background-image:url('data:image/jpeg;…')"` injection in `getPictureHtml()` / `getSimpleImgHtml()`.
 
 ### Notes
 
 - `getSimpleImgHtml()` is unchanged and remains the explicit escape hatch when callers need a bare `<img>` (email templates, etc.).
+
+### Upgrading
+
+Media uploaded with v2.11 / v2.12 still hold the old JPEG payload in `custom_properties.placeholder`. Re-upload affected media to refresh; non-refreshed records keep rendering the JPEG inline as a degraded fallback.
 
 ## [2.12.0] — 2026-06-17
 

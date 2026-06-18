@@ -186,16 +186,24 @@ Low-quality image placeholder (LQIP) — a tiny blurred JPEG generated synchrono
 
 ```php
 'placeholder' => [
-    'enabled' => env('MEDIAMAN_PLACEHOLDER_ENABLED', false),
-    'width'   => 32,  // px
-    'blur'    => 20,
-    'quality' => 40,  // JPEG quality (1-100)
+    'enabled'   => env('MEDIAMAN_PLACEHOLDER_ENABLED', false),
+    'generator' => Emaia\MediaMan\Placeholders\BlurredSvgPlaceholder::class,
+
+    'blurred_svg' => [
+        'width'   => 32,  // tiny JPEG width in px
+        'blur'    => 20,
+        'quality' => 40,  // JPEG quality (1-100)
+    ],
 ],
 ```
 
-When on, adds ~50 ms per image upload and ~2 KB to `custom_properties`. Generation only fires for `image/*` MIME types; failures (corrupt image, unsupported format) fall back to `null` without breaking the upload.
+When on, adds ~50 ms per image upload and ~3 KB to `custom_properties`. Generation only fires for `image/*` MIME types; failures (corrupt image, unsupported format) fall back to `null` without breaking the upload.
 
-When off, `Media::getPlaceholder()` returns `null`, `getUrlOrPlaceholder()` behaves like `getUrl()`, and `getPictureHtml()`/`getSimpleImgHtml()` skip the background-image injection silently.
+When off, `Media::getPlaceholder()` returns `null`, `getUrlOrPlaceholder()` behaves like `getUrl()`, and `getPictureHtml()`/`getSimpleImgHtml()` skip the srcset injection silently. Image meta (`width`, `height`, `dominant_color`) is still persisted at upload time, so the `<img>` keeps its `width`/`height` for zero CLS and `Media::getPlaceholderColor()` keeps returning a usable CSS color.
+
+`generator` accepts any class implementing `Emaia\MediaMan\Placeholders\PlaceholderGenerator`. The default `BlurredSvgPlaceholder` wraps a tiny blurred JPEG inside an SVG with the original `viewBox`; swap it for BlurHash, ThumbHash, dominant color, etc.
+
+**Per-generator tuning is scoped to its own sub-block.** `mediaman.placeholder.blurred_svg.{width, blur, quality}` only applies when the active `generator` is `BlurredSvgPlaceholder`. Swapping generators ignores knobs that don't belong to them — no silent reuse, no namespace collisions.
 
 ## Responsive images
 

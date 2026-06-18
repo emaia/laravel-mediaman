@@ -312,9 +312,11 @@ it('builds default img attributes with sizes auto', function () {
 
     $attrs = $media->setDefaultImgAttributes('auto');
 
+    // width/height now reflect the original upload dimensions (zero-CLS),
+    // regardless of the sizes mode. The fake image is 800x600.
     expect($attrs)->toHaveKeys(['width', 'height', 'sizes'])
-        ->and($attrs['width'])->toEqual(320)
-        ->and($attrs['height'])->toEqual(240)
+        ->and($attrs['width'])->toEqual(800)
+        ->and($attrs['height'])->toEqual(600)
         ->and($attrs['sizes'])->toContain('px');
 });
 
@@ -367,22 +369,53 @@ it('selects empty format default in getSrcset', function () {
     expect($srcset)->toContain('320w');
 });
 
-it('returns image width from custom property when responsive images absent', function () {
+it('returns image width from custom_properties.image_meta when responsive images absent', function () {
     $file = UploadedFile::fake()->image('test.jpg', 800, 600);
     $media = MediaUploader::source($file)->upload();
-    $media->setCustomProperty('width', 1280);
+    $media->setCustomProperty(Media::PROPERTY_IMAGE_META, ['width' => 1280, 'height' => 720]);
     $media->save();
 
     expect($media->getImageWidth())->toEqual(1280);
 });
 
-it('returns image height from custom property when responsive images absent', function () {
+it('returns image height from custom_properties.image_meta when responsive images absent', function () {
     $file = UploadedFile::fake()->image('test.jpg', 800, 600);
     $media = MediaUploader::source($file)->upload();
-    $media->setCustomProperty('height', 720);
+    $media->setCustomProperty(Media::PROPERTY_IMAGE_META, ['width' => 1280, 'height' => 720]);
     $media->save();
 
     expect($media->getImageHeight())->toEqual(720);
+});
+
+it('renders width and height on a simple img even without LQIP or responsive variants', function () {
+    config(['mediaman.placeholder.enabled' => false]);
+
+    $file = UploadedFile::fake()->image('test.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    $html = $media->getSimpleImgHtml();
+
+    expect($html)->toContain('width="800"')
+        ->and($html)->toContain('height="600"')
+        ->and($html)->not->toContain('data:image/svg+xml,');
+});
+
+it('defaults decoding="async" on the rendered img', function () {
+    $file = UploadedFile::fake()->image('test.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    expect($media->getSimpleImgHtml())->toContain('decoding="async"')
+        ->and($media->getPictureHtml())->toContain('decoding="async"');
+});
+
+it('lets callers override the decoding attribute', function () {
+    $file = UploadedFile::fake()->image('test.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    $html = $media->getSimpleImgHtml(['decoding' => 'sync']);
+
+    expect($html)->toContain('decoding="sync"')
+        ->and($html)->not->toContain('decoding="async"');
 });
 
 it('returns 0 for image dimensions on non-image media', function () {
@@ -498,7 +531,10 @@ it('returns 0 dimensions when calculateImageDimensions fails', function () {
     $file = UploadedFile::fake()->image('test.jpg', 100, 100);
     $media = MediaUploader::source($file)->upload();
 
-    // Delete the file so decode() inside calculateImageDimensions throws
+    // Strip the cached dimensions and delete the underlying file so the
+    // lazy decode inside calculateImageDimensions throws.
+    $media->forgetCustomProperty(Media::PROPERTY_IMAGE_META);
+    $media->save();
     $media->filesystem()->delete($media->getOriginalPath());
 
     expect($media->getImageWidth())->toEqual(0)
