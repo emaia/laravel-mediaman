@@ -387,6 +387,19 @@ it('returns image height from custom_properties.dimensions when responsive image
     expect($media->getImageHeight())->toEqual(720);
 });
 
+it('renders width and height on a simple img even without LQIP or responsive variants', function () {
+    config(['mediaman.placeholder.enabled' => false]);
+
+    $file = UploadedFile::fake()->image('test.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    $html = $media->getSimpleImgHtml();
+
+    expect($html)->toContain('width="800"')
+        ->and($html)->toContain('height="600"')
+        ->and($html)->not->toContain('data:image/svg+xml;base64,');
+});
+
 it('returns 0 for image dimensions on non-image media', function () {
     $file = UploadedFile::fake()->create('document.pdf', 100, 'application/pdf');
     $media = MediaUploader::source($file)->upload();

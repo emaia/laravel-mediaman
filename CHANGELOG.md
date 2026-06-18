@@ -4,6 +4,7 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ## [Unreleased]
 
+<<<<<<< HEAD
 ### Changed
 
 - `getPictureHtml()` always emits a `<picture>` wrapper, even when no responsive variants exist (`<picture><img></picture>`). Previously the method silently fell through to `getSimpleImgHtml()` and returned a bare `<img>` in that case — and also when only a single responsive format was configured (the default `formats=['webp']`), which left the rendered output without a `<picture>` despite the variants being there. Markup shape is now consistent across all states.
@@ -13,6 +14,27 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 ### Notes
 
 - `getSimpleImgHtml()` is unchanged and remains the explicit escape hatch when callers need a bare `<img>` (email templates, etc.).
+=======
+### Added
+
+- **Pluggable LQIP via `Emaia\MediaMan\Placeholders\PlaceholderGenerator`.** Swap via `mediaman.placeholder.generator` or rebind the interface (mirrors the v2.9 generators pattern). Default implementation `BlurredSvgPlaceholder` wraps a tiny blurred JPEG inside an SVG with the original `viewBox` and returns a `data:image/svg+xml;base64,…` URI.
+- Image dimensions are now persisted in `custom_properties.dimensions` for every image upload, independent of the placeholder feature.
+
+### Changed
+
+- **LQIP payload is an SVG wrapper instead of a raw JPEG.** The SVG `viewBox` pins the aspect ratio before any pixel data arrives, eliminating CLS, working inside `<picture>` (every `<source srcset>` now carries the placeholder), and removing the previous CSP friction from inline `style="background-image:…"` injection.
+- `getPictureHtml()` and `getSimpleImgHtml()` always populate `width` and `height` on the `<img>` (from `custom_properties.dimensions`), not only with `sizes='auto'` — CLS is fixed even when LQIP is off. The `sizes='auto'` branch no longer overrides `width`/`height` with the smallest responsive variant.
+- `getImageWidth()` / `getImageHeight()` read from `custom_properties.dimensions` first, then fall back to responsive variants, then lazy-decode.
+
+### Removed
+
+- `Media::getUrlOrPlaceholder()` — superseded by the srcset-based pipeline. Render with `getPictureHtml()` / `getSimpleImgHtml()`.
+- Inline `style="background-image:url('data:image/jpeg;…')"` injection in `getPictureHtml()` / `getSimpleImgHtml()`.
+
+### Upgrading
+
+Media uploaded with v2.11 / v2.12 still hold the old JPEG payload in `custom_properties.placeholder`. Re-upload affected media to refresh; non-refreshed records keep rendering the JPEG inline as a degraded fallback.
+>>>>>>> 9d26b64 (docs: rewrite LQIP docs and CHANGELOG; add coverage for SVG, dimensions, and pluggable generator)
 
 ## [2.12.0] — 2026-06-17
 

@@ -37,7 +37,7 @@ Public surface of the package, organized by class/trait. Each entry links back t
 | `getUrl(string $conversion = ''): string`                                                    | Public URL (with `url.prefix` and `url.version_query` if configured).                                                                                                         |
 | `getUrlWithFallback(string $conversion = ''): string`                                        | Conversion URL or the original if missing.                                                                                                                                    |
 | `getConversionUrl(string $conversion): ?string`                                              | Conversion URL or `null` if missing.                                                                                                                                          |
-| `getPlaceholder(): ?string`                                                                  | LQIP placeholder data URI generated at upload time, or `null` if none was generated.                                                                                          |
+| `getPlaceholder(): ?string`                                                                  | LQIP placeholder data URI (SVG wrapper with original `viewBox` and an embedded tiny blurred JPEG) generated at upload time, or `null` if none was generated.                  |
 | `getTemporaryUrl(?DateTimeInterface $expiration = null, ?string $conversion = null): string` | Signed URL on cloud disks. Throws `TemporaryUrlNotSupported` otherwise.                                                                                                       |
 | `getPath(string $conversion = ''): string`                                                   | Path on disk (with extension detection).                                                                                                                                      |
 | `getOriginalPath(string $conversion = ''): string`                                           | Path on disk using `file_name` as-is.                                                                                                                                         |
@@ -321,6 +321,29 @@ Bind any generator in a service provider:
 use Emaia\MediaMan\Generators\PathGenerator;
 
 $this->app->bind(PathGenerator::class, MyTenantPathGenerator::class);
+```
+
+---
+
+## Placeholders
+
+### `PlaceholderGenerator`
+
+```php
+interface PlaceholderGenerator
+{
+    public function generate(string $sourcePath, int $width, int $height): ?string;
+}
+```
+
+Default: `BlurredSvgPlaceholder` — wraps a tiny blurred JPEG in an SVG with the original `viewBox` and returns a `data:image/svg+xml;base64,…` URI. Returns `null` on any failure so the upload pipeline keeps going.
+
+Swap via `mediaman.placeholder.generator` config or rebind the interface:
+
+```php
+use Emaia\MediaMan\Placeholders\PlaceholderGenerator;
+
+$this->app->bind(PlaceholderGenerator::class, BlurHashPlaceholder::class);
 ```
 
 ---

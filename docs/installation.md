@@ -70,6 +70,10 @@ Schema::table('mediaman_mediables', function (Blueprint $table) {
 });
 ```
 
+### v2.13.0 → LQIP placeholder payload changed (no schema change)
+
+The LQIP placeholder stored in `custom_properties.placeholder` changed from a tiny JPEG data URI to an SVG wrapper data URI (zero CLS, works inside `<picture>`). The schema is unchanged, but media uploaded with v2.11 / v2.12 still hold the old JPEG payload. Re-upload affected media to refresh the placeholder; non-refreshed records keep rendering the JPEG inline as a degraded fallback.
+
 ## Next steps
 
 - [Configuration](configuration.md) — disk, queue, image driver, custom models, responsive images

@@ -141,33 +141,34 @@ echo $media->getSimpleImgHtml(['class' => 'hero-image', 'loading' => 'lazy']);
 
 ## Placeholder integration
 
-When the LQIP placeholder (see [Media → Placeholder](media.md#placeholder-for-pending-conversions)) was generated at upload time (the feature is opt-in), `getPictureHtml()` and `getSimpleImgHtml()` inject it automatically as a CSS background-image on the inner `<img>`:
+When the LQIP placeholder (see [Media → Placeholder](media.md#placeholder-for-pending-conversions)) was generated at upload time (the feature is opt-in), `getPictureHtml()` and `getSimpleImgHtml()` append it as the **smallest entry of every `srcset`** — including each `<source>` inside `<picture>`:
 
 ```html
 <picture>
-    <source ...>
+    <source type="image/webp" srcset="…/320.webp 320w, …/640.webp 640w, data:image/svg+xml;base64,… 32w" sizes="…">
     <img
         src="…/image.jpg"
-        srcset="…"
-        style="background-image:url('data:image/jpeg;base64,…');background-size:cover;background-position:center;"
-        alt="…"
+        srcset="…/320.jpg 320w, …/640.jpg 640w, data:image/svg+xml;base64,… 32w"
+        width="1280" height="720" alt="…"
     >
 </picture>
 ```
 
-The background covers the slot during three real-world cases:
+The placeholder is a tiny blurred JPEG wrapped in an SVG with the original `viewBox`. That gives three properties at once:
 
-- Right after upload, while the responsive job is still in the queue.
-- During the network download from the CDN.
-- For lazy-loaded media offscreen (`loading="lazy"`).
+- **Zero CLS** — the SVG `viewBox` pins the aspect ratio before any pixel data arrives, so the browser reserves the correct slot from the first paint.
+- **Renders inside `<picture>`** — every `<source>` carries the placeholder in its srcset, so the format the browser picks already includes it.
+- **CSP-friendly** — no inline `style` injection; the data URI lives in `srcset`, which only requires `img-src 'self' data:`.
 
-The injection is silent when no placeholder exists (non-image upload, placeholder disabled in config, or generation failure). Disable per call with `['placeholder' => false]`:
+The injection is silent when no placeholder exists (non-image upload, placeholder disabled in config, or generation failure). Opt out per call with `['placeholder' => false]`:
 
 ```php
-echo $media->getPictureHtml();                          // includes blur (default)
+echo $media->getPictureHtml();                          // includes the SVG entry (default)
 echo $media->getPictureHtml(['placeholder' => false]);  // skip
-echo $media->getSimpleImgHtml(['style' => 'border-radius:8px']); // merges with your style
+echo $media->getSimpleImgHtml(['style' => 'border-radius:8px']); // your style is preserved untouched
 ```
+
+Independent of the placeholder feature, `getPictureHtml()` and `getSimpleImgHtml()` now always set `width` and `height` on the `<img>` from the dimensions persisted at upload (`custom_properties.dimensions`) — so CLS is fixed even when LQIP is off.
 
 ## Clearing variants
 

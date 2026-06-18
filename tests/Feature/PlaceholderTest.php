@@ -1,6 +1,8 @@
 <?php
 
 use Emaia\MediaMan\MediaUploader;
+use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\Placeholders\PlaceholderGenerator;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Config;
 
@@ -55,6 +57,41 @@ it('placeholder size stays within a reasonable budget (< 4 KB)', function () {
     $placeholder = $media->getPlaceholder();
 
     expect(strlen($placeholder))->toBeLessThan(4096);
+});
+
+it('embeds the original viewBox and a tiny JPEG inside the SVG wrapper', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 1280, 720))->upload();
+
+    $svg = base64_decode(substr($media->getPlaceholder(), strlen('data:image/svg+xml;base64,')));
+
+    expect($svg)->toContain('viewBox="0 0 1280 720"')
+        ->and($svg)->toContain('<image')
+        ->and($svg)->toContain('data:image/jpeg;base64,');
+});
+
+it('persists original dimensions on every image upload regardless of placeholder.enabled', function () {
+    Config::set('mediaman.placeholder.enabled', false);
+
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 1024, 768))->upload();
+
+    expect($media->custom_properties)->toHaveKey('dimensions')
+        ->and($media->custom_properties['dimensions'])->toEqual(['width' => 1024, 'height' => 768]);
+});
+
+it('uses the PlaceholderGenerator bound in the container', function () {
+    $stub = new class implements PlaceholderGenerator
+    {
+        public function generate(string $sourcePath, int $width, int $height): ?string
+        {
+            return 'data:image/svg+xml;base64,STUBBED';
+        }
+    };
+
+    app()->instance(PlaceholderGenerator::class, $stub);
+
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+
+    expect($media->getPlaceholder())->toEqual('data:image/svg+xml;base64,STUBBED');
 });
 
 // --- getPictureHtml / getSimpleImgHtml integration ---
@@ -116,4 +153,19 @@ it('getPictureHtml honors the placeholder=false opt-out', function () {
     $html = $media->getPictureHtml(['placeholder' => false]);
 
     expect($html)->not->toContain('data:image/svg+xml;base64,');
+});
+
+it('getPictureHtml appends the placeholder to every source srcset', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 800, 600))->upload();
+    $media->setCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES, [
+        ['width' => 320, 'height' => 240, 'format' => 'webp', 'path' => 'p', 'url' => '/320.webp', 'size' => 1],
+        ['width' => 320, 'height' => 240, 'format' => 'jpg', 'path' => 'p', 'url' => '/320.jpg', 'size' => 1],
+    ]);
+    $media->save();
+
+    $html = $media->getPictureHtml();
+
+    // one per <source srcset> + one in the <img srcset> fallback
+    expect($html)->toContain('<source')
+        ->and(substr_count($html, 'data:image/svg+xml;base64,'))->toBeGreaterThanOrEqual(2);
 });
