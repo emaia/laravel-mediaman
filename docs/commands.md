@@ -4,6 +4,7 @@
 
 - [Publish assets](#publish-assets)
 - [Clean orphaned files](#clean-orphaned-files)
+- [Rotate media paths after APP_KEY rotation](#rotate-media-paths-after-app_key-rotation)
 - [Generate responsive images](#generate-responsive-images)
 - [Clear responsive images](#clear-responsive-images)
 - [Responsive images stats](#responsive-images-stats)
@@ -39,6 +40,38 @@ php artisan mediaman:clean --disk=media
 ```
 
 The command also detects reverse orphans (Media records whose file is missing from disk) and reports them for manual review — **DB records are never auto-deleted**. See [Security → mediaman:clean](security.md#detect-orphaned-files).
+
+## Rotate media paths after APP_KEY rotation
+
+The default storage layout hashes `APP_KEY` into each media directory (`{id}-{md5(id . app_key)}`). Rotating the key would silently break URLs to existing media unless you rename the on-disk directories.
+
+The command computes the target directory using the **current** `config('app.key')` and the source directory using the `--old-key` you pass. **You must rotate the key first**, then run the command with the previous key as `--old-key`. If `--old-key` equals the current `config('app.key')`, the command reports "Nothing to rotate" and exits — that's the noop you get when the order is reversed.
+
+Workflow:
+
+```bash
+# 1. Note the current APP_KEY before rotating
+OLD_KEY="base64:..."
+
+# 2. Rotate the key
+php artisan key:generate
+
+# 3. Rename on-disk directories using the saved old key
+php artisan mediaman:rotate-paths --old-key="$OLD_KEY"          # dry-run
+php artisan mediaman:rotate-paths --old-key="$OLD_KEY" --force  # actually move
+```
+
+Scoping options:
+
+```bash
+# Scope to a single disk
+php artisan mediaman:rotate-paths --old-key="$OLD_KEY" --force --disk=s3-media
+
+# Scope to a single Media id (handy for recovery / partial replays)
+php artisan mediaman:rotate-paths --old-key="$OLD_KEY" --force --media=42
+```
+
+The command is idempotent: re-runs against already-migrated media report them as "already migrated" and skip. See [Security → APP_KEY rotation](security.md#app_key-rotation) for context.
 
 ## Generate responsive images
 

@@ -8,6 +8,7 @@ use Emaia\MediaMan\Console\Commands\MediamanCleanCommand;
 use Emaia\MediaMan\Console\Commands\MediamanPublishCommand;
 use Emaia\MediaMan\Console\Commands\MediamanPublishConfigCommand;
 use Emaia\MediaMan\Console\Commands\MediamanPublishMigrationCommand;
+use Emaia\MediaMan\Console\Commands\MediamanRotatePathsCommand;
 use Emaia\MediaMan\Console\Commands\ResponsiveImagesStatsCommand;
 use Emaia\MediaMan\Downloaders\Downloader;
 use Emaia\MediaMan\Downloaders\HttpDownloader;
@@ -73,6 +74,7 @@ class MediaManServiceProvider extends ServiceProvider
                 ClearResponsiveImagesCommand::class,
                 ResponsiveImagesStatsCommand::class,
                 MediamanCleanCommand::class,
+                MediamanRotatePathsCommand::class,
             ]);
         }
 
