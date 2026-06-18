@@ -27,7 +27,14 @@ trait ResponsiveImages
     }
 
     /**
-     * Get picture element HTML with multiple formats.
+     * Render a `<picture>` element wrapping the media. Every responsive
+     * format becomes a `<source>` (modern formats first); the inner `<img>`
+     * always points at the original file as the browser-agnostic fallback.
+     *
+     * The wrapper is emitted even when no responsive variants exist — the
+     * markup shape stays consistent (`<picture><img></picture>`) and callers
+     * can rely on it. `getSimpleImgHtml()` remains the explicit escape hatch
+     * for contexts that need a bare `<img>` (email templates, etc.).
      */
     public function getPictureHtml(array $attributes = [], $sizes = null): string
     {
@@ -37,26 +44,45 @@ trait ResponsiveImages
 
         [$injectPlaceholder, $attributes] = $this->extractPlaceholderOption($attributes);
 
-        $availableFormats = $this->getAvailableResponsiveFormats();
-
-        // If no responsive images, return simple img tag
-        if (empty($availableFormats) || $availableFormats === ['original']) {
-            // Re-inject opt-out so getSimpleImgHtml honors the same decision.
-            if (! $injectPlaceholder) {
-                $attributes['placeholder'] = false;
-            }
-
-            return $this->getSimpleImgHtml($attributes, $sizes);
-        }
-
         $defaultAttributes = $this->setDefaultImgAttributes($sizes);
 
-        $sources = [];
+        $sources = $this->buildResponsiveSourceElements($defaultAttributes['sizes'] ?? null);
 
-        // Define format priority (modern formats first)
+        // The <img> fallback always carries the original file. Its srcset
+        // declares the original at its native width so browsers that ignore
+        // every <source> still receive a width-aware candidate.
+        $originalWidth = $this->getImageWidth();
+        if ($originalWidth > 0) {
+            $defaultAttributes['srcset'] = $this->getUrl().' '.$originalWidth.'w';
+        }
+
+        $imgAttributes = array_merge($defaultAttributes, $attributes);
+        $imgAttributes = $this->applyPlaceholderStyle($imgAttributes, $injectPlaceholder);
+        $imgAttributesString = $this->attributesToString($imgAttributes);
+
+        if (empty($sources)) {
+            return "<picture>\n    <img $imgAttributesString>\n</picture>";
+        }
+
+        $sourcesString = implode("\n    ", $sources);
+
+        return "<picture>\n    $sourcesString\n    <img $imgAttributesString>\n</picture>";
+    }
+
+    /**
+     * Build one `<source>` per responsive format, ordered modern-first.
+     * Returns an empty array when no responsive variants exist.
+     */
+    protected function buildResponsiveSourceElements(?string $sizes): array
+    {
+        $availableFormats = $this->getAvailableResponsiveFormats();
+
+        if (empty($availableFormats) || $availableFormats === ['original']) {
+            return [];
+        }
+
         $formatPriority = array_map(fn (MediaFormat $f) => $f->value, MediaFormat::responsiveFormats());
 
-        // Sort available formats by priority
         $sortedFormats = [];
         foreach ($formatPriority as $priorityFormat) {
             if (in_array($priorityFormat, $availableFormats)) {
@@ -64,48 +90,30 @@ trait ResponsiveImages
             }
         }
 
-        // Add any remaining formats
         foreach ($availableFormats as $format) {
             if (! in_array($format, $sortedFormats)) {
                 $sortedFormats[] = $format;
             }
         }
 
-        // Generate source elements (exclude the last format for fallback)
-        $sourceFormats = array_slice($sortedFormats, 0, -1);
-        foreach ($sourceFormats as $format) {
+        $sources = [];
+        foreach ($sortedFormats as $format) {
             $srcset = $this->getSrcset($format);
-            if ($srcset) {
-                $mimeType = $this->formatToMimeType($format);
-                $sourceHtml = "<source type=\"{$mimeType}\" srcset=\"{$srcset}\"";
-                if (! empty($defaultAttributes['sizes'])) {
-                    $sourceHtml .= " sizes=\"{$defaultAttributes['sizes']}\"";
-                }
-                $sourceHtml .= '>';
-                $sources[] = $sourceHtml;
+            if (! $srcset) {
+                continue;
             }
+
+            $mimeType = $this->formatToMimeType($format);
+            $sourceHtml = "<source type=\"{$mimeType}\" srcset=\"{$srcset}\"";
+            if (! empty($sizes)) {
+                $sourceHtml .= " sizes=\"{$sizes}\"";
+            }
+            $sourceHtml .= '>';
+
+            $sources[] = $sourceHtml;
         }
 
-        // Use the last format as fallback (or original if no responsive images)
-        $fallbackFormat = end($sortedFormats);
-        $fallbackSrcset = $this->getSrcset($fallbackFormat);
-
-        if ($fallbackSrcset) {
-            $defaultAttributes['srcset'] = $fallbackSrcset;
-        }
-
-        $imgAttributes = array_merge($defaultAttributes, $attributes);
-        $imgAttributes = $this->applyPlaceholderStyle($imgAttributes, $injectPlaceholder);
-        $imgAttributesString = $this->attributesToString($imgAttributes);
-
-        // Generate picture element
-        if (empty($sources)) {
-            return "<img $imgAttributesString>";
-        }
-
-        $sourcesString = implode("\n    ", $sources);
-
-        return "<picture>\n    $sourcesString\n    <img $imgAttributesString>\n</picture>";
+        return $sources;
     }
 
     /**
@@ -278,6 +286,7 @@ trait ResponsiveImages
         }
 
         return $images
+            ->filter(fn ($img) => ! empty($img->url) && (int) $img->width > 0)
             ->sortByDesc('width')
             ->map(fn ($img) => $img->url.' '.$img->width.'w')
             ->implode(', ');
