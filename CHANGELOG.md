@@ -25,6 +25,7 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 - **LQIP payload is an SVG wrapper instead of a raw JPEG.** The SVG `viewBox` pins the aspect ratio before any pixel data arrives, eliminating CLS, working inside `<picture>` (every `<source srcset>` now carries the placeholder), and removing the previous CSP friction from inline `style="background-image:…"` injection.
 - `getPictureHtml()` and `getSimpleImgHtml()` always populate `width` and `height` on the `<img>` (from `custom_properties.dimensions`), not only with `sizes='auto'` — CLS is fixed even when LQIP is off. The `sizes='auto'` branch no longer overrides `width`/`height` with the smallest responsive variant.
+- `decoding="async"` is now set by default on the rendered `<img>`. Override per call with `['decoding' => 'sync']`. `loading="lazy"` is **not** defaulted (it hurts LCP on above-the-fold images); opt in per call where appropriate.
 - `getImageWidth()` / `getImageHeight()` read from `custom_properties.dimensions` first, then fall back to responsive variants, then lazy-decode.
 
 ### Removed

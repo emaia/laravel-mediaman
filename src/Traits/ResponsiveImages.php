@@ -226,6 +226,10 @@ trait ResponsiveImages
         $defaultAttributes = [
             'src' => $this->getUrl(),
             'alt' => $this->name ?? '',
+            // decoding=async lets the browser decode the bitmap off the main
+            // thread. Pure upside (no LCP penalty unlike loading=lazy), and
+            // overridable by passing `decoding` in the call's $attributes.
+            'decoding' => 'async',
         ];
 
         $width = $this->getImageWidth();

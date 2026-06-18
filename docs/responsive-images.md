@@ -170,6 +170,12 @@ echo $media->getSimpleImgHtml(['style' => 'border-radius:8px']); // your style i
 
 Independent of the placeholder feature, `getPictureHtml()` and `getSimpleImgHtml()` now always set `width` and `height` on the `<img>` from the dimensions persisted at upload (`custom_properties.dimensions`) — so CLS is fixed even when LQIP is off.
 
+`decoding="async"` is also set by default — the browser decodes the bitmap off the main thread, smoothing scroll/animation while images come in. Override it per call with `['decoding' => 'sync']` (or `'auto'`) if needed. We deliberately do **not** default `loading="lazy"`: applying it to above-the-fold images defers their fetch and hurts LCP. Opt in per call when you know the image is below the fold:
+
+```php
+echo $media->getPictureHtml(['loading' => 'lazy']);
+```
+
 ## Clearing variants
 
 ```php

@@ -400,6 +400,24 @@ it('renders width and height on a simple img even without LQIP or responsive var
         ->and($html)->not->toContain('data:image/svg+xml,');
 });
 
+it('defaults decoding="async" on the rendered img', function () {
+    $file = UploadedFile::fake()->image('test.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    expect($media->getSimpleImgHtml())->toContain('decoding="async"')
+        ->and($media->getPictureHtml())->toContain('decoding="async"');
+});
+
+it('lets callers override the decoding attribute', function () {
+    $file = UploadedFile::fake()->image('test.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    $html = $media->getSimpleImgHtml(['decoding' => 'sync']);
+
+    expect($html)->toContain('decoding="sync"')
+        ->and($html)->not->toContain('decoding="async"');
+});
+
 it('returns 0 for image dimensions on non-image media', function () {
     $file = UploadedFile::fake()->create('document.pdf', 100, 'application/pdf');
     $media = MediaUploader::source($file)->upload();
