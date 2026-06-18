@@ -4,6 +4,10 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `mediaman:rotate-paths` artisan command — renames the on-disk media directories after an `APP_KEY` rotation. Iterates `Media` records, computes the path under the previous key vs the current key, and physically moves files when they differ. Dry-run by default; `--force` applies the moves; `--disk` and `--media` scope the operation; idempotent across re-runs. See [Security → APP_KEY rotation](docs/security.md#app_key-rotation) and [Commands → Rotate media paths after APP_KEY rotation](docs/commands.md#rotate-media-paths-after-app_key-rotation).
+
 ## [2.11.0] — 2026-06-17
 
 ### Changed

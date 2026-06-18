@@ -5,6 +5,7 @@
 - [Disallowed file extensions](#disallowed-file-extensions)
 - [SSRF protection for remote URLs](#ssrf-protection-for-remote-urls)
 - [Detect orphaned files](#detect-orphaned-files)
+- [`APP_KEY` rotation](#app_key-rotation)
 - [Custom paths and URLs](#custom-paths-and-urls)
 
 ## Disallowed file extensions
@@ -79,6 +80,32 @@ The command reports two kinds of orphans:
 - **Media records** pointing to missing files → reported only, **never auto-deleted** (cascade safety: a record may belong to multiple collections, channels, or models)
 
 Detection works at the top-level media directory. Stale conversion or responsive variants inside a valid media directory are not flagged.
+
+## `APP_KEY` rotation
+
+`DefaultPathGenerator` includes `APP_KEY` in the obfuscation hash: the directory is `{id}-{md5(id . app_key)}`. Rotating the key would silently change every computed path, breaking URLs to all existing media.
+
+**Plan the rotation as a two-step operation**, just like any other `APP_KEY` rotation (encrypted columns, signed URLs, sessions, etc.):
+
+```bash
+# 1. Rename the on-disk directories using the previous key
+php artisan mediaman:rotate-paths --old-key="base64:..."         # dry-run by default
+php artisan mediaman:rotate-paths --old-key="base64:..." --force # actually move
+
+# 2. Roll the key
+php artisan key:generate
+```
+
+The command iterates `Media` records, computes the directory under the old and new keys, and physically renames on disk when they differ. Options:
+
+- `--old-key` (required) — the value `config('app.key')` returned *before* rotation
+- `--force` — actually move files (without it, only reports planned moves)
+- `--disk=...` — scope to a specific disk
+- `--media=ID` — scope to a single Media id (handy for recovery)
+
+It's safe to re-run: media whose files are already at the new location are reported as "already migrated" and skipped. Media with both old and new directories present (partial previous run) are flagged for manual review without touching anything.
+
+If you'd rather decouple paths from the key entirely, swap `PathGenerator` for a custom implementation that uses random tokens or another scheme — see [Configuration → Pluggable generators](configuration.md#pluggable-generators).
 
 ## Custom paths and URLs
 
