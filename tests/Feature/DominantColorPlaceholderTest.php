@@ -8,9 +8,9 @@ use Illuminate\Support\Facades\Config;
 
 beforeEach(function () {
     Config::set('mediaman.placeholder.enabled', true);
-    // The service provider captures config('mediaman.placeholder.generator')
-    // at register time, so swapping config here wouldn't rebind. Bind the
-    // generator instance directly for the duration of the test.
+    // Bind the instance directly so the swap is unambiguous within the test
+    // — the closure bind reads the configured generator lazily, but the
+    // singleton caches the first resolve.
     app()->instance(PlaceholderGenerator::class, app(DominantColorPlaceholder::class));
 });
 

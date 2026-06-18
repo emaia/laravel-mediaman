@@ -208,6 +208,11 @@ return [
             'blur' => 20,
             'quality' => 40,  // JPEG quality (1-100)
         ],
+
+        'geometric_blur' => [
+            'grid_size' => 4,             // N×N color grid sampled from the image
+            'blur_std_deviation' => 20,   // feGaussianBlur intensity
+        ],
     ],
 
     /*
