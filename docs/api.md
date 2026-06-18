@@ -338,7 +338,13 @@ interface PlaceholderGenerator
 }
 ```
 
-Default: `BlurredSvgPlaceholder` — wraps a tiny blurred JPEG in an SVG with the original `viewBox` and returns a percent-encoded `data:image/svg+xml,…` URI (~16% smaller than the equivalent base64 wrapper, and readable in DevTools). Returns `null` on any failure so the upload pipeline keeps going.
+Three implementations ship out of the box; all three return the same `data:image/svg+xml,…` URI shape so the rendering pipeline stays generator-agnostic. See [Responsive images → Choosing a placeholder generator](responsive-images.md#choosing-a-placeholder-generator) for the trade-off table.
+
+- **`BlurredSvgPlaceholder` (default)** — embeds a tiny blurred JPEG inside an SVG with the original `viewBox`. Photographic quality, ~3 KB. Knobs: `mediaman.placeholder.{width, blur, quality}`.
+- **`GeometricBlurPlaceholder`** — resizes the source to N×N, emits one `<rect>` per cell, wraps the whole thing in `<filter><feGaussianBlur/></filter>`. Stylized blocks, ~2 KB at grid=4 (and bigger at higher grid sizes), pure ASCII so it works under strict CSP. Knobs: `mediaman.placeholder.{grid_size, blur_std_deviation}`.
+- **`DominantColorPlaceholder`** — a single `<rect>` filled with the area-weighted average color. ~150 B, flat. No knobs.
+
+All three return `null` on failure so the upload pipeline keeps going.
 
 Swap via `mediaman.placeholder.generator` config or rebind the interface:
 
