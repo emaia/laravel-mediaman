@@ -4,6 +4,10 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Support for the `vips` driver from Intervention Image 4. Auto-detection now prefers `vips` → `imagick` → `gd` (previously `imagick` → `gd`); set `MEDIAMAN_DRIVER=vips` explicitly to force it. The driver lives in a separate Composer package — install `intervention/image-driver-vips` and make sure `ext-vips` is loaded. Listed under `suggest` in `composer.json` so consumers see it without it being a hard dependency. Auto-detect runs a runtime probe (`new VipsDriver`) in addition to the extension/package checks so a misconfigured libvips (driver throws `MissingDependencyException`) falls through to imagick/gd gracefully; an explicit `MEDIAMAN_DRIVER=vips` still bubbles the error.
+
 ## [2.14.0] — 2026-06-18
 
 ### Added

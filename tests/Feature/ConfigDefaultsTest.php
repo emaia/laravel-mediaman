@@ -27,9 +27,16 @@ it('auto-detects the image driver when config is null', function () {
 
     $manager = app(ImageManager::class);
 
-    $expected = extension_loaded('imagick') ? ImagickDriver::class : GdDriver::class;
-
-    expect($manager->driver)->toBeInstanceOf($expected);
+    // Auto-detect picks one of the supported drivers — the exact one depends
+    // on which PHP extensions are loaded, whether the vips Composer package
+    // is installed, and whether libvips probes successfully at runtime. The
+    // test stays env-agnostic and just verifies the resolve succeeded with a
+    // recognised driver.
+    expect(get_class($manager->driver))->toBeIn([
+        'Intervention\Image\Drivers\Vips\Driver',
+        ImagickDriver::class,
+        GdDriver::class,
+    ]);
 });
 
 // --- Disk fallback ---

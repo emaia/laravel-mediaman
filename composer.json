@@ -49,6 +49,9 @@
             "Emaia\\MediaMan\\Tests\\": "tests/"
         }
     },
+    "suggest": {
+        "intervention/image-driver-vips": "Higher-throughput image processing via libvips — set MEDIAMAN_DRIVER=vips (or rely on auto-detection) after installing the package and ext-vips."
+    },
     "extra": {
         "laravel": {
             "providers": [

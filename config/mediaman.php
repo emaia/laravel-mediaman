@@ -27,9 +27,10 @@ return [
 
     /*
     | Image processing driver for intervention/image.
-    | Supported: "imagick" (ImageMagick) or "gd" (GD Library).
-    | When null, auto-detected — prefers imagick when ext-imagick is loaded,
-    | falls back to gd otherwise. Set explicitly when you need a guarantee.
+    | Supported: "vips" (libvips, fastest), "imagick" (ImageMagick), "gd" (GD Library).
+    | When null, auto-detected in this order: vips (requires ext-vips AND the
+    | intervention/image-driver-vips package), then imagick (requires ext-imagick),
+    | then gd as the universal fallback. Set explicitly when you need a guarantee.
     */
 
     'driver' => env('MEDIAMAN_DRIVER'),
