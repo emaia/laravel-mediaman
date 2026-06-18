@@ -67,18 +67,24 @@ MediaMan supports all of Laravel's storage drivers (Local, S3, SFTP, FTP, Dropbo
 
 ## Image driver
 
-MediaMan uses [intervention/image](https://github.com/Intervention/image) under the hood. The driver is **auto-detected** at boot — `imagick` when the PHP extension is loaded, otherwise `gd`. Set the config (or env) explicitly to force one:
+MediaMan uses [intervention/image](https://github.com/Intervention/image) under the hood. The driver is **auto-detected** at boot in this order: `vips` → `imagick` → `gd`. Set the config (or env) explicitly to force one:
 
 ```php
-'driver' => env('MEDIAMAN_DRIVER'), // null = auto-detect, 'imagick', or 'gd'
+'driver' => env('MEDIAMAN_DRIVER'), // null = auto-detect, 'vips', 'imagick', or 'gd'
 ```
 
-| Driver    | PHP extension | Notes                                                 |
-|-----------|---------------|-------------------------------------------------------|
-| `imagick` | ext-imagick   | Higher quality, full color-space support. Preferred. |
-| `gd`      | ext-gd        | Lighter, bundled in most PHP installations.          |
+| Driver    | PHP extension | Composer package                       | Notes                                                                         |
+|-----------|---------------|----------------------------------------|-------------------------------------------------------------------------------|
+| `vips`    | ext-vips      | `intervention/image-driver-vips` (suggest) | Highest throughput via libvips. Install the package and load the extension.   |
+| `imagick` | ext-imagick   | bundled with intervention/image        | Higher quality than gd, full color-space support.                             |
+| `gd`      | ext-gd        | bundled with intervention/image        | Lightest, bundled in most PHP installations — the safe universal fallback.    |
 
-An invalid explicit value throws `InvalidArgumentException` at runtime.
+Auto-detection picks `vips` only when **both** `ext-vips` is loaded **and** `Intervention\Image\Drivers\Vips\Driver` resolves (i.e. the package is installed). Missing either, it falls through to imagick, then gd. An invalid explicit value throws `InvalidArgumentException` at runtime.
+
+```bash
+composer require intervention/image-driver-vips
+# then either set MEDIAMAN_DRIVER=vips or leave auto-detection on
+```
 
 ## Queue
 

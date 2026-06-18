@@ -27,7 +27,11 @@ it('auto-detects the image driver when config is null', function () {
 
     $manager = app(ImageManager::class);
 
-    $expected = extension_loaded('imagick') ? ImagickDriver::class : GdDriver::class;
+    $expected = match (true) {
+        extension_loaded('vips') && class_exists('Intervention\Image\Drivers\Vips\Driver') => 'Intervention\Image\Drivers\Vips\Driver',
+        extension_loaded('imagick') => ImagickDriver::class,
+        default => GdDriver::class,
+    };
 
     expect($manager->driver)->toBeInstanceOf($expected);
 });

@@ -102,22 +102,37 @@ class MediaManServiceProvider extends ServiceProvider
             $driver = config('mediaman.driver') ?? $this->autoDetectImageDriver();
 
             return match ($driver) {
+                // The vips driver lives in a separate Composer package
+                // (intervention/image-driver-vips). Reference it via string so
+                // the class isn't required at load time — it's only resolved
+                // when the user actually opts in, and a missing package
+                // surfaces as a clear class-not-found error.
+                'vips' => ImageManager::usingDriver('Intervention\Image\Drivers\Vips\Driver'),
                 'imagick' => ImageManager::usingDriver(ImagickDriver::class),
                 'gd' => ImageManager::usingDriver(GdDriver::class),
                 default => throw new InvalidArgumentException(
-                    "Unsupported image driver [{$driver}]. Supported: \"imagick\", \"gd\"."
+                    "Unsupported image driver [{$driver}]. Supported: \"vips\", \"imagick\", \"gd\"."
                 ),
             };
         });
     }
 
     /**
-     * Pick an image driver based on which PHP extensions are loaded.
-     * Prefers imagick (higher quality), falls back to gd.
+     * Pick an image driver based on which PHP extensions are loaded and
+     * which driver packages are installed. Prefers vips (highest throughput
+     * via libvips), then imagick, then gd as the universal fallback.
      */
     protected function autoDetectImageDriver(): string
     {
-        return extension_loaded('imagick') ? 'imagick' : 'gd';
+        if (extension_loaded('vips') && class_exists('Intervention\Image\Drivers\Vips\Driver')) {
+            return 'vips';
+        }
+
+        if (extension_loaded('imagick')) {
+            return 'imagick';
+        }
+
+        return 'gd';
     }
 
     /**
