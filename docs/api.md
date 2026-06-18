@@ -336,7 +336,7 @@ interface PlaceholderGenerator
 }
 ```
 
-Default: `BlurredSvgPlaceholder` — wraps a tiny blurred JPEG in an SVG with the original `viewBox` and returns a `data:image/svg+xml;base64,…` URI. Returns `null` on any failure so the upload pipeline keeps going.
+Default: `BlurredSvgPlaceholder` — wraps a tiny blurred JPEG in an SVG with the original `viewBox` and returns a percent-encoded `data:image/svg+xml,…` URI (~16% smaller than the equivalent base64 wrapper, and readable in DevTools). Returns `null` on any failure so the upload pipeline keeps going.
 
 Swap via `mediaman.placeholder.generator` config or rebind the interface:
 

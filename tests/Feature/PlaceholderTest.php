@@ -17,7 +17,7 @@ it('generates a placeholder data URI for image uploads', function () {
     $placeholder = $media->getPlaceholder();
 
     expect($placeholder)->not->toBeNull()
-        ->and($placeholder)->toStartWith('data:image/svg+xml;base64,');
+        ->and($placeholder)->toStartWith('data:image/svg+xml,');
 });
 
 it('does not generate a placeholder for non-image uploads', function () {
@@ -38,7 +38,7 @@ it('stores the placeholder under custom_properties', function () {
     $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
 
     expect($media->custom_properties)->toHaveKey('placeholder')
-        ->and($media->custom_properties['placeholder'])->toStartWith('data:image/svg+xml;base64,');
+        ->and($media->custom_properties['placeholder'])->toStartWith('data:image/svg+xml,');
 });
 
 it('preserves user-provided custom properties alongside placeholder', function () {
@@ -62,11 +62,26 @@ it('placeholder size stays within a reasonable budget (< 4 KB)', function () {
 it('embeds the original viewBox and a tiny JPEG inside the SVG wrapper', function () {
     $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 1280, 720))->upload();
 
-    $svg = base64_decode(substr($media->getPlaceholder(), strlen('data:image/svg+xml;base64,')));
+    $svg = rawurldecode(substr($media->getPlaceholder(), strlen('data:image/svg+xml,')));
 
     expect($svg)->toContain('viewBox="0 0 1280 720"')
         ->and($svg)->toContain('<image')
         ->and($svg)->toContain('data:image/jpeg;base64,');
+});
+
+it('produces a srcset-safe data URI (no whitespace, no unescaped commas)', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 1280, 720))->upload();
+
+    $uri = $media->getPlaceholder();
+
+    // srcset terminates the URL at the first ASCII whitespace, and uses commas
+    // as the candidate separator. Anything beyond the leading `data:…,` scheme
+    // comma must be percent-encoded for the browser parser to keep the URI in
+    // one piece.
+    $body = substr($uri, strlen('data:image/svg+xml,'));
+
+    expect($uri)->not->toMatch('/\s/')
+        ->and($body)->not->toContain(',');
 });
 
 it('persists original dimensions on every image upload regardless of placeholder.enabled', function () {
@@ -83,7 +98,7 @@ it('uses the PlaceholderGenerator bound in the container', function () {
     {
         public function generate(string $sourcePath, int $width, int $height): ?string
         {
-            return 'data:image/svg+xml;base64,STUBBED';
+            return 'data:image/svg+xml,STUBBED';
         }
     };
 
@@ -91,7 +106,7 @@ it('uses the PlaceholderGenerator bound in the container', function () {
 
     $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
 
-    expect($media->getPlaceholder())->toEqual('data:image/svg+xml;base64,STUBBED');
+    expect($media->getPlaceholder())->toEqual('data:image/svg+xml,STUBBED');
 });
 
 // --- getPictureHtml / getSimpleImgHtml integration ---
@@ -102,7 +117,7 @@ it('getSimpleImgHtml appends the placeholder as the smallest srcset entry', func
     $html = $media->getSimpleImgHtml();
 
     expect($html)->toContain('srcset="')
-        ->and($html)->toContain('data:image/svg+xml;base64,')
+        ->and($html)->toContain('data:image/svg+xml,')
         ->and($html)->toContain(' 32w')
         ->and($html)->not->toContain('background-image:url(');
 });
@@ -114,7 +129,7 @@ it('getSimpleImgHtml omits the placeholder when disabled globally', function () 
 
     $html = $media->getSimpleImgHtml();
 
-    expect($html)->not->toContain('data:image/svg+xml;base64,');
+    expect($html)->not->toContain('data:image/svg+xml,');
 });
 
 it('getSimpleImgHtml omits the placeholder when opted out per-call', function () {
@@ -122,7 +137,7 @@ it('getSimpleImgHtml omits the placeholder when opted out per-call', function ()
 
     $html = $media->getSimpleImgHtml(['placeholder' => false]);
 
-    expect($html)->not->toContain('data:image/svg+xml;base64,')
+    expect($html)->not->toContain('data:image/svg+xml,')
         ->and($html)->not->toContain('placeholder');
 });
 
@@ -132,7 +147,7 @@ it('getSimpleImgHtml preserves user-provided style untouched', function () {
     $html = $media->getSimpleImgHtml(['style' => 'border-radius:8px']);
 
     expect($html)->toContain('style="border-radius:8px"')
-        ->and($html)->toContain('data:image/svg+xml;base64,')
+        ->and($html)->toContain('data:image/svg+xml,')
         ->and($html)->not->toContain('background-image:url(');
 });
 
@@ -142,7 +157,7 @@ it('getPictureHtml appends the placeholder to the img srcset', function () {
     $html = $media->getPictureHtml();
 
     expect($html)->toContain('srcset="')
-        ->and($html)->toContain('data:image/svg+xml;base64,')
+        ->and($html)->toContain('data:image/svg+xml,')
         ->and($html)->toContain(' 32w')
         ->and($html)->not->toContain('background-image:url(');
 });
@@ -152,7 +167,7 @@ it('getPictureHtml honors the placeholder=false opt-out', function () {
 
     $html = $media->getPictureHtml(['placeholder' => false]);
 
-    expect($html)->not->toContain('data:image/svg+xml;base64,');
+    expect($html)->not->toContain('data:image/svg+xml,');
 });
 
 it('getPictureHtml appends the placeholder to every source srcset', function () {
@@ -167,5 +182,5 @@ it('getPictureHtml appends the placeholder to every source srcset', function () 
 
     // one per <source srcset> + one in the <img srcset> fallback
     expect($html)->toContain('<source')
-        ->and(substr_count($html, 'data:image/svg+xml;base64,'))->toBeGreaterThanOrEqual(2);
+        ->and(substr_count($html, 'data:image/svg+xml,'))->toBeGreaterThanOrEqual(2);
 });

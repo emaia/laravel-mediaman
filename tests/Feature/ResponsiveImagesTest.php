@@ -397,7 +397,7 @@ it('renders width and height on a simple img even without LQIP or responsive var
 
     expect($html)->toContain('width="800"')
         ->and($html)->toContain('height="600"')
-        ->and($html)->not->toContain('data:image/svg+xml;base64,');
+        ->and($html)->not->toContain('data:image/svg+xml,');
 });
 
 it('returns 0 for image dimensions on non-image media', function () {

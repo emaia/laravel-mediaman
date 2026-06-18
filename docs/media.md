@@ -98,7 +98,7 @@ When the LQIP feature is enabled, MediaMan generates a tiny blurred JPEG (~2 KB)
 The feature is **opt-in** — enable it via [`placeholder` config](configuration.md#placeholder) or `MEDIAMAN_PLACEHOLDER_ENABLED=true`. Generated only for image uploads (`mime_type` starting with `image/`).
 
 ```php
-$media->getPlaceholder();                 // 'data:image/svg+xml;base64,...' or null
+$media->getPlaceholder();                 // 'data:image/svg+xml,...' or null
 ```
 
 `getPictureHtml()` and `getSimpleImgHtml()` already do this for you — the placeholder is appended as the smallest entry of every `srcset` so the browser pins the aspect ratio (via the SVG `viewBox`) and surfaces the blurred preview while the real image is fetched. Opt out per call with `['placeholder' => false]`:

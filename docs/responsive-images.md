@@ -145,10 +145,10 @@ When the LQIP placeholder (see [Media → Placeholder](media.md#placeholder-for-
 
 ```html
 <picture>
-    <source type="image/webp" srcset="…/320.webp 320w, …/640.webp 640w, data:image/svg+xml;base64,… 32w" sizes="…">
+    <source type="image/webp" srcset="…/320.webp 320w, …/640.webp 640w, data:image/svg+xml,…%3Csvg…%3E 32w" sizes="…">
     <img
         src="…/image.jpg"
-        srcset="…/320.jpg 320w, …/640.jpg 640w, data:image/svg+xml;base64,… 32w"
+        srcset="…/320.jpg 320w, …/640.jpg 640w, data:image/svg+xml,…%3Csvg…%3E 32w"
         width="1280" height="720" alt="…"
     >
 </picture>
