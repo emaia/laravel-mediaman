@@ -85,20 +85,25 @@ Detection works at the top-level media directory. Stale conversion or responsive
 
 `DefaultPathGenerator` includes `APP_KEY` in the obfuscation hash: the directory is `{id}-{md5(id . app_key)}`. Rotating the key would silently change every computed path, breaking URLs to all existing media.
 
-**Plan the rotation as a two-step operation**, just like any other `APP_KEY` rotation (encrypted columns, signed URLs, sessions, etc.):
+**Plan the rotation as a three-step operation**, just like any other `APP_KEY` rotation (encrypted columns, signed URLs, sessions, etc.):
 
 ```bash
-# 1. Rename the on-disk directories using the previous key
-php artisan mediaman:rotate-paths --old-key="base64:..."         # dry-run by default
-php artisan mediaman:rotate-paths --old-key="base64:..." --force # actually move
+# 1. Note the current APP_KEY before rotating — you'll need it as --old-key below.
+#    (Read it from .env or with `php artisan tinker --execute='echo config("app.key");'`)
+OLD_KEY="base64:..."
 
-# 2. Roll the key
+# 2. Rotate the key. After this, config('app.key') returns the NEW value.
 php artisan key:generate
+
+# 3. Rename the on-disk directories. The command uses config('app.key') as the
+#    target and the value passed to --old-key as the source.
+php artisan mediaman:rotate-paths --old-key="$OLD_KEY"          # dry-run by default
+php artisan mediaman:rotate-paths --old-key="$OLD_KEY" --force  # actually move
 ```
 
 The command iterates `Media` records, computes the directory under the old and new keys, and physically renames on disk when they differ. Options:
 
-- `--old-key` (required) — the value `config('app.key')` returned *before* rotation
+- `--old-key` (required) — the value `config('app.key')` returned **before** the rotation. The command compares it against the current `config('app.key')` — if they match, nothing happens, so you must rotate first and then run the command.
 - `--force` — actually move files (without it, only reports planned moves)
 - `--disk=...` — scope to a specific disk
 - `--media=ID` — scope to a single Media id (handy for recovery)

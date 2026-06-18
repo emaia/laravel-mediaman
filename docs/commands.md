@@ -43,27 +43,32 @@ The command also detects reverse orphans (Media records whose file is missing fr
 
 ## Rotate media paths after APP_KEY rotation
 
-The default storage layout hashes `APP_KEY` into each media directory (`{id}-{md5(id . app_key)}`). Rotating the key would silently break URLs to existing media unless you rename the on-disk directories first.
+The default storage layout hashes `APP_KEY` into each media directory (`{id}-{md5(id . app_key)}`). Rotating the key would silently break URLs to existing media unless you rename the on-disk directories.
 
-```bash
-# Dry-run (default) — reports what would be moved
-php artisan mediaman:rotate-paths --old-key="base64:..."
-
-# Actually move
-php artisan mediaman:rotate-paths --old-key="base64:..." --force
-
-# Scope to a single disk
-php artisan mediaman:rotate-paths --old-key="base64:..." --force --disk=s3-media
-
-# Scope to a single Media id (handy for recovery / partial replays)
-php artisan mediaman:rotate-paths --old-key="base64:..." --force --media=42
-```
+The command computes the target directory using the **current** `config('app.key')` and the source directory using the `--old-key` you pass. **You must rotate the key first**, then run the command with the previous key as `--old-key`. If `--old-key` equals the current `config('app.key')`, the command reports "Nothing to rotate" and exits — that's the noop you get when the order is reversed.
 
 Workflow:
 
 ```bash
-php artisan mediaman:rotate-paths --old-key="base64:..." --force   # rename on disk
-php artisan key:generate                                           # rotate the key
+# 1. Note the current APP_KEY before rotating
+OLD_KEY="base64:..."
+
+# 2. Rotate the key
+php artisan key:generate
+
+# 3. Rename on-disk directories using the saved old key
+php artisan mediaman:rotate-paths --old-key="$OLD_KEY"          # dry-run
+php artisan mediaman:rotate-paths --old-key="$OLD_KEY" --force  # actually move
+```
+
+Scoping options:
+
+```bash
+# Scope to a single disk
+php artisan mediaman:rotate-paths --old-key="$OLD_KEY" --force --disk=s3-media
+
+# Scope to a single Media id (handy for recovery / partial replays)
+php artisan mediaman:rotate-paths --old-key="$OLD_KEY" --force --media=42
 ```
 
 The command is idempotent: re-runs against already-migrated media report them as "already migrated" and skip. See [Security → APP_KEY rotation](security.md#app_key-rotation) for context.
