@@ -17,9 +17,9 @@ class BlurredSvgPlaceholder implements PlaceholderGenerator
         }
 
         try {
-            $tinyWidth = (int) config('mediaman.placeholder.width', 32);
-            $blur = (int) config('mediaman.placeholder.blur', 20);
-            $quality = (int) config('mediaman.placeholder.quality', 40);
+            $tinyWidth = (int) config('mediaman.placeholder.blurred_svg.width', 32);
+            $blur = (int) config('mediaman.placeholder.blurred_svg.blur', 20);
+            $quality = (int) config('mediaman.placeholder.blurred_svg.quality', 40);
 
             $jpeg = (string) $this->images
                 ->decode(file_get_contents($sourcePath))

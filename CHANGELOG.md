@@ -21,6 +21,8 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 - `decoding="async"` is now set by default on the rendered `<img>`. Override per call with `['decoding' => 'sync']`. `loading="lazy"` is **not** defaulted (it hurts LCP on above-the-fold images); opt in per call where appropriate.
 - `getImageWidth()` / `getImageHeight()` read from `custom_properties.image_meta` first, then fall back to responsive variants, then lazy-decode.
 - `Media::PROPERTY_DIMENSIONS` constant renamed to `Media::PROPERTY_IMAGE_META` (and the underlying key `dimensions` → `image_meta`) to make room for the additional fields. Pre-v2.13 records keep working — the lazy fallback re-populates the new key on first read.
+- Placeholder config keys for the default generator moved to a `blurred_svg` sub-block: `mediaman.placeholder.{width, blur, quality}` → `mediaman.placeholder.blurred_svg.{width, blur, quality}`. Per-generator knobs are now scoped to their own namespace — swapping `generator` to a different implementation no longer silently reuses or ignores unrelated keys.
+- `PlaceholderGenerator` service-container bind resolves the configured class lazily via a closure (instead of capturing the FQCN at register time). Apps and tests can swap the implementation via `Config::set('mediaman.placeholder.generator', …)` without having to call `app()->instance()` to force a rebind.
 
 ### Removed
 

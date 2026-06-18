@@ -194,14 +194,20 @@ return [
     | original viewBox, producing a placeholder that pins aspect ratio
     | (zero CLS) and is injected into the responsive `srcset`.
     | The `generator` key accepts any class implementing PlaceholderGenerator.
+    |
+    | Per-generator tuning lives under its own sub-block (`blurred_svg`,
+    | etc.) so swapping `generator` ignores knobs that don't apply.
     */
 
     'placeholder' => [
         'enabled' => env('MEDIAMAN_PLACEHOLDER_ENABLED', false),
         'generator' => BlurredSvgPlaceholder::class,
-        'width' => 32,    // tiny JPEG width in px
-        'blur' => 20,
-        'quality' => 40,  // JPEG quality (1-100)
+
+        'blurred_svg' => [
+            'width' => 32,    // tiny JPEG width in px
+            'blur' => 20,
+            'quality' => 40,  // JPEG quality (1-100)
+        ],
     ],
 
     /*
