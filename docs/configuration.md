@@ -79,7 +79,7 @@ MediaMan uses [intervention/image](https://github.com/Intervention/image) under 
 | `imagick` | ext-imagick   | bundled with intervention/image        | Higher quality than gd, full color-space support.                             |
 | `gd`      | ext-gd        | bundled with intervention/image        | Lightest, bundled in most PHP installations — the safe universal fallback.    |
 
-Auto-detection picks `vips` only when **both** `ext-vips` is loaded **and** `Intervention\Image\Drivers\Vips\Driver` resolves (i.e. the package is installed). Missing either, it falls through to imagick, then gd. An invalid explicit value throws `InvalidArgumentException` at runtime.
+Auto-detection picks `vips` only when **all three** gates pass: `ext-vips` is loaded, `Intervention\Image\Drivers\Vips\Driver` resolves (i.e. the Composer package is installed), and a runtime probe (`new VipsDriver`) succeeds — the driver itself checks that libvips is reachable. Any failure falls through to imagick, then gd, silently. An explicit `MEDIAMAN_DRIVER=vips` with a broken libvips bubbles the original `MissingDependencyException` instead of falling back; we don't silence what the user asked for directly. An invalid driver name throws `InvalidArgumentException` at runtime.
 
 ```bash
 composer require intervention/image-driver-vips

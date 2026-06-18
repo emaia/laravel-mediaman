@@ -124,7 +124,7 @@ class MediaManServiceProvider extends ServiceProvider
      */
     protected function autoDetectImageDriver(): string
     {
-        if (extension_loaded('vips') && class_exists('Intervention\Image\Drivers\Vips\Driver')) {
+        if ($this->canUseVips()) {
             return 'vips';
         }
 
@@ -133,6 +133,36 @@ class MediaManServiceProvider extends ServiceProvider
         }
 
         return 'gd';
+    }
+
+    /**
+     * Three gates before claiming vips is usable: PHP ext-vips loaded, the
+     * intervention/image-driver-vips package installed, and a runtime probe
+     * that catches a misconfigured libvips. The driver constructor itself
+     * throws MissingDependencyException when libvips can't be reached, so
+     * we wrap it and let auto-detect fall through to imagick/gd gracefully.
+     * An explicit MEDIAMAN_DRIVER=vips still bubbles the original error —
+     * we don't silence what the user asked for directly.
+     */
+    protected function canUseVips(): bool
+    {
+        if (! extension_loaded('vips')) {
+            return false;
+        }
+
+        $driver = 'Intervention\Image\Drivers\Vips\Driver';
+
+        if (! class_exists($driver)) {
+            return false;
+        }
+
+        try {
+            new $driver;
+
+            return true;
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /**
