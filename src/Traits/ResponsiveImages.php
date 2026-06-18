@@ -228,20 +228,21 @@ trait ResponsiveImages
             'alt' => $this->name ?? '',
         ];
 
+        $width = $this->getImageWidth();
+        $height = $this->getImageHeight();
+
+        if ($width > 0 && $height > 0) {
+            $defaultAttributes['width'] = $width;
+            $defaultAttributes['height'] = $height;
+        }
+
         if (! empty($sizes)) {
             if ($sizes === 'auto') {
+                $widths = $this->getResponsiveImages()->pluck('width');
 
-                $sizesFromGeneratedResponsiveImages = $this->getResponsiveImages();
-
-                $minWidth = $sizesFromGeneratedResponsiveImages->pluck('width')->min();
-                $minHeight = $sizesFromGeneratedResponsiveImages->pluck('height')->min();
-
-                $defaultAttributes['width'] = $minWidth;
-                $defaultAttributes['height'] = $minHeight;
-
-                $sizes = $sizesFromGeneratedResponsiveImages->pluck('width')->slice(0, -1)->map(function ($w) {
+                $sizes = $widths->slice(0, -1)->map(function ($w) {
                     return '(min-width: '.$w * 0.7.'px) '.$w.'px';
-                })->push($sizesFromGeneratedResponsiveImages->pluck('width')->last() * 0.7.'px')->implode(', ');
+                })->push($widths->last() * 0.7.'px')->implode(', ');
             }
 
             $defaultAttributes['sizes'] = $sizes;
@@ -309,18 +310,16 @@ trait ResponsiveImages
             return 0;
         }
 
-        // Try to get from responsive images data first
+        $dimensions = $this->getCustomProperty(Media::PROPERTY_DIMENSIONS);
+        if (is_array($dimensions) && isset($dimensions['width'])) {
+            return (int) $dimensions['width'];
+        }
+
         $responsiveImages = $this->getResponsiveImages();
         if ($responsiveImages->isNotEmpty()) {
-            return $responsiveImages->max('width');
+            return (int) $responsiveImages->max('width');
         }
 
-        // Check if we have dimensions stored in data
-        if ($this->getCustomProperty('width') !== null) {
-            return (int) $this->getCustomProperty('width');
-        }
-
-        // Fallback: read from original file
         return $this->calculateImageDimensions()['width'] ?? 0;
     }
 
@@ -503,21 +502,18 @@ trait ResponsiveImages
             return 0;
         }
 
-        // Try to get from responsive images data first
+        $dimensions = $this->getCustomProperty(Media::PROPERTY_DIMENSIONS);
+        if (is_array($dimensions) && isset($dimensions['height'])) {
+            return (int) $dimensions['height'];
+        }
+
         $responsiveImages = $this->getResponsiveImages();
         if ($responsiveImages->isNotEmpty()) {
-            // Find the original dimensions (largest width)
             $largestImage = $responsiveImages->where('width', $this->getImageWidth())->first();
 
-            return $largestImage ? $largestImage->height : 0;
+            return $largestImage ? (int) $largestImage->height : 0;
         }
 
-        // Check if we have dimensions stored in data
-        if ($this->getCustomProperty('height') !== null) {
-            return (int) $this->getCustomProperty('height');
-        }
-
-        // Fallback: read from original file
         return $this->calculateImageDimensions()['height'] ?? 0;
     }
 }
