@@ -89,50 +89,55 @@ it('placeholder size stays within a reasonable budget (< 4 KB)', function () {
 
 // --- getPictureHtml / getSimpleImgHtml integration ---
 
-it('getSimpleImgHtml injects the placeholder as background-image when available', function () {
+it('getSimpleImgHtml appends the placeholder as the smallest srcset entry', function () {
     $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
 
     $html = $media->getSimpleImgHtml();
 
-    expect($html)->toContain('background-image:url(')
-        ->and($html)->toContain('data:image/svg+xml;base64,');
+    expect($html)->toContain('srcset="')
+        ->and($html)->toContain('data:image/svg+xml;base64,')
+        ->and($html)->toContain(' 32w')
+        ->and($html)->not->toContain('background-image:url(');
 });
 
-it('getSimpleImgHtml omits the background when placeholder is disabled globally', function () {
+it('getSimpleImgHtml omits the placeholder when disabled globally', function () {
     Config::set('mediaman.placeholder.enabled', false);
 
     $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
 
     $html = $media->getSimpleImgHtml();
 
-    expect($html)->not->toContain('background-image:url(');
+    expect($html)->not->toContain('data:image/svg+xml;base64,');
 });
 
-it('getSimpleImgHtml omits the background when opted out per-call', function () {
+it('getSimpleImgHtml omits the placeholder when opted out per-call', function () {
     $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
 
     $html = $media->getSimpleImgHtml(['placeholder' => false]);
 
-    expect($html)->not->toContain('background-image:url(')
+    expect($html)->not->toContain('data:image/svg+xml;base64,')
         ->and($html)->not->toContain('placeholder');
 });
 
-it('getSimpleImgHtml merges placeholder into a user-provided style', function () {
+it('getSimpleImgHtml preserves user-provided style untouched', function () {
     $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
 
     $html = $media->getSimpleImgHtml(['style' => 'border-radius:8px']);
 
-    expect($html)->toContain('border-radius:8px')
-        ->and($html)->toContain('background-image:url(');
+    expect($html)->toContain('style="border-radius:8px"')
+        ->and($html)->toContain('data:image/svg+xml;base64,')
+        ->and($html)->not->toContain('background-image:url(');
 });
 
-it('getPictureHtml injects the placeholder on the inner img tag', function () {
+it('getPictureHtml appends the placeholder to the img srcset', function () {
     $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
 
     $html = $media->getPictureHtml();
 
-    expect($html)->toContain('background-image:url(')
-        ->and($html)->toContain('data:image/svg+xml;base64,');
+    expect($html)->toContain('srcset="')
+        ->and($html)->toContain('data:image/svg+xml;base64,')
+        ->and($html)->toContain(' 32w')
+        ->and($html)->not->toContain('background-image:url(');
 });
 
 it('getPictureHtml honors the placeholder=false opt-out', function () {
@@ -140,5 +145,5 @@ it('getPictureHtml honors the placeholder=false opt-out', function () {
 
     $html = $media->getPictureHtml(['placeholder' => false]);
 
-    expect($html)->not->toContain('background-image:url(');
+    expect($html)->not->toContain('data:image/svg+xml;base64,');
 });

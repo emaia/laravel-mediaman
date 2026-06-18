@@ -43,21 +43,24 @@ trait ResponsiveImages
         }
 
         [$injectPlaceholder, $attributes] = $this->extractPlaceholderOption($attributes);
+        $placeholderUri = $injectPlaceholder ? $this->getPlaceholder() : null;
 
         $defaultAttributes = $this->setDefaultImgAttributes($sizes);
 
-        $sources = $this->buildResponsiveSourceElements($defaultAttributes['sizes'] ?? null);
+        $sources = $this->buildResponsiveSourceElements($defaultAttributes['sizes'] ?? null, $placeholderUri);
 
         // The <img> fallback always carries the original file. Its srcset
         // declares the original at its native width so browsers that ignore
-        // every <source> still receive a width-aware candidate.
+        // every <source> still receive a width-aware candidate; the LQIP
+        // placeholder rides along as the lowest-width entry.
         $originalWidth = $this->getImageWidth();
-        if ($originalWidth > 0) {
-            $defaultAttributes['srcset'] = $this->getUrl().' '.$originalWidth.'w';
+        $imgSrcset = $originalWidth > 0 ? $this->getUrl().' '.$originalWidth.'w' : '';
+        $imgSrcset = $this->injectPlaceholderIntoSrcset($imgSrcset, $placeholderUri);
+        if ($imgSrcset !== '') {
+            $defaultAttributes['srcset'] = $imgSrcset;
         }
 
         $imgAttributes = array_merge($defaultAttributes, $attributes);
-        $imgAttributes = $this->applyPlaceholderStyle($imgAttributes, $injectPlaceholder);
         $imgAttributesString = $this->attributesToString($imgAttributes);
 
         if (empty($sources)) {
@@ -71,9 +74,11 @@ trait ResponsiveImages
 
     /**
      * Build one `<source>` per responsive format, ordered modern-first.
-     * Returns an empty array when no responsive variants exist.
+     * Each source's srcset gets the LQIP placeholder appended as the lowest
+     * `32w` entry when one was generated. Returns an empty array when no
+     * responsive variants exist.
      */
-    protected function buildResponsiveSourceElements(?string $sizes): array
+    protected function buildResponsiveSourceElements(?string $sizes, ?string $placeholderUri): array
     {
         $availableFormats = $this->getAvailableResponsiveFormats();
 
@@ -103,6 +108,8 @@ trait ResponsiveImages
                 continue;
             }
 
+            $srcset = $this->injectPlaceholderIntoSrcset($srcset, $placeholderUri);
+
             $mimeType = $this->formatToMimeType($format);
             $sourceHtml = "<source type=\"{$mimeType}\" srcset=\"{$srcset}\"";
             if (! empty($sizes)) {
@@ -119,8 +126,8 @@ trait ResponsiveImages
     /**
      * Pop the `placeholder` key out of the attributes array. Returns
      * [bool $shouldInject, array $remainingAttributes] so callers can
-     * decide whether to add the blur background later without leaking
-     * the option into the rendered HTML.
+     * decide whether to add the placeholder to the srcset later without
+     * leaking the option into the rendered HTML.
      */
     protected function extractPlaceholderOption(array $attributes): array
     {
@@ -131,31 +138,20 @@ trait ResponsiveImages
     }
 
     /**
-     * Append the LQIP placeholder as a CSS background-image on the <img>
-     * attributes when one was generated and the call opted in.
+     * Append the LQIP placeholder as the lowest-width entry of a srcset
+     * so the browser can pin the aspect ratio (via the SVG viewBox) and
+     * surface the blurred preview while the real image is fetched.
      */
-    protected function applyPlaceholderStyle(array $attributes, bool $shouldInject): array
+    protected function injectPlaceholderIntoSrcset(string $srcset, ?string $placeholderUri): string
     {
-        if (! $shouldInject) {
-            return $attributes;
+        if ($placeholderUri === null) {
+            return $srcset;
         }
 
-        $placeholder = $this->getPlaceholder();
+        $srcset = trim($srcset);
+        $entry = $placeholderUri.' 32w';
 
-        if ($placeholder === null) {
-            return $attributes;
-        }
-
-        $background = "background-image:url('{$placeholder}');background-size:cover;background-position:center;";
-        $existing = trim($attributes['style'] ?? '');
-
-        if ($existing !== '') {
-            $existing = rtrim($existing, ';').';';
-        }
-
-        $attributes['style'] = $existing.$background;
-
-        return $attributes;
+        return $srcset === '' ? $entry : $srcset.', '.$entry;
     }
 
     /**
@@ -205,9 +201,21 @@ trait ResponsiveImages
         }
 
         [$injectPlaceholder, $attributes] = $this->extractPlaceholderOption($attributes);
+        $placeholderUri = $injectPlaceholder ? $this->getPlaceholder() : null;
 
         $imgAttributes = array_merge($this->setDefaultImgAttributes($sizes), $attributes);
-        $imgAttributes = $this->applyPlaceholderStyle($imgAttributes, $injectPlaceholder);
+
+        if ($placeholderUri !== null) {
+            $existingSrcset = (string) ($imgAttributes['srcset'] ?? '');
+            if ($existingSrcset === '') {
+                $width = $this->getImageWidth();
+                if ($width > 0) {
+                    $existingSrcset = $this->getUrl().' '.$width.'w';
+                }
+            }
+            $imgAttributes['srcset'] = $this->injectPlaceholderIntoSrcset($existingSrcset, $placeholderUri);
+        }
+
         $imgAttributesString = $this->attributesToString($imgAttributes);
 
         return "<img $imgAttributesString>";
