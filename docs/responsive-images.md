@@ -168,13 +168,25 @@ echo $media->getPictureHtml(['placeholder' => false]);  // skip
 echo $media->getSimpleImgHtml(['style' => 'border-radius:8px']); // your style is preserved untouched
 ```
 
-Independent of the placeholder feature, `getPictureHtml()` and `getSimpleImgHtml()` now always set `width` and `height` on the `<img>` from the dimensions persisted at upload (`custom_properties.dimensions`) — so CLS is fixed even when LQIP is off.
+Independent of the placeholder feature, `getPictureHtml()` and `getSimpleImgHtml()` now always set `width` and `height` on the `<img>` from the dimensions persisted at upload (`custom_properties.image_meta`) — so CLS is fixed even when LQIP is off.
 
 `decoding="async"` is also set by default — the browser decodes the bitmap off the main thread, smoothing scroll/animation while images come in. Override it per call with `['decoding' => 'sync']` (or `'auto'`) if needed. We deliberately do **not** default `loading="lazy"`: applying it to above-the-fold images defers their fetch and hurts LCP. Opt in per call when you know the image is below the fold:
 
 ```php
 echo $media->getPictureHtml(['loading' => 'lazy']);
 ```
+
+### Composing with the dominant color
+
+`Media::getPlaceholderColor()` returns a hex CSS color sampled from the upload (~10 bytes). Stack it underneath the picture for an instant first paint — the color renders before any data URI decodes, the SVG LQIP swaps in next, then the responsive image lands:
+
+```blade
+<div style="background-color: {{ $media->getPlaceholderColor() }}">
+    {!! $media->getPictureHtml() !!}
+</div>
+```
+
+The combination — solid color → SVG blur → responsive image — gives three progressive paints with one persisted value each. Works inside email and other contexts where `<picture>` doesn't apply too: drop the picture call and the color alone is a decent skeleton.
 
 ## Clearing variants
 

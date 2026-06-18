@@ -314,9 +314,9 @@ trait ResponsiveImages
             return 0;
         }
 
-        $dimensions = $this->getCustomProperty(Media::PROPERTY_DIMENSIONS);
-        if (is_array($dimensions) && isset($dimensions['width'])) {
-            return (int) $dimensions['width'];
+        $meta = $this->getCustomProperty(Media::PROPERTY_IMAGE_META);
+        if (is_array($meta) && isset($meta['width'])) {
+            return (int) $meta['width'];
         }
 
         $responsiveImages = $this->getResponsiveImages();
@@ -328,7 +328,9 @@ trait ResponsiveImages
     }
 
     /**
-     * Calculate and cache image dimensions.
+     * Lazy fallback when image_meta wasn't persisted at upload (pre-v2.13
+     * records or non-MediaUploader-created models). Only computes width and
+     * height — dominant_color requires the upload pipeline.
      */
     protected function calculateImageDimensions(): array
     {
@@ -336,15 +338,15 @@ trait ResponsiveImages
             $image = app(ImageManager::class)
                 ->decode($this->filesystem()->get($this->getOriginalPath()));
 
-            $dimensions = [
+            $meta = [
                 'width' => $image->width(),
                 'height' => $image->height(),
             ];
 
-            $this->setCustomProperty(Media::PROPERTY_DIMENSIONS, $dimensions);
+            $this->setCustomProperty(Media::PROPERTY_IMAGE_META, $meta);
             $this->save();
 
-            return $dimensions;
+            return $meta;
         } catch (Exception $e) {
             Log::warning('MediaMan: Failed to calculate image dimensions', [
                 'media_id' => $this->id,
@@ -506,9 +508,9 @@ trait ResponsiveImages
             return 0;
         }
 
-        $dimensions = $this->getCustomProperty(Media::PROPERTY_DIMENSIONS);
-        if (is_array($dimensions) && isset($dimensions['height'])) {
-            return (int) $dimensions['height'];
+        $meta = $this->getCustomProperty(Media::PROPERTY_IMAGE_META);
+        if (is_array($meta) && isset($meta['height'])) {
+            return (int) $meta['height'];
         }
 
         $responsiveImages = $this->getResponsiveImages();

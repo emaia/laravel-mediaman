@@ -110,6 +110,20 @@ echo $media->getPictureHtml(['placeholder' => false]);  // skip the blur
 
 See [Responsive images → Placeholder integration](responsive-images.md#placeholder-integration).
 
+### Dominant color helper
+
+```php
+$media->getPlaceholderColor(); // '#a1b2c3' — or null on non-image media
+```
+
+Hex CSS color sampled at upload as the average of the source image (~10 bytes, persisted in `custom_properties.image_meta`). Works as a CSS `background-color` skeleton wherever the LQIP data URI is too heavy: email, SSR, JSON APIs, container backgrounds. Stack it underneath `getPictureHtml()` for an instant first paint:
+
+```blade
+<div style="background-color: {{ $media->getPlaceholderColor() }}">
+    {!! $media->getPictureHtml() !!}
+</div>
+```
+
 ### Single-URL helper for non-srcset contexts
 
 `<picture>`/`srcset` don't apply to email HTML, JSON API payloads, OG/Twitter meta tags, or CSS `background-image`. For those, `getUrlOrPlaceholder()` returns one URL — the conversion if it exists, otherwise the LQIP data URI, otherwise the original:

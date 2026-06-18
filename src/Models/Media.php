@@ -55,7 +55,7 @@ class Media extends Model implements Attachable
 
     const string PROPERTY_RESPONSIVE_IMAGES = 'responsive_images';
 
-    const string PROPERTY_DIMENSIONS = 'dimensions';
+    const string PROPERTY_IMAGE_META = 'image_meta';
 
     protected $fillable = [
         'name', 'file_name', 'mime_type', 'size', 'disk', 'custom_properties',
@@ -467,6 +467,23 @@ class Media extends Model implements Attachable
         $value = $this->getCustomProperty('placeholder');
 
         return is_string($value) ? $value : null;
+    }
+
+    /**
+     * Hex CSS color (`#rrggbb`) sampled at upload time as the average of the
+     * source image. Useful as a CSS `background-color` skeleton — paints
+     * instantly, costs ~10 bytes, works in email/SSR/anywhere the SVG LQIP
+     * isn't viable. Returns null on non-image media or pre-v2.13 records.
+     */
+    public function getPlaceholderColor(): ?string
+    {
+        $meta = $this->getCustomProperty(self::PROPERTY_IMAGE_META);
+
+        if (! is_array($meta) || ! isset($meta['dominant_color'])) {
+            return null;
+        }
+
+        return (string) $meta['dominant_color'];
     }
 
     /**

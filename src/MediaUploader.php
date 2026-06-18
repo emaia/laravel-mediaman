@@ -444,16 +444,16 @@ class MediaUploader
         $properties = $this->custom_properties;
 
         if ($this->isImage()) {
-            $dimensions = $this->readImageDimensions($this->file->getPathname());
+            $meta = $this->readImageMeta($this->file->getPathname());
 
-            if ($dimensions !== null) {
-                $properties[Media::PROPERTY_DIMENSIONS] = $dimensions;
+            if ($meta !== null) {
+                $properties[Media::PROPERTY_IMAGE_META] = $meta;
 
                 if ($this->shouldGeneratePlaceholder()) {
                     $placeholder = app(PlaceholderGenerator::class)->generate(
                         $this->file->getPathname(),
-                        $dimensions['width'],
-                        $dimensions['height']
+                        $meta['width'],
+                        $meta['height']
                     );
 
                     if ($placeholder !== null) {
@@ -532,10 +532,11 @@ class MediaUploader
     }
 
     /**
-     * Read the original width/height from an image file. Returns null
-     * when the dimensions can't be read so the upload doesn't break.
+     * Read width/height + dominant color from an image file in a single
+     * decode pass. Returns null when the image can't be read so the upload
+     * doesn't break.
      */
-    protected function readImageDimensions(string $path): ?array
+    protected function readImageMeta(string $path): ?array
     {
         try {
             $image = app(ImageManager::class)->decode(file_get_contents($path));
@@ -546,7 +547,15 @@ class MediaUploader
                 return null;
             }
 
-            return ['width' => $width, 'height' => $height];
+            // resize() forces 1×1 (no aspect ratio preservation), so the
+            // single pixel is the area-weighted average of the source image.
+            $color = $image->resize(width: 1, height: 1)->colorAt(0, 0)->toHex(prefix: true);
+
+            return [
+                'width' => $width,
+                'height' => $height,
+                'dominant_color' => $color,
+            ];
         } catch (\Throwable) {
             return null;
         }

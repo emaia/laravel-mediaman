@@ -114,13 +114,28 @@ it('produces a srcset-safe data URI (no whitespace, no unescaped commas)', funct
         ->and($body)->not->toContain(',');
 });
 
-it('persists original dimensions on every image upload regardless of placeholder.enabled', function () {
+it('persists image_meta on every image upload regardless of placeholder.enabled', function () {
     Config::set('mediaman.placeholder.enabled', false);
 
     $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 1024, 768))->upload();
 
-    expect($media->custom_properties)->toHaveKey('dimensions')
-        ->and($media->custom_properties['dimensions'])->toEqual(['width' => 1024, 'height' => 768]);
+    expect($media->custom_properties)->toHaveKey('image_meta')
+        ->and($media->custom_properties['image_meta'])->toHaveKeys(['width', 'height', 'dominant_color'])
+        ->and($media->custom_properties['image_meta']['width'])->toEqual(1024)
+        ->and($media->custom_properties['image_meta']['height'])->toEqual(768)
+        ->and($media->custom_properties['image_meta']['dominant_color'])->toMatch('/^#[0-9a-f]{6}([0-9a-f]{2})?$/i');
+});
+
+it('exposes the dominant color via getPlaceholderColor()', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+
+    expect($media->getPlaceholderColor())->toMatch('/^#[0-9a-f]{6}([0-9a-f]{2})?$/i');
+});
+
+it('returns null from getPlaceholderColor() for non-image uploads', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->create('document.pdf', 100, 'application/pdf'))->upload();
+
+    expect($media->getPlaceholderColor())->toBeNull();
 });
 
 it('uses the PlaceholderGenerator bound in the container', function () {

@@ -369,19 +369,19 @@ it('selects empty format default in getSrcset', function () {
     expect($srcset)->toContain('320w');
 });
 
-it('returns image width from custom_properties.dimensions when responsive images absent', function () {
+it('returns image width from custom_properties.image_meta when responsive images absent', function () {
     $file = UploadedFile::fake()->image('test.jpg', 800, 600);
     $media = MediaUploader::source($file)->upload();
-    $media->setCustomProperty(Media::PROPERTY_DIMENSIONS, ['width' => 1280, 'height' => 720]);
+    $media->setCustomProperty(Media::PROPERTY_IMAGE_META, ['width' => 1280, 'height' => 720]);
     $media->save();
 
     expect($media->getImageWidth())->toEqual(1280);
 });
 
-it('returns image height from custom_properties.dimensions when responsive images absent', function () {
+it('returns image height from custom_properties.image_meta when responsive images absent', function () {
     $file = UploadedFile::fake()->image('test.jpg', 800, 600);
     $media = MediaUploader::source($file)->upload();
-    $media->setCustomProperty(Media::PROPERTY_DIMENSIONS, ['width' => 1280, 'height' => 720]);
+    $media->setCustomProperty(Media::PROPERTY_IMAGE_META, ['width' => 1280, 'height' => 720]);
     $media->save();
 
     expect($media->getImageHeight())->toEqual(720);
@@ -533,7 +533,7 @@ it('returns 0 dimensions when calculateImageDimensions fails', function () {
 
     // Strip the cached dimensions and delete the underlying file so the
     // lazy decode inside calculateImageDimensions throws.
-    $media->forgetCustomProperty(Media::PROPERTY_DIMENSIONS);
+    $media->forgetCustomProperty(Media::PROPERTY_IMAGE_META);
     $media->save();
     $media->filesystem()->delete($media->getOriginalPath());
 
