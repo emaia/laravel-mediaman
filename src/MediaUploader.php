@@ -447,9 +447,18 @@ class MediaUploader
             $meta = $this->readImageMeta($this->file->getPathname());
 
             if ($meta !== null) {
-                $properties[Media::PROPERTY_IMAGE_META] = $meta;
-
                 if ($this->shouldGeneratePlaceholder()) {
+                    try {
+                        $image = app(ImageManager::class)
+                            ->decode(file_get_contents($this->file->getPathname()));
+                        $color = $image->resize(width: 1, height: 1)
+                            ->colorAt(0, 0)
+                            ->toHex(prefix: true);
+
+                        $meta['dominant_color'] = $color;
+                    } catch (\Throwable) {
+                    }
+
                     $placeholder = app(PlaceholderGenerator::class)->generate(
                         $this->file->getPathname(),
                         $meta['width'],
@@ -460,6 +469,8 @@ class MediaUploader
                         $properties['placeholder'] = $placeholder;
                     }
                 }
+
+                $properties[Media::PROPERTY_IMAGE_META] = $meta;
             }
         }
 
@@ -532,12 +543,18 @@ class MediaUploader
     }
 
     /**
-     * Read width/height + dominant color from an image file in a single
-     * decode pass. Returns null when the image can't be read so the upload
-     * doesn't break.
+     * Read width/height from an image file. Uses getimagesize() which reads
+     * only the file header (no pixel decode), falling back to a full decode
+     * for image formats the PHP function doesn't support (AVIF, HEIC, etc.).
      */
     protected function readImageMeta(string $path): ?array
     {
+        $info = @getimagesize($path);
+
+        if ($info && $info[0] > 0 && $info[1] > 0) {
+            return ['width' => (int) $info[0], 'height' => (int) $info[1]];
+        }
+
         try {
             $image = app(ImageManager::class)->decode(file_get_contents($path));
             $width = $image->width();
@@ -547,15 +564,7 @@ class MediaUploader
                 return null;
             }
 
-            // resize() forces 1×1 (no aspect ratio preservation), so the
-            // single pixel is the area-weighted average of the source image.
-            $color = $image->resize(width: 1, height: 1)->colorAt(0, 0)->toHex(prefix: true);
-
-            return [
-                'width' => $width,
-                'height' => $height,
-                'dominant_color' => $color,
-            ];
+            return ['width' => $width, 'height' => $height];
         } catch (\Throwable) {
             return null;
         }

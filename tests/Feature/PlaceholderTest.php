@@ -120,10 +120,10 @@ it('persists image_meta on every image upload regardless of placeholder.enabled'
     $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 1024, 768))->upload();
 
     expect($media->custom_properties)->toHaveKey('image_meta')
-        ->and($media->custom_properties['image_meta'])->toHaveKeys(['width', 'height', 'dominant_color'])
+        ->and($media->custom_properties['image_meta'])->toHaveKeys(['width', 'height'])
         ->and($media->custom_properties['image_meta']['width'])->toEqual(1024)
         ->and($media->custom_properties['image_meta']['height'])->toEqual(768)
-        ->and($media->custom_properties['image_meta']['dominant_color'])->toMatch('/^#[0-9a-f]{6}([0-9a-f]{2})?$/i');
+        ->and($media->custom_properties['image_meta'])->not->toHaveKey('dominant_color');
 });
 
 it('exposes the dominant color via getPlaceholderColor()', function () {

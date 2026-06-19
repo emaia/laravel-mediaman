@@ -149,6 +149,12 @@ it('allows 169.254.169.254 when allow_private_hosts is true', function () {
 it('rejects host that resolves to a private IP via DNS', function () {
     Config::set('mediaman.url_sources.allow_private_hosts', false);
 
+    $resolved = gethostbynamel('localhost.localdomain');
+
+    if ($resolved === false || count($resolved) === 0) {
+        $this->markTestSkipped('localhost.localdomain did not resolve in this environment.');
+    }
+
     UrlGuard::check('http://localhost.localdomain/api');
 })->throws(UrlNotAllowed::class);
 

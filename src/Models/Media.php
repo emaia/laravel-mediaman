@@ -761,7 +761,7 @@ class Media extends Model implements Attachable
     {
         $filesystem = $this->filesystem();
 
-        if (! method_exists($filesystem, 'providesTemporaryUrls') || ! $filesystem->providesTemporaryUrls()) {
+        if (! $filesystem->providesTemporaryUrls()) {
             throw TemporaryUrlNotSupported::forDisk($this->disk);
         }
 
