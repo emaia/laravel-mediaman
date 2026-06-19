@@ -8,6 +8,12 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 - `mediaman:generate-conversions` artisan command — generate (or regenerate) registered conversions for existing media. Required `--conversion=thumb,cover` lists one or more registered names (validated against the `ConversionRegistry`; unknown names short-circuit with a clear error). Optional `--media=1,3,5..10` filters by id (individual values and ranges), `--collection=avatars` filters by collection name. `--force` overwrites existing conversion files (default skips when the file is already on disk). `--queue` dispatches each item as a `PerformConversions` job instead of running synchronously. Confirmation prompt fires when the operation count (`media × conversions`) crosses 100. Output is a progress bar + per-item log + final summary (processed / queued / failed). Fills the gap between `mediaman:generate-responsive` (responsive variants only) and the common "I changed a conversion definition and want it re-applied to all media" workflow. See [Commands → Generate conversions](docs/commands.md#generate-conversions).
 
+### Fixed
+
+- Performance regression in `MediaUploader::readImageMeta()` introduced in v2.13.0: every image upload unconditionally performed a full `ImageManager::decode()` + `resize(1,1)` to extract width, height, and dominant color. The `resize(1,1)` averages all pixels and is especially expensive for large images (banners, covers). Width and height are now extracted via PHP's native `getimagesize()` (header-only, sub-millisecond), and the expensive dominant-color decode runs only when `mediaman.placeholder.enabled` is `true`. Seeders and batch uploads return to v2.12.0 performance levels without losing any functionality.
+- `UrlGuardTest` DNS-dependent tests now skip gracefully when `localhost.localdomain` does not resolve in the test environment (containers, CI).
+- Pre-existing phpstan error in `Media::getTemporaryUrl()` resolved — removed redundant `method_exists()` guard in favor of direct `providesTemporaryUrls()` call.
+
 ### Changed
 
 - `mediaman:responsive-stats` output now follows the same `php artisan about`-style layout adopted by `mediaman:doctor` in v2.16 — section headers + `twoColumnDetail` rows joined by dots-filler, colored status icons embedded in the value column. The information surfaced is identical; only the visual layout changes.
