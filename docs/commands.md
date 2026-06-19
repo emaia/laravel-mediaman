@@ -3,6 +3,7 @@
 [← Back to README](../README.md)
 
 - [Publish assets](#publish-assets)
+- [Doctor (health check)](#doctor-health-check)
 - [Clean orphaned files](#clean-orphaned-files)
 - [Rotate media paths after APP_KEY rotation](#rotate-media-paths-after-app_key-rotation)
 - [Generate responsive images](#generate-responsive-images)
@@ -23,6 +24,53 @@ If you only want one or the other (e.g. re-publishing the config after a package
 php artisan mediaman:publish-config
 php artisan mediaman:publish-migration
 ```
+
+## Doctor (health check)
+
+Read-only end-to-end diagnostic of the MediaMan pipeline. Useful as a smoke test after deployment, after `APP_KEY` rotation, or while debugging "the URL returns 404 but the record exists" issues.
+
+```bash
+php artisan mediaman:doctor
+```
+
+Output (truncated):
+
+```
+  Schema migrations ........................................................
+  Tables present ............................. ✓ all 4 expected tables found
+
+  Config file ..............................................................
+  Published .................................... ✓ at config/mediaman.php
+
+  Disk .....................................................................
+  Configured .................................................... · 'media'
+  Probe (write/read/delete) ............................................ ✓ OK
+
+  Public symlink ...........................................................
+  Symlink ............... ✓ /var/www/public/media → /var/www/storage/app/media
+
+  Image driver .............................................................
+  Configured ........................................... · null (auto-detect)
+  Effective ..................... ✓ Intervention\Image\Drivers\Imagick\Driver
+
+  Queue ....................................................................
+  Connection ..................................................... · 'database'
+  Auto-generate responsive ⚠ enabled — ensure a queue worker is running
+
+  Conversions ..............................................................
+  Registered ....................................................... · 5
+
+  Media inventory ..........................................................
+  Records .......................................................... · 1,247
+  Total size ........................................................ · 3.2 GB
+  Responsive coverage ................................... · 1,022 / 1,247 (82%)
+```
+
+The layout mirrors Laravel's `php artisan about` style — section headers + label/value rows separated by dots. Status icons are embedded in the value column: `✓` (green, OK), `⚠` (yellow, warning), `✗` (red, error), `·` (dim gray, informational).
+
+The command never mutates state — disk probe writes a unique scratch file (`mediaman-doctor-probe-{rand}.txt`), reads it back, and deletes it. Failures (disk not configured, libvips broken at the driver constructor probe, schema missing, link path squatted by a real file) print `✗` and the process exits with code `1`. Warnings (e.g. `auto_generate=true` + `queue=true`, missing symlink that should exist) print `⚠` and keep the exit code at `0`.
+
+The **public symlink** check looks at `config('filesystems.links')` for entries whose target equals the effective disk's `root`. For each match it verifies the symlink exists and points where expected. Remote drivers (S3, etc.) are skipped automatically. Local disks without any matching link entry print an informational note — the disk may be intentionally private, or the user simply hasn't added the link to `filesystems.links` yet (and therefore `php artisan storage:link` wouldn't create anything for it).
 
 ## Clean orphaned files
 
