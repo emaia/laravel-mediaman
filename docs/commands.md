@@ -6,6 +6,7 @@
 - [Doctor (health check)](#doctor-health-check)
 - [Clean orphaned files](#clean-orphaned-files)
 - [Rotate media paths after APP_KEY rotation](#rotate-media-paths-after-app_key-rotation)
+- [Generate conversions](#generate-conversions)
 - [Generate responsive images](#generate-responsive-images)
 - [Clear responsive images](#clear-responsive-images)
 - [Responsive images stats](#responsive-images-stats)
@@ -120,6 +121,36 @@ php artisan mediaman:rotate-paths --old-key="$OLD_KEY" --force --media=42
 ```
 
 The command is idempotent: re-runs against already-migrated media report them as "already migrated" and skip. See [Security → APP_KEY rotation](security.md#app_key-rotation) for context.
+
+## Generate conversions
+
+Generate (or regenerate) registered conversions for existing media. Useful after changing a conversion definition (e.g. you tweaked the closure for `thumb` and want all stored thumbnails refreshed) or backfilling a newly-registered conversion for historical media.
+
+```bash
+php artisan mediaman:generate-conversions --conversion=thumb,cover
+```
+
+The `--conversion` flag is required. Names are validated against the `ConversionRegistry` — unknown names short-circuit with a clear error before any work starts.
+
+Filters:
+
+| Flag                   | Effect                                                                                                            |
+|------------------------|-------------------------------------------------------------------------------------------------------------------|
+| `--media=1,3,5..10`    | Restrict to specific media ids; supports comma-separated values and ranges (`from..to`). Mix freely (`1,3..5,9`). |
+| `--collection=avatars` | Restrict to media attached to a named collection.                                                                 |
+
+Behavior:
+
+| Flag      | Default | Effect                                                                                                                                              |
+|-----------|---------|-----------------------------------------------------------------------------------------------------------------------------------------------------|
+| `--force` | off     | Overwrite existing conversion files. Default skips when the target already exists on disk.                                                          |
+| `--queue` | off     | Dispatch each item as a `PerformConversions` job instead of running synchronously. Useful for large catalogs where you don't want to block the CLI. |
+
+A confirmation prompt fires when the operation count (`media × conversions`) crosses 100, so a typo in `--media` doesn't silently start thousands of jobs.
+
+Output is a progress bar + per-item log line (`Processed: name` or `Queued: name`) + a final summary (`N media item(s) processed.` or `N conversion job(s) queued.`, with `(M failed)` appended when sync mode encountered errors).
+
+Fills the gap between [Generate responsive images](#generate-responsive-images) (responsive variants only, no individual conversion names) and the manual "loop through `Media::chunk()` and call `(new ImageManipulator)->manipulate(...)`" pattern.
 
 ## Generate responsive images
 
