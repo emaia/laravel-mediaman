@@ -238,10 +238,6 @@ Responsive images are **opt-in** — no variants are generated unless you call `
         'min_file_size_bytes' => 10240,
     ],
 
-    'predefined_conversions' => [
-        'responsive_custom_widths' => [400, 800, 1200],
-        'responsive_hq_quality'    => 95,
-    ],
 ],
 ```
 
@@ -259,8 +255,6 @@ Responsive images are **opt-in** — no variants are generated unless you call `
 | `file_size_optimized.reduction_factor`            | `0.7`                          | File-size reduction multiplier per iteration (0–1).                                               |
 | `file_size_optimized.min_width`                   | `20`                           | Stop iterating when calculated width falls below this (px).                                       |
 | `file_size_optimized.min_file_size_bytes`         | `10240`                        | Stop when predicted file size falls below this (bytes).                                           |
-| `predefined_conversions.responsive_custom_widths` | `[400, 800, 1200]`             | Widths for the `responsive-custom` conversion.                                                    |
-| `predefined_conversions.responsive_hq_quality`    | `95`                           | Quality for the `responsive-hq` conversion.                                                       |
 
 See [Responsive Images](responsive-images.md) for usage.
 

@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Storage;
 use Intervention\Image\ImageManager;
 use Throwable;
 
-class MediamanDoctorCommand extends Command
+class DoctorCommand extends Command
 {
     protected $signature = 'mediaman:doctor';
 

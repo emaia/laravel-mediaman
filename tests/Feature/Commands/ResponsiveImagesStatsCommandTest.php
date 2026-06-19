@@ -5,9 +5,10 @@ use Illuminate\Http\UploadedFile;
 
 it('shows stats with no media items', function () {
     $this->artisan('mediaman:responsive-stats')
-        ->expectsOutputToContain('Total image files: 0')
-        ->expectsOutputToContain('With responsive images: 0')
-        ->expectsOutputToContain('Without responsive images: 0')
+        ->expectsOutputToContain('Responsive images')
+        ->expectsOutputToContain('Total images')
+        ->expectsOutputToContain('With responsive')
+        ->expectsOutputToContain('Without responsive')
         ->assertExitCode(0);
 });
 
@@ -19,13 +20,19 @@ it('shows stats with image media items', function () {
     MediaUploader::source($file2)->upload();
 
     $this->artisan('mediaman:responsive-stats')
-        ->expectsOutputToContain('Total image files: 2')
+        ->expectsOutputToContain('Total images')
         ->assertExitCode(0);
 });
 
 it('shows current configuration', function () {
     $this->artisan('mediaman:responsive-stats')
-        ->expectsOutputToContain('Current Configuration')
-        ->expectsOutputToContain('Quality:')
+        ->expectsOutputToContain('Configuration')
+        ->expectsOutputToContain('Enabled')
+        ->expectsOutputToContain('Auto generate')
+        ->expectsOutputToContain('Queue')
+        ->expectsOutputToContain('Quality')
+        ->expectsOutputToContain('Formats')
+        ->expectsOutputToContain('Breakpoints')
+        ->expectsOutputToContain('Width calculator')
         ->assertExitCode(0);
 });

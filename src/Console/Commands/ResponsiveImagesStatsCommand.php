@@ -18,28 +18,49 @@ class ResponsiveImagesStatsCommand extends Command
             ->whereNotNull('custom_properties->responsive_images')
             ->count();
 
-        $this->info('Responsive Images Statistics');
-        $this->line('================================');
-        $this->line("Total image files: {$totalImages}");
-        $this->line("With responsive images: {$withResponsive}");
-        $this->line('Without responsive images: '.($totalImages - $withResponsive));
+        $this->section('Responsive images');
+
+        $this->statusLine('Total images', 'info', number_format($totalImages));
+        $this->statusLine('With responsive', 'info', number_format($withResponsive));
+        $this->statusLine('Without responsive', 'info', number_format($totalImages - $withResponsive));
 
         if ($totalImages > 0) {
-            $percentage = round(($withResponsive / $totalImages) * 100, 2);
-            $this->line("Coverage: {$percentage}%");
+            $percentage = (int) round(($withResponsive / $totalImages) * 100);
+            $this->statusLine(
+                'Coverage',
+                'info',
+                number_format($withResponsive).' / '.number_format($totalImages)." ({$percentage}%)"
+            );
         }
 
-        // Show configuration
-        $this->newLine();
-        $this->info('Current Configuration');
-        $this->line('=====================');
-        $this->line('Enabled: '.(config('mediaman.responsive_images.enabled') ? 'Yes' : 'No'));
-        $this->line('Auto generate: '.(config('mediaman.responsive_images.auto_generate') ? 'Yes' : 'No'));
-        $this->line('Queue: '.(config('mediaman.responsive_images.queue') ? 'Yes' : 'No'));
-        $this->line('Quality: '.config('mediaman.responsive_images.quality', 85));
-        $this->line('Formats: '.implode(', ', config('mediaman.responsive_images.formats', ['webp', 'jpg'])));
-        $this->line('Breakpoints: '.implode(', ', config('mediaman.responsive_images.breakpoints', [])));
+        $this->section('Configuration');
 
-        return 0;
+        $this->statusLine('Enabled', 'info', config('mediaman.responsive_images.enabled', true) ? 'Yes' : 'No');
+        $this->statusLine('Auto generate', 'info', config('mediaman.responsive_images.auto_generate', false) ? 'Yes' : 'No');
+        $this->statusLine('Queue', 'info', config('mediaman.responsive_images.queue', true) ? 'Yes' : 'No');
+        $this->statusLine('Quality', 'info', (string) config('mediaman.responsive_images.quality', 85));
+        $this->statusLine('Formats', 'info', implode(', ', config('mediaman.responsive_images.formats', ['webp'])));
+        $this->statusLine('Breakpoints', 'info', implode(', ', config('mediaman.responsive_images.breakpoints', [])));
+        $this->statusLine('Width calculator', 'info', config('mediaman.responsive_images.width_calculator', 'breakpoint'));
+
+        return self::SUCCESS;
+    }
+
+    protected function section(string $title): void
+    {
+        $this->newLine();
+        $this->components->twoColumnDetail('  <fg=green;options=bold>'.$title.'</>');
+    }
+
+    protected function statusLine(string $label, string $level, string $value): void
+    {
+        $icon = match ($level) {
+            'ok' => '<fg=green>✓</>',
+            'warn' => '<fg=yellow>⚠</>',
+            'error' => '<fg=red>✗</>',
+            default => '<fg=gray>·</>',
+        };
+
+        $this->components->twoColumnDetail($label, "{$icon} {$value}");
     }
 }

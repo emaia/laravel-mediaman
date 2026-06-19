@@ -5,7 +5,7 @@ namespace Emaia\MediaMan\Console\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\File;
 
-class MediamanPublishConfigCommand extends Command
+class PublishConfigCommand extends Command
 {
     protected $signature = 'mediaman:publish-config';
 

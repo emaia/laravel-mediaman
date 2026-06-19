@@ -2,7 +2,6 @@
 
 use Emaia\MediaMan\ConversionRegistry;
 use Emaia\MediaMan\Exceptions\InvalidConversion;
-use Emaia\MediaMan\ResponsiveImages\ResponsiveConversion;
 use Intervention\Image\Image;
 
 it('can register and retrieve specific conversions', function () {
@@ -117,16 +116,6 @@ it('returns null format for closures without explicit format method', function (
     });
 
     expect($conversionRegistry->getFormat('passthrough'))->toBeNull();
-});
-
-it('returns null format for ResponsiveConversion closures', function () {
-    $conversionRegistry = new ConversionRegistry;
-
-    $conversionRegistry->register('responsive', function (Image $image) {
-        return new ResponsiveConversion($image, ['type' => 'breakpoint']);
-    });
-
-    expect($conversionRegistry->getFormat('responsive'))->toBeNull();
 });
 
 it('returns null format for unknown conversion names', function () {

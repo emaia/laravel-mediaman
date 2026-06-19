@@ -6,7 +6,7 @@ use Emaia\MediaMan\Models\Media;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
 
-class MediamanRotatePathsCommand extends Command
+class RotatePathsCommand extends Command
 {
     protected $signature = 'mediaman:rotate-paths
                             {--old-key= : The previous APP_KEY (the value config(\'app.key\') returned before rotation)}

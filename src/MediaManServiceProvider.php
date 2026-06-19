@@ -2,22 +2,21 @@
 
 namespace Emaia\MediaMan;
 
+use Emaia\MediaMan\Console\Commands\CleanCommand;
 use Emaia\MediaMan\Console\Commands\ClearResponsiveImagesCommand;
+use Emaia\MediaMan\Console\Commands\DoctorCommand;
 use Emaia\MediaMan\Console\Commands\GenerateResponsiveImagesCommand;
-use Emaia\MediaMan\Console\Commands\MediamanCleanCommand;
-use Emaia\MediaMan\Console\Commands\MediamanDoctorCommand;
-use Emaia\MediaMan\Console\Commands\MediamanPublishCommand;
-use Emaia\MediaMan\Console\Commands\MediamanPublishConfigCommand;
-use Emaia\MediaMan\Console\Commands\MediamanPublishMigrationCommand;
-use Emaia\MediaMan\Console\Commands\MediamanRotatePathsCommand;
+use Emaia\MediaMan\Console\Commands\PublishCommand;
+use Emaia\MediaMan\Console\Commands\PublishConfigCommand;
+use Emaia\MediaMan\Console\Commands\PublishMigrationCommand;
 use Emaia\MediaMan\Console\Commands\ResponsiveImagesStatsCommand;
+use Emaia\MediaMan\Console\Commands\RotatePathsCommand;
 use Emaia\MediaMan\Downloaders\Downloader;
 use Emaia\MediaMan\Downloaders\HttpDownloader;
 use Emaia\MediaMan\Generators\FileNamer;
 use Emaia\MediaMan\Generators\PathGenerator;
 use Emaia\MediaMan\Generators\UrlGenerator;
 use Emaia\MediaMan\Placeholders\PlaceholderGenerator;
-use Emaia\MediaMan\ResponsiveImages\ResponsiveConversions;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\BreakpointWidthCalculator;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\FileSizeOptimizedWidthCalculator;
@@ -77,21 +76,16 @@ class MediaManServiceProvider extends ServiceProvider
 
         if ($this->app->runningInConsole()) {
             $this->commands([
-                MediamanPublishCommand::class,
-                MediamanPublishConfigCommand::class,
-                MediamanPublishMigrationCommand::class,
+                PublishCommand::class,
+                PublishConfigCommand::class,
+                PublishMigrationCommand::class,
                 GenerateResponsiveImagesCommand::class,
                 ClearResponsiveImagesCommand::class,
                 ResponsiveImagesStatsCommand::class,
-                MediamanCleanCommand::class,
-                MediamanDoctorCommand::class,
-                MediamanRotatePathsCommand::class,
+                CleanCommand::class,
+                DoctorCommand::class,
+                RotatePathsCommand::class,
             ]);
-        }
-
-        // Register responsive conversions if enabled
-        if (config('mediaman.responsive_images.enabled', true)) {
-            ResponsiveConversions::register();
         }
     }
 
