@@ -7,6 +7,7 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 ### Added
 
 - `mediaman:generate-conversions` artisan command — generate (or regenerate) registered conversions for existing media. Required `--conversion=thumb,cover` lists one or more registered names (validated against the `ConversionRegistry`; unknown names short-circuit with a clear error). Optional `--media=1,3,5..10` filters by id (individual values and ranges), `--collection=avatars` filters by collection name. `--force` overwrites existing conversion files (default skips when the file is already on disk). `--queue` dispatches each item as a `PerformConversions` job instead of running synchronously. Confirmation prompt fires when the operation count (`media × conversions`) crosses 100. Output is a progress bar + per-item log + final summary (processed / queued / failed). Fills the gap between `mediaman:generate-responsive` (responsive variants only) and the common "I changed a conversion definition and want it re-applied to all media" workflow. See [Commands → Generate conversions](docs/commands.md#generate-conversions).
+- `mediaman:stats` artisan command — consolidated statistics command replacing the previous `mediaman:responsive-stats`. Without flags: media inventory (records, total size, image count), registered conversion names, and responsive coverage with config summary. `--responsive` shows the detailed responsive breakdown (total/with/without coverage, per-format configuration). `--conversions` shows each registered conversion with its detected output format. See [Commands → Stats](docs/commands.md#stats-consolidated).
 
 ### Fixed
 
@@ -16,12 +17,12 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ### Changed
 
-- `mediaman:responsive-stats` output now follows the same `php artisan about`-style layout adopted by `mediaman:doctor` in v2.16 — section headers + `twoColumnDetail` rows joined by dots-filler, colored status icons embedded in the value column. The information surfaced is identical; only the visual layout changes.
 - Console command class names dropped the redundant `Mediaman` prefix: `MediamanCleanCommand` → `CleanCommand`, `MediamanDoctorCommand` → `DoctorCommand`, `MediamanPublishCommand` → `PublishCommand`, `MediamanPublishConfigCommand` → `PublishConfigCommand`, `MediamanPublishMigrationCommand` → `PublishMigrationCommand`, `MediamanRotatePathsCommand` → `RotatePathsCommand`. The CLI signatures (`mediaman:clean`, `mediaman:doctor`, …) are unchanged. **BC note:** code that references these class names by FQCN (e.g. `app(MediamanCleanCommand::class)` or `extends MediamanCleanCommand`) must update — the namespace `Emaia\MediaMan\Console\Commands\` already qualifies them, so the prefix was noise. Tests use the CLI signature and are unaffected at runtime.
 
 ### Removed
 
 - The 5 predefined `responsive-*` conversions registered automatically by `ResponsiveConversions::register()` (`responsive`, `responsive-optimized`, `responsive-custom`, `responsive-webp`, `responsive-hq`), the `ResponsiveConversion` wrapper class, and the `mediaman.responsive_images.predefined_conversions` config block. These names were never documented anywhere in `docs/*` and were **non-functional** in practice: `ImageManipulator::manipulate()` does not branch on `ResponsiveConversion` instances, so calling any of them via `performConversions(...)` or `PerformConversions::dispatch(...)` silently produced no output and triggered no responsive variant generation. Use `MediaUploader::generateResponsive()->withBreakpoints()->withFormats()->withQuality()` at upload time or `$media->generateResponsiveImages($options)` on existing media — the documented, idiomatic, and actually-functional paths.
+- `mediaman:responsive-stats` — replaced by the consolidated `mediaman:stats` command. Use `mediaman:stats --responsive` for the same detailed breakdown. **BC note:** scripts calling `responsive-stats` must switch to `stats --responsive`.
 
 ## [2.16.0] — 2026-06-18
 

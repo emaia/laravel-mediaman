@@ -10,8 +10,8 @@ use Emaia\MediaMan\Console\Commands\GenerateResponsiveImagesCommand;
 use Emaia\MediaMan\Console\Commands\PublishCommand;
 use Emaia\MediaMan\Console\Commands\PublishConfigCommand;
 use Emaia\MediaMan\Console\Commands\PublishMigrationCommand;
-use Emaia\MediaMan\Console\Commands\ResponsiveImagesStatsCommand;
 use Emaia\MediaMan\Console\Commands\RotatePathsCommand;
+use Emaia\MediaMan\Console\Commands\StatsCommand;
 use Emaia\MediaMan\Downloaders\Downloader;
 use Emaia\MediaMan\Downloaders\HttpDownloader;
 use Emaia\MediaMan\Generators\FileNamer;
@@ -83,7 +83,7 @@ class MediaManServiceProvider extends ServiceProvider
                 GenerateResponsiveImagesCommand::class,
                 GenerateConversionsCommand::class,
                 ClearResponsiveImagesCommand::class,
-                ResponsiveImagesStatsCommand::class,
+                StatsCommand::class,
                 CleanCommand::class,
                 DoctorCommand::class,
                 RotatePathsCommand::class,

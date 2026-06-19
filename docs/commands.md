@@ -6,10 +6,10 @@
 - [Doctor (health check)](#doctor-health-check)
 - [Clean orphaned files](#clean-orphaned-files)
 - [Rotate media paths after APP_KEY rotation](#rotate-media-paths-after-app_key-rotation)
+- [Stats (consolidated)](#stats-consolidated)
 - [Generate conversions](#generate-conversions)
 - [Generate responsive images](#generate-responsive-images)
 - [Clear responsive images](#clear-responsive-images)
-- [Responsive images stats](#responsive-images-stats)
 
 ## Publish assets
 
@@ -122,6 +122,26 @@ php artisan mediaman:rotate-paths --old-key="$OLD_KEY" --force --media=42
 
 The command is idempotent: re-runs against already-migrated media report them as "already migrated" and skip. See [Security → APP_KEY rotation](security.md#app_key-rotation) for context.
 
+## Stats (consolidated)
+
+Show media, conversion, and responsive image statistics. Without flags, a consolidated dashboard is shown. Use `--responsive` or `--conversions` for detailed breakdowns.
+
+```bash
+# Consolidated overview
+php artisan mediaman:stats
+
+# Detailed responsive images stats
+php artisan mediaman:stats --responsive
+
+# Detailed conversion stats
+php artisan mediaman:stats --conversions
+
+# Both detailed sections
+php artisan mediaman:stats --responsive --conversions
+```
+
+The consolidated view shows media inventory (records, total size, image records), registered conversion names, and responsive coverage with current config. The `--responsive` detail adds per-format configuration (quality, formats, breakpoints, width calculator). The `--conversions` detail shows each registered conversion with its detected output format.
+
 ## Generate conversions
 
 Generate (or regenerate) registered conversions for existing media. Useful after changing a conversion definition (e.g. you tweaked the closure for `thumb` and want all stored thumbnails refreshed) or backfilling a newly-registered conversion for historical media.
@@ -190,11 +210,3 @@ php artisan mediaman:clear-responsive --collection="Blog Posts"
 # Limit to a single media item
 php artisan mediaman:clear-responsive --media=42
 ```
-
-## Responsive images stats
-
-```bash
-php artisan mediaman:responsive-stats
-```
-
-Output: total image count, images with variants, coverage percentage, and the active configuration (quality, formats, breakpoints, enabled status).
