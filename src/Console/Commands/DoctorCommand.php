@@ -2,6 +2,7 @@
 
 namespace Emaia\MediaMan\Console\Commands;
 
+use Emaia\MediaMan\Console\Concerns\CommandOutputStyle;
 use Emaia\MediaMan\ConversionRegistry;
 use Emaia\MediaMan\Models\Media;
 use Illuminate\Console\Command;
@@ -12,14 +13,11 @@ use Throwable;
 
 class DoctorCommand extends Command
 {
+    use CommandOutputStyle;
+
     protected $signature = 'mediaman:doctor';
 
     protected $description = 'Run a health check against the MediaMan pipeline (schema, disk, image driver, queue, conversions, inventory). Read-only.';
-
-    /**
-     * Tracks whether any check produced an error, used as the exit code.
-     */
-    protected bool $hasErrors = false;
 
     public function handle(): int
     {
@@ -288,53 +286,5 @@ class DoctorCommand extends Command
         } catch (Throwable $e) {
             $this->statusLine('Responsive coverage', 'warn', 'coverage query failed: '.$e->getMessage());
         }
-    }
-
-    /**
-     * Print a section header — matches Laravel's `about` command style.
-     */
-    protected function section(string $title): void
-    {
-        $this->newLine();
-        $this->components->twoColumnDetail('  <fg=green;options=bold>'.$title.'</>');
-    }
-
-    /**
-     * Print a labeled detail line with an icon based on level.
-     *
-     * Levels: ok (✓ green), warn (⚠ yellow), error (✗ red), info (· dim).
-     */
-    protected function statusLine(string $label, string $level, string $value): void
-    {
-        $icon = match ($level) {
-            'ok' => '<fg=green>✓</>',
-            'warn' => '<fg=yellow>⚠</>',
-            'error' => '<fg=red>✗</>',
-            default => '<fg=gray>·</>',
-        };
-
-        if ($level === 'error') {
-            $this->hasErrors = true;
-        }
-
-        $this->components->twoColumnDetail($label, "{$icon} {$value}");
-    }
-
-    protected function formatBytes(int $bytes): string
-    {
-        if ($bytes < 1024) {
-            return $bytes.' B';
-        }
-
-        $units = ['KB', 'MB', 'GB', 'TB'];
-        $value = $bytes / 1024;
-        $unitIndex = 0;
-
-        while ($value >= 1024 && $unitIndex < count($units) - 1) {
-            $value /= 1024;
-            $unitIndex++;
-        }
-
-        return sprintf('%.1f %s', $value, $units[$unitIndex]);
     }
 }

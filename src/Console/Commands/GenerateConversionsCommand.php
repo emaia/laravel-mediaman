@@ -2,6 +2,8 @@
 
 namespace Emaia\MediaMan\Console\Commands;
 
+use Emaia\MediaMan\Console\Concerns\CommandOutputStyle;
+use Emaia\MediaMan\Console\Concerns\ParsesMediaIds;
 use Emaia\MediaMan\ConversionRegistry;
 use Emaia\MediaMan\ImageManipulator;
 use Emaia\MediaMan\Jobs\PerformConversions;
@@ -10,6 +12,9 @@ use Illuminate\Console\Command;
 
 class GenerateConversionsCommand extends Command
 {
+    use CommandOutputStyle;
+    use ParsesMediaIds;
+
     protected $signature = 'mediaman:generate-conversions
                             {--conversion= : Required. Comma-separated conversion names (e.g. "thumb,cover")}
                             {--media= : Comma-separated IDs and/or ranges (e.g. "1,3,5..10")}
@@ -159,64 +164,5 @@ class GenerateConversionsCommand extends Command
         if ($processed === 0 && $skipped === 0 && empty($failures)) {
             $this->statusLine('Result', 'info', 'nothing to do');
         }
-    }
-
-    /**
-     * Parse --media value into an array of IDs. Supports comma-separated
-     * individual IDs ("1,3,5") and ranges ("1..10"), or a mix ("1,3..5").
-     */
-    protected function parseMediaIds(string $value): array
-    {
-        $ids = [];
-
-        foreach (explode(',', $value) as $part) {
-            $part = trim($part);
-
-            if ($part === '') {
-                continue;
-            }
-
-            if (str_contains($part, '..')) {
-                [$from, $to] = explode('..', $part);
-                $from = (int) $from;
-                $to = (int) $to;
-
-                if ($from <= 0 || $to <= 0 || $from > $to) {
-                    return [];
-                }
-
-                for ($i = $from; $i <= $to; $i++) {
-                    $ids[] = $i;
-                }
-            } else {
-                $id = (int) $part;
-
-                if ($id <= 0) {
-                    return [];
-                }
-
-                $ids[] = $id;
-            }
-        }
-
-        return $ids;
-    }
-
-    protected function section(string $title): void
-    {
-        $this->newLine();
-        $this->components->twoColumnDetail('  <fg=green;options=bold>'.$title.'</>');
-    }
-
-    protected function statusLine(string $label, string $level, string $value): void
-    {
-        $icon = match ($level) {
-            'ok' => '<fg=green>✓</>',
-            'warn' => '<fg=yellow>⚠</>',
-            'error' => '<fg=red>✗</>',
-            default => '<fg=gray>·</>',
-        };
-
-        $this->components->twoColumnDetail($label, "{$icon} {$value}");
     }
 }
