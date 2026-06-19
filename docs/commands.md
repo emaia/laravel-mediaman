@@ -228,11 +228,11 @@ Remove responsive variants from storage:
 php artisan mediaman:clear-responsive
 
 # Skip the confirmation prompt
-php artisan mediaman:clear-responsive --confirm
+php artisan mediaman:clear-responsive --force
 
 # Limit to a specific collection
 php artisan mediaman:clear-responsive --collection="Blog Posts"
 
-# Limit to a single media item
-php artisan mediaman:clear-responsive --media=42
+# Limit to specific media ids with range support
+php artisan mediaman:clear-responsive --media=1,3,5..10
 ```

@@ -18,6 +18,7 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ### Changed
 
+- `mediaman:clear-responsive` now uses `--force` to skip the confirmation prompt instead of the previous `--confirm` flag (which sat inverted to Laravel's convention). Output migrated to doctor-style layout with summary counters. `--media` now accepts ranges (`1..10`) and mixed lists (`1,3..5`), matching `generate-conversions`/`generate-responsive`/`clear-conversions`. **BC note:** scripts passing `--confirm` must switch to `--force`.
 - Console command class names dropped the redundant `Mediaman` prefix: `MediamanCleanCommand` → `CleanCommand`, `MediamanDoctorCommand` → `DoctorCommand`, `MediamanPublishCommand` → `PublishCommand`, `MediamanPublishConfigCommand` → `PublishConfigCommand`, `MediamanPublishMigrationCommand` → `PublishMigrationCommand`, `MediamanRotatePathsCommand` → `RotatePathsCommand`. The CLI signatures (`mediaman:clean`, `mediaman:doctor`, …) are unchanged. **BC note:** code that references these class names by FQCN (e.g. `app(MediamanCleanCommand::class)` or `extends MediamanCleanCommand`) must update — the namespace `Emaia\MediaMan\Console\Commands\` already qualifies them, so the prefix was noise. Tests use the CLI signature and are unaffected at runtime.
 
 ### Removed
