@@ -4,6 +4,10 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `mediaman:doctor` artisan command — read-only health check of the MediaMan pipeline (schema migrations, default disk write/read/delete probe, public symlink verification, effective image driver, queue connection + auto-generate consistency, registered conversions count, media inventory with total bytes and responsive coverage). Useful as a smoke test after deployment, after `APP_KEY` rotation, or while debugging "URL returns 404 but the record exists" issues. The symlink check matches `filesystems.links` entries against the disk's `root` and confirms each link path exists and points correctly — catches the classic post-install "I forgot to run `storage:link`" trap. Never mutates state. Exit code is `1` only on errors (schema missing, disk inaccessible, driver constructor fails, link path squatted by a real file); warnings (missing symlink, auto_generate without worker) keep exit code at `0`. See [Commands → Doctor (health check)](docs/commands.md#doctor-health-check).
+
 ## [2.15.0] — 2026-06-18
 
 ### Added

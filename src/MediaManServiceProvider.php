@@ -5,6 +5,7 @@ namespace Emaia\MediaMan;
 use Emaia\MediaMan\Console\Commands\ClearResponsiveImagesCommand;
 use Emaia\MediaMan\Console\Commands\GenerateResponsiveImagesCommand;
 use Emaia\MediaMan\Console\Commands\MediamanCleanCommand;
+use Emaia\MediaMan\Console\Commands\MediamanDoctorCommand;
 use Emaia\MediaMan\Console\Commands\MediamanPublishCommand;
 use Emaia\MediaMan\Console\Commands\MediamanPublishConfigCommand;
 use Emaia\MediaMan\Console\Commands\MediamanPublishMigrationCommand;
@@ -83,6 +84,7 @@ class MediaManServiceProvider extends ServiceProvider
                 ClearResponsiveImagesCommand::class,
                 ResponsiveImagesStatsCommand::class,
                 MediamanCleanCommand::class,
+                MediamanDoctorCommand::class,
                 MediamanRotatePathsCommand::class,
             ]);
         }
