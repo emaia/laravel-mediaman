@@ -5,7 +5,7 @@ namespace Emaia\MediaMan\Console\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\File;
 
-class MediamanPublishMigrationCommand extends Command
+class PublishMigrationCommand extends Command
 {
     protected $signature = 'mediaman:publish-migration';
 

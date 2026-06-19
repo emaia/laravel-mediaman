@@ -4,6 +4,15 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- `mediaman:responsive-stats` output now follows the same `php artisan about`-style layout adopted by `mediaman:doctor` in v2.16 — section headers + `twoColumnDetail` rows joined by dots-filler, colored status icons embedded in the value column. The information surfaced is identical; only the visual layout changes.
+- Console command class names dropped the redundant `Mediaman` prefix: `MediamanCleanCommand` → `CleanCommand`, `MediamanDoctorCommand` → `DoctorCommand`, `MediamanPublishCommand` → `PublishCommand`, `MediamanPublishConfigCommand` → `PublishConfigCommand`, `MediamanPublishMigrationCommand` → `PublishMigrationCommand`, `MediamanRotatePathsCommand` → `RotatePathsCommand`. The CLI signatures (`mediaman:clean`, `mediaman:doctor`, …) are unchanged. **BC note:** code that references these class names by FQCN (e.g. `app(MediamanCleanCommand::class)` or `extends MediamanCleanCommand`) must update — the namespace `Emaia\MediaMan\Console\Commands\` already qualifies them, so the prefix was noise. Tests use the CLI signature and are unaffected at runtime.
+
+### Removed
+
+- The 5 predefined `responsive-*` conversions registered automatically by `ResponsiveConversions::register()` (`responsive`, `responsive-optimized`, `responsive-custom`, `responsive-webp`, `responsive-hq`), the `ResponsiveConversion` wrapper class, and the `mediaman.responsive_images.predefined_conversions` config block. These names were never documented anywhere in `docs/*` and were **non-functional** in practice: `ImageManipulator::manipulate()` does not branch on `ResponsiveConversion` instances, so calling any of them via `performConversions(...)` or `PerformConversions::dispatch(...)` silently produced no output and triggered no responsive variant generation. Use `MediaUploader::generateResponsive()->withBreakpoints()->withFormats()->withQuality()` at upload time or `$media->generateResponsiveImages($options)` on existing media — the documented, idiomatic, and actually-functional paths.
+
 ## [2.16.0] — 2026-06-18
 
 ### Added

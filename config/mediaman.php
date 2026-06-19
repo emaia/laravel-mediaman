@@ -294,15 +294,6 @@ return [
             'min_file_size_bytes' => 10240,
         ],
 
-        /*
-        | Defaults used by the built-in responsive conversions.
-        */
-
-        'predefined_conversions' => [
-            'responsive_custom_widths' => [400, 800, 1200],
-            'responsive_hq_quality' => 95,
-        ],
-
     ],
 
     /*

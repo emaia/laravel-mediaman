@@ -7,7 +7,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
 use InvalidArgumentException;
 
-class MediamanCleanCommand extends Command
+class CleanCommand extends Command
 {
     protected $signature = 'mediaman:clean
                             {--force : Actually delete orphaned files on disk (DB records are never auto-deleted)}
