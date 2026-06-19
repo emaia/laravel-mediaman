@@ -9,8 +9,8 @@
 - [Stats (consolidated)](#stats-consolidated)
 - [Generate conversions](#generate-conversions)
 - [Clear conversions](#clear-conversions)
-- [Generate responsive images](#generate-responsive-images)
-- [Clear responsive images](#clear-responsive-images)
+- [Generate responsive](#generate-responsive)
+- [Clear responsive](#clear-responsive)
 
 ## Publish assets
 
@@ -20,7 +20,8 @@ The fastest path is the one-shot command, which publishes both the config and th
 php artisan mediaman:publish
 ```
 
-If you only want one or the other (e.g. re-publishing the config after a package update), the individual commands are still available:
+If you only want one or the other (e.g. re-publishing the config after a package update), the individual commands are
+still available:
 
 ```bash
 php artisan mediaman:publish-config
@@ -29,7 +30,8 @@ php artisan mediaman:publish-migration
 
 ## Doctor (health check)
 
-Read-only end-to-end diagnostic of the MediaMan pipeline. Useful as a smoke test after deployment, after `APP_KEY` rotation, or while debugging "the URL returns 404 but the record exists" issues.
+Read-only end-to-end diagnostic of the MediaMan pipeline. Useful as a smoke test after deployment, after `APP_KEY`
+rotation, or while debugging "the URL returns 404 but the record exists" issues.
 
 ```bash
 php artisan mediaman:doctor
@@ -68,11 +70,20 @@ Output (truncated):
   Responsive coverage ................................... · 1,022 / 1,247 (82%)
 ```
 
-The layout mirrors Laravel's `php artisan about` style — section headers + label/value rows separated by dots. Status icons are embedded in the value column: `✓` (green, OK), `⚠` (yellow, warning), `✗` (red, error), `·` (dim gray, informational).
+The layout mirrors Laravel's `php artisan about` style — section headers + label/value rows separated by dots. Status
+icons are embedded in the value column: `✓` (green, OK), `⚠` (yellow, warning), `✗` (red, error), `·` (dim gray,
+informational).
 
-The command never mutates state — disk probe writes a unique scratch file (`mediaman-doctor-probe-{rand}.txt`), reads it back, and deletes it. Failures (disk not configured, libvips broken at the driver constructor probe, schema missing, link path squatted by a real file) print `✗` and the process exits with code `1`. Warnings (e.g. `auto_generate=true` + `queue=true`, missing symlink that should exist) print `⚠` and keep the exit code at `0`.
+The command never mutates state — disk probe writes a unique scratch file (`mediaman-doctor-probe-{rand}.txt`), reads it
+back, and deletes it. Failures (disk not configured, libvips broken at the driver constructor probe, schema missing,
+link path squatted by a real file) print `✗` and the process exits with code `1`. Warnings (e.g. `auto_generate=true` +
+`queue=true`, missing symlink that should exist) print `⚠` and keep the exit code at `0`.
 
-The **public symlink** check looks at `config('filesystems.links')` for entries whose target equals the effective disk's `root`. For each match it verifies the symlink exists and points where expected. Remote drivers (S3, etc.) are skipped automatically. Local disks without any matching link entry print an informational note — the disk may be intentionally private, or the user simply hasn't added the link to `filesystems.links` yet (and therefore `php artisan storage:link` wouldn't create anything for it).
+The **public symlink** check looks at `config('filesystems.links')` for entries whose target equals the effective disk's
+`root`. For each match it verifies the symlink exists and points where expected. Remote drivers (S3, etc.) are skipped
+automatically. Local disks without any matching link entry print an informational note — the disk may be intentionally
+private, or the user simply hasn't added the link to `filesystems.links` yet (and therefore `php artisan storage:link`
+wouldn't create anything for it).
 
 ## Clean orphaned files
 
@@ -89,13 +100,18 @@ php artisan mediaman:clean --force
 php artisan mediaman:clean --disk=media
 ```
 
-The command also detects reverse orphans (Media records whose file is missing from disk) and reports them for manual review — **DB records are never auto-deleted**. See [Security → mediaman:clean](security.md#detect-orphaned-files).
+The command also detects reverse orphans (Media records whose file is missing from disk) and reports them for manual
+review — **DB records are never auto-deleted**. See [Security → mediaman:clean](security.md#detect-orphaned-files).
 
 ## Rotate media paths after APP_KEY rotation
 
-The default storage layout hashes `APP_KEY` into each media directory (`{id}-{md5(id . app_key)}`). Rotating the key would silently break URLs to existing media unless you rename the on-disk directories.
+The default storage layout hashes `APP_KEY` into each media directory (`{id}-{md5(id . app_key)}`). Rotating the key
+would silently break URLs to existing media unless you rename the on-disk directories.
 
-The command computes the target directory using the **current** `config('app.key')` and the source directory using the `--old-key` you pass. **You must rotate the key first**, then run the command with the previous key as `--old-key`. If `--old-key` equals the current `config('app.key')`, the command reports "Nothing to rotate" and exits — that's the noop you get when the order is reversed.
+The command computes the target directory using the **current** `config('app.key')` and the source directory using the
+`--old-key` you pass. **You must rotate the key first**, then run the command with the previous key as `--old-key`. If
+`--old-key` equals the current `config('app.key')`, the command reports "Nothing to rotate" and exits — that's the noop
+you get when the order is reversed.
 
 Workflow:
 
@@ -121,11 +137,13 @@ php artisan mediaman:rotate-paths --old-key="$OLD_KEY" --force --disk=s3-media
 php artisan mediaman:rotate-paths --old-key="$OLD_KEY" --force --media=42
 ```
 
-The command is idempotent: re-runs against already-migrated media report them as "already migrated" and skip. See [Security → APP_KEY rotation](security.md#app_key-rotation) for context.
+The command is idempotent: re-runs against already-migrated media report them as "already migrated" and skip.
+See [Security → APP_KEY rotation](security.md#app_key-rotation) for context.
 
 ## Stats (consolidated)
 
-Show media, conversion, and responsive image statistics. Without flags, a consolidated dashboard is shown. Use `--responsive` or `--conversions` for detailed breakdowns.
+Show media, conversion, and responsive image statistics. Without flags, a consolidated dashboard is shown. Use
+`--responsive` or `--conversions` for detailed breakdowns.
 
 ```bash
 # Consolidated overview
@@ -141,17 +159,23 @@ php artisan mediaman:stats --conversions
 php artisan mediaman:stats --responsive --conversions
 ```
 
-The consolidated view shows media inventory (records, total size, image records), registered conversion names, and responsive coverage with current config. The `--responsive` detail adds per-format configuration (quality, formats, breakpoints, width calculator). The `--conversions` detail shows each registered conversion with its detected output format.
+The consolidated view shows media inventory (records, total size, image records), registered conversion names, and
+responsive coverage with current config. The `--responsive` detail adds per-format configuration (quality, formats,
+breakpoints, width calculator). The `--conversions` detail shows each registered conversion with its detected output
+format.
 
 ## Generate conversions
 
-Generate (or regenerate) registered conversions for existing media. Useful after changing a conversion definition (e.g. you tweaked the closure for `thumb` and want all stored thumbnails refreshed) or backfilling a newly-registered conversion for historical media.
+Generate (or regenerate) registered conversions for existing media. Useful after changing a conversion definition (e.g.
+you tweaked the closure for `thumb` and want all stored thumbnails refreshed) or backfilling a newly-registered
+conversion for historical media.
 
 ```bash
 php artisan mediaman:generate-conversions --conversion=thumb,cover
 ```
 
-The `--conversion` flag is required. Names are validated against the `ConversionRegistry` — unknown names short-circuit with a clear error before any work starts.
+The `--conversion` flag is required. Names are validated against the `ConversionRegistry` — unknown names short-circuit
+with a clear error before any work starts.
 
 Filters:
 
@@ -167,21 +191,20 @@ Behavior:
 | `--force` | off     | Overwrite existing conversion files. Default skips when the target already exists on disk.                                                          |
 | `--queue` | off     | Dispatch each item as a `PerformConversions` job instead of running synchronously. Useful for large catalogs where you don't want to block the CLI. |
 
-A confirmation prompt fires when the operation count (`media × conversions`) crosses 100, so a typo in `--media` doesn't silently start thousands of jobs.
-
-Output is a progress bar + per-item log line (`Processed: name` or `Queued: name`) + a final summary (`N media item(s) processed.` or `N conversion job(s) queued.`, with `(M failed)` appended when sync mode encountered errors).
-
-Fills the gap between [Generate responsive images](#generate-responsive-images) (responsive variants only, no individual conversion names) and the manual "loop through `Media::chunk()` and call `(new ImageManipulator)->manipulate(...)`" pattern.
+A confirmation prompt fires when the operation count (`media × conversions`) crosses 100, so a typo in `--media` doesn't
+silently start thousands of jobs.
 
 ## Clear conversions
 
-Remove conversion files for existing media. Useful when re-uploading after format changes or cleaning up stale conversions.
+Remove conversion files for existing media. Useful when re-uploading after format changes or cleaning up stale
+conversions.
 
 ```bash
 php artisan mediaman:clear-conversions --conversion=thumb,cover
 ```
 
-The `--conversion` flag is required. Names are validated against the `ConversionRegistry` — unknown names short-circuit before any work starts.
+The `--conversion` flag is required. Names are validated against the `ConversionRegistry` — unknown names short-circuit
+before any work starts.
 
 Filters:
 
@@ -192,13 +215,14 @@ Filters:
 
 Behavior:
 
-| Flag      | Default | Effect                                                     |
-|-----------|---------|------------------------------------------------------------|
-| `--force` | off     | Skip the confirmation prompt.                              |
+| Flag      | Default | Effect                        |
+|-----------|---------|-------------------------------|
+| `--force` | off     | Skip the confirmation prompt. |
 
-A confirmation prompt fires when the operation count crosses 100. Converted files are deleted from disk (conversions are filesystem-only — there is no database metadata to reset).
+A confirmation prompt fires when the operation count crosses 100. Converted files are deleted from disk (conversions are
+filesystem-only — there is no database metadata to reset).
 
-## Generate responsive images
+## Generate responsive
 
 Generate responsive variants for existing media:
 
@@ -219,7 +243,7 @@ php artisan mediaman:generate-responsive --collection="Blog Posts"
 php artisan mediaman:generate-responsive --queue
 ```
 
-## Clear responsive images
+## Clear responsive
 
 Remove responsive variants from storage:
 
