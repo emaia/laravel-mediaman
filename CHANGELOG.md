@@ -4,6 +4,8 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ## [Unreleased]
 
+## [2.17.0] — 2026-06-19
+
 ### Added
 
 - `mediaman:generate-conversions` artisan command — generate (or regenerate) registered conversions for existing media. Required `--conversion=thumb,cover` lists one or more registered names (validated against the `ConversionRegistry`; unknown names short-circuit with a clear error). Optional `--media=1,3,5..10` filters by id (individual values and ranges), `--collection=avatars` filters by collection name. `--force` overwrites existing conversion files (default skips when the file is already on disk). `--queue` dispatches each item as a `PerformConversions` job instead of running synchronously. Confirmation prompt fires when the operation count (`media × conversions`) crosses 100. Output follows the doctor-style layout with summary counters (processed / skipped / failed). See [Commands → Generate conversions](docs/commands.md#generate-conversions).
