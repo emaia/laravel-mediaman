@@ -8,6 +8,7 @@
 - [Rotate media paths after APP_KEY rotation](#rotate-media-paths-after-app_key-rotation)
 - [Stats (consolidated)](#stats-consolidated)
 - [Generate conversions](#generate-conversions)
+- [Clear conversions](#clear-conversions)
 - [Generate responsive images](#generate-responsive-images)
 - [Clear responsive images](#clear-responsive-images)
 
@@ -171,6 +172,31 @@ A confirmation prompt fires when the operation count (`media × conversions`) cr
 Output is a progress bar + per-item log line (`Processed: name` or `Queued: name`) + a final summary (`N media item(s) processed.` or `N conversion job(s) queued.`, with `(M failed)` appended when sync mode encountered errors).
 
 Fills the gap between [Generate responsive images](#generate-responsive-images) (responsive variants only, no individual conversion names) and the manual "loop through `Media::chunk()` and call `(new ImageManipulator)->manipulate(...)`" pattern.
+
+## Clear conversions
+
+Remove conversion files for existing media. Useful when re-uploading after format changes or cleaning up stale conversions.
+
+```bash
+php artisan mediaman:clear-conversions --conversion=thumb,cover
+```
+
+The `--conversion` flag is required. Names are validated against the `ConversionRegistry` — unknown names short-circuit before any work starts.
+
+Filters:
+
+| Flag                   | Effect                                                                                                            |
+|------------------------|-------------------------------------------------------------------------------------------------------------------|
+| `--media=1,3,5..10`    | Restrict to specific media ids; supports comma-separated values and ranges (`from..to`). Mix freely (`1,3..5,9`). |
+| `--collection=avatars` | Restrict to media attached to a named collection.                                                                 |
+
+Behavior:
+
+| Flag      | Default | Effect                                                     |
+|-----------|---------|------------------------------------------------------------|
+| `--force` | off     | Skip the confirmation prompt.                              |
+
+A confirmation prompt fires when the operation count crosses 100. Converted files are deleted from disk (conversions are filesystem-only — there is no database metadata to reset).
 
 ## Generate responsive images
 

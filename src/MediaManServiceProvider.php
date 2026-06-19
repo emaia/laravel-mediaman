@@ -3,6 +3,7 @@
 namespace Emaia\MediaMan;
 
 use Emaia\MediaMan\Console\Commands\CleanCommand;
+use Emaia\MediaMan\Console\Commands\ClearConversionsCommand;
 use Emaia\MediaMan\Console\Commands\ClearResponsiveImagesCommand;
 use Emaia\MediaMan\Console\Commands\DoctorCommand;
 use Emaia\MediaMan\Console\Commands\GenerateConversionsCommand;
@@ -83,6 +84,7 @@ class MediaManServiceProvider extends ServiceProvider
                 GenerateResponsiveImagesCommand::class,
                 GenerateConversionsCommand::class,
                 ClearResponsiveImagesCommand::class,
+                ClearConversionsCommand::class,
                 StatsCommand::class,
                 CleanCommand::class,
                 DoctorCommand::class,
