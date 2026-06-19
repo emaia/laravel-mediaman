@@ -2,6 +2,8 @@
 
 namespace Emaia\MediaMan\Console\Commands;
 
+use Emaia\MediaMan\Console\Concerns\CommandOutputStyle;
+use Emaia\MediaMan\Console\Concerns\ParsesMediaIds;
 use Emaia\MediaMan\Jobs\GenerateResponsiveImages;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
@@ -9,11 +11,14 @@ use Illuminate\Console\Command;
 
 class GenerateResponsiveImagesCommand extends Command
 {
-    protected $signature = 'mediaman:generate-responsive 
+    use CommandOutputStyle;
+    use ParsesMediaIds;
+
+    protected $signature = 'mediaman:generate-responsive
                             {--collection= : Generate for specific collection}
-                            {--media= : Generate for specific media ID}
+                            {--media= : Comma-separated IDs and/or ranges (e.g. "1,3,5..10")}
                             {--force : Force regeneration even if responsive images exist}
-                            {--queue : Queue the generation jobs}';
+                            {--queue : Dispatch as queued jobs}';
 
     protected $description = 'Generate responsive images for existing media';
 
@@ -21,19 +26,24 @@ class GenerateResponsiveImagesCommand extends Command
     {
         $query = Media::query()->where('mime_type', 'like', 'image/%');
 
-        // Filter by collection if specified
+        if ($mediaOption = $this->option('media')) {
+            $ids = $this->parseMediaIds($mediaOption);
+
+            if (empty($ids)) {
+                $this->error('Invalid --media value.');
+
+                return self::FAILURE;
+            }
+
+            $query->whereIn('id', $ids);
+        }
+
         if ($collection = $this->option('collection')) {
             $query->whereHas('collections', function ($q) use ($collection) {
                 $q->where('name', $collection);
             });
         }
 
-        // Filter by specific media ID if specified
-        if ($mediaId = $this->option('media')) {
-            $query->where('id', $mediaId);
-        }
-
-        // Filter out items that already have responsive images unless forced
         if (! $this->option('force')) {
             $query->whereNull('custom_properties->responsive_images');
         }
@@ -43,42 +53,65 @@ class GenerateResponsiveImagesCommand extends Command
         if ($mediaItems->isEmpty()) {
             $this->info('No media items found to process.');
 
-            return 0;
+            return self::SUCCESS;
         }
 
-        $this->info("Processing {$mediaItems->count()} media items...");
+        $total = $mediaItems->count();
 
-        $progressBar = $this->output->createProgressBar($mediaItems->count());
-        $progressBar->start();
+        if ($this->option('queue')) {
+            $this->section('Generate responsive');
 
+            $this->statusLine('Media items', 'info', (string) $total);
+            $this->statusLine('Mode', 'info', 'queue');
+            $this->newLine();
+
+            foreach ($mediaItems as $media) {
+                GenerateResponsiveImages::dispatch($media);
+            }
+
+            $this->statusLine('Dispatched', 'ok', "{$total} (queued)");
+
+            return self::SUCCESS;
+        }
+
+        $this->section('Generate responsive');
+
+        $this->statusLine('Media items', 'info', (string) $total);
+        $this->statusLine('Mode', 'info', 'inline');
+        $this->newLine();
+
+        $processed = 0;
+        $failures = [];
         $generator = app(ResponsiveImageGenerator::class);
-        $useQueue = $this->option('queue') || config('mediaman.responsive_images.queue', true);
 
         foreach ($mediaItems as $media) {
             try {
-                if ($useQueue) {
-                    GenerateResponsiveImages::dispatch($media);
-                    $this->line(" Queued: {$media->name}");
-                } else {
-                    $generator->generateResponsiveImages($media);
-                    $this->line(" Processed: {$media->name}");
-                }
+                $generator->generateResponsiveImages($media);
+                $processed++;
             } catch (\Exception $e) {
-                $this->error(" Failed: {$media->name} - {$e->getMessage()}");
+                $failures[] = ['id' => $media->getKey(), 'name' => $media->name, 'error' => $e->getMessage()];
             }
-
-            $progressBar->advance();
         }
 
-        $progressBar->finish();
-        $this->newLine();
-
-        if ($useQueue) {
-            $this->info('Responsive image generation jobs have been queued.');
-        } else {
-            $this->info('Responsive images generation completed.');
+        if ($processed > 0) {
+            $this->statusLine('Processed', 'ok', (string) $processed);
         }
 
-        return 0;
+        if (! empty($failures)) {
+            $this->statusLine('Failed', 'error', (string) count($failures));
+
+            foreach ($failures as $f) {
+                $this->components->twoColumnDetail(
+                    "  #{$f['id']} {$f['name']}",
+                    "<fg=red>✗</> {$f['error']}"
+                );
+            }
+        }
+
+        if ($processed === 0 && empty($failures)) {
+            $this->statusLine('Result', 'info', 'nothing to do');
+        }
+
+        return self::SUCCESS;
     }
 }

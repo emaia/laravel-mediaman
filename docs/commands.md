@@ -203,20 +203,20 @@ A confirmation prompt fires when the operation count crosses 100. Converted file
 Generate responsive variants for existing media:
 
 ```bash
-# All images without existing responsive variants
+# All images without existing responsive variants (inline processing)
 php artisan mediaman:generate-responsive
 
 # Force regeneration even if variants already exist
 php artisan mediaman:generate-responsive --force
 
+# Limit to specific media ids with range support
+php artisan mediaman:generate-responsive --media=1,3,5..10
+
 # Limit to a specific collection
 php artisan mediaman:generate-responsive --collection="Blog Posts"
 
-# Limit to a single media item
-php artisan mediaman:generate-responsive --media=42
-
-# Process inline instead of queuing
-php artisan mediaman:generate-responsive --queue=false
+# Dispatch as queued jobs instead of inline
+php artisan mediaman:generate-responsive --queue
 ```
 
 ## Clear responsive images
