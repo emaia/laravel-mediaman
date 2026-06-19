@@ -73,6 +73,49 @@ function removeLinkOrPath(string $path): void
     @unlink($path) || @rmdir($path);
 }
 
+it('reports the config file as not published on a fresh install', function () {
+    $path = config_path('mediaman.php');
+    $existed = file_exists($path);
+    if ($existed) {
+        $backup = file_get_contents($path);
+        unlink($path);
+    }
+
+    try {
+        $out = captureDoctorOutput();
+        expect($out)
+            ->toContain('Config file')
+            ->toContain('no (using package defaults');
+    } finally {
+        if ($existed) {
+            file_put_contents($path, $backup);
+        }
+    }
+});
+
+it('reports the config file as published when config/mediaman.php exists', function () {
+    $path = config_path('mediaman.php');
+    $existed = file_exists($path);
+    if (! $existed) {
+        if (! is_dir(dirname($path))) {
+            mkdir(dirname($path), 0o755, true);
+        }
+        file_put_contents($path, "<?php\n\nreturn [];\n");
+    }
+
+    try {
+        $out = captureDoctorOutput();
+        expect($out)
+            ->toContain('Config file')
+            ->toContain('✓')
+            ->toContain('config/mediaman.php');
+    } finally {
+        if (! $existed) {
+            @unlink($path);
+        }
+    }
+});
+
 it('reports symlink ok when filesystems.links entry exists and points correctly', function () {
     $rootDir = sys_get_temp_dir().'/mediaman-doctor-'.bin2hex(random_bytes(4));
     $linkPath = sys_get_temp_dir().'/mediaman-doctor-link-'.bin2hex(random_bytes(4));

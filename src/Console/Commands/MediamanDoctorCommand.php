@@ -24,6 +24,7 @@ class MediamanDoctorCommand extends Command
     public function handle(): int
     {
         $this->checkSchema();
+        $this->checkConfig();
         $this->checkDisk();
         $this->checkSymlink();
         $this->checkImageDriver();
@@ -53,6 +54,31 @@ class MediamanDoctorCommand extends Command
             $this->statusLine('Tables present', 'ok', 'all '.count($expectedTables).' expected tables found');
         } else {
             $this->statusLine('Tables present', 'error', 'missing: '.implode(', ', $missing));
+        }
+    }
+
+    /**
+     * Inform whether config/mediaman.php has been published. Both states are
+     * fine — package defaults via mergeConfigFrom keep the app working — but
+     * the line saves the user from "why isn't my config edit taking effect?"
+     * when they expected to be editing a published file that doesn't exist yet.
+     */
+    protected function checkConfig(): void
+    {
+        $this->section('Config file');
+
+        $path = config_path('mediaman.php');
+
+        if (file_exists($path)) {
+            // Display relative to base_path() so the value fits in the doctor
+            // output and doesn't get truncated by twoColumnDetail; the absolute
+            // root rarely adds diagnostic value.
+            $relative = str_starts_with($path, base_path().'/')
+                ? substr($path, strlen(base_path()) + 1)
+                : $path;
+            $this->statusLine('Published', 'ok', "at {$relative}");
+        } else {
+            $this->statusLine('Published', 'info', 'no (using package defaults — run `php artisan mediaman:publish-config` to customize)');
         }
     }
 
