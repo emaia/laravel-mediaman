@@ -5,24 +5,22 @@ namespace Emaia\MediaMan\Console\Commands;
 use Emaia\MediaMan\Console\Concerns\CommandOutputStyle;
 use Emaia\MediaMan\Console\Concerns\ParsesMediaIds;
 use Emaia\MediaMan\ConversionRegistry;
-use Emaia\MediaMan\ImageManipulator;
-use Emaia\MediaMan\Jobs\PerformConversions;
+use Emaia\MediaMan\Generators\PathGenerator;
 use Emaia\MediaMan\Models\Media;
 use Illuminate\Console\Command;
 
-class GenerateConversionsCommand extends Command
+class ClearConversionsCommand extends Command
 {
     use CommandOutputStyle;
     use ParsesMediaIds;
 
-    protected $signature = 'mediaman:generate-conversions
+    protected $signature = 'mediaman:clear-conversions
                             {--conversion= : Required. Comma-separated conversion names (e.g. "thumb,cover")}
                             {--media= : Comma-separated IDs and/or ranges (e.g. "1,3,5..10")}
                             {--collection= : Filter by collection name}
-                            {--force : Overwrite existing conversion files (default: skip if exists)}
-                            {--queue : Dispatch as queued jobs}';
+                            {--force : Skip confirmation prompt}';
 
-    protected $description = 'Generate image conversions for existing media';
+    protected $description = 'Clear image conversion files for existing media';
 
     public function handle(): int
     {
@@ -74,80 +72,53 @@ class GenerateConversionsCommand extends Command
         $total = $mediaItems->count();
         $convCount = count($conversionNames);
 
-        if ($total * $convCount > 100 && ! $this->confirm("Will process {$total} media item(s) × {$convCount} conversion(s) = ".($total * $convCount).' operations. Continue?')) {
+        if ($total * $convCount > 100 && ! $this->option('force') && ! $this->confirm("Will clear {$convCount} conversion(s) on {$total} media item(s). Continue?")) {
             $this->info('Cancelled.');
 
             return self::SUCCESS;
         }
 
-        $this->section('Generate conversions');
+        $this->section('Clear conversions');
 
         $this->statusLine('Conversions', 'info', implode(', ', $conversionNames));
         $this->statusLine('Media items', 'info', (string) $total);
         $this->newLine();
 
-        if ($this->option('queue')) {
-            $this->processQueued($mediaItems, $conversionNames);
-
-            return self::SUCCESS;
-        }
-
-        $this->processInline($mediaItems, $conversionNames, (bool) $this->option('force'));
-
-        return self::SUCCESS;
-    }
-
-    protected function processQueued($mediaItems, array $conversionNames): void
-    {
-        $count = $mediaItems->count();
-
-        foreach ($mediaItems as $media) {
-            PerformConversions::dispatch($media, $conversionNames);
-        }
-
-        $this->statusLine('Dispatched', 'ok', "{$count} (queued)");
-    }
-
-    protected function processInline($mediaItems, array $conversionNames, bool $force): void
-    {
-        $manipulator = app(ImageManipulator::class);
-        $processed = 0;
+        $cleared = 0;
         $skipped = 0;
         $failures = [];
+        $pathGenerator = app(PathGenerator::class);
 
         foreach ($mediaItems as $media) {
-            $existing = [];
-            $needed = [];
+            $filesystem = $media->filesystem();
 
             foreach ($conversionNames as $conv) {
-                if (! $force && $media->hasConversion($conv)) {
-                    $existing[] = $conv;
-                } else {
-                    $needed[] = $conv;
+                $conversionDir = $pathGenerator->getPathForConversion($media, $conv);
+
+                try {
+                    if (! $filesystem->exists($conversionDir)) {
+                        $skipped++;
+
+                        continue;
+                    }
+
+                    if ($filesystem->deleteDirectory($conversionDir)) {
+                        $cleared++;
+                    } else {
+                        $failures[] = ['id' => $media->getKey(), 'name' => $media->name, 'error' => "failed to delete '{$conv}' directory"];
+                    }
+                } catch (\Exception $e) {
+                    $failures[] = ['id' => $media->getKey(), 'name' => $media->name, 'error' => $e->getMessage()];
                 }
-            }
-
-            $skippedHere = count($existing);
-            $skipped += $skippedHere;
-
-            if (empty($needed)) {
-                continue;
-            }
-
-            try {
-                $manipulator->manipulate($media, $needed, false);
-                $processed++;
-            } catch (\Exception $e) {
-                $failures[] = ['id' => $media->getKey(), 'name' => $media->name, 'error' => $e->getMessage()];
             }
         }
 
-        if ($processed > 0) {
-            $this->statusLine('Processed', 'ok', (string) $processed);
+        if ($cleared > 0) {
+            $this->statusLine('Cleared', 'ok', (string) $cleared);
         }
 
         if ($skipped > 0) {
-            $this->statusLine('Skipped (already exist)', 'warn', (string) $skipped);
+            $this->statusLine('Skipped (not found)', 'warn', (string) $skipped);
         }
 
         if (! empty($failures)) {
@@ -161,8 +132,10 @@ class GenerateConversionsCommand extends Command
             }
         }
 
-        if ($processed === 0 && $skipped === 0 && empty($failures)) {
+        if ($cleared === 0 && $skipped === 0 && empty($failures)) {
             $this->statusLine('Result', 'info', 'nothing to do');
         }
+
+        return self::SUCCESS;
     }
 }

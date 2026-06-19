@@ -2,16 +2,21 @@
 
 namespace Emaia\MediaMan\Console\Commands;
 
+use Emaia\MediaMan\Console\Concerns\CommandOutputStyle;
+use Emaia\MediaMan\Console\Concerns\ParsesMediaIds;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Illuminate\Console\Command;
 
 class ClearResponsiveImagesCommand extends Command
 {
-    protected $signature = 'mediaman:clear-responsive 
+    use CommandOutputStyle;
+    use ParsesMediaIds;
+
+    protected $signature = 'mediaman:clear-responsive
                             {--collection= : Clear for specific collection}
-                            {--media= : Clear for specific media ID}
-                            {--confirm : Skip confirmation prompt}';
+                            {--media= : Comma-separated IDs and/or ranges (e.g. "1,3,5..10")}
+                            {--force : Skip confirmation prompt}';
 
     protected $description = 'Clear responsive images for media items';
 
@@ -19,19 +24,24 @@ class ClearResponsiveImagesCommand extends Command
     {
         $query = Media::query()->where('mime_type', 'like', 'image/%');
 
-        // Filter by collection if specified
         if ($collection = $this->option('collection')) {
             $query->whereHas('collections', function ($q) use ($collection) {
                 $q->where('name', $collection);
             });
         }
 
-        // Filter by specific media ID if specified
-        if ($mediaId = $this->option('media')) {
-            $query->where('id', $mediaId);
+        if ($mediaOption = $this->option('media')) {
+            $ids = $this->parseMediaIds($mediaOption);
+
+            if (empty($ids)) {
+                $this->error('Invalid --media value.');
+
+                return self::FAILURE;
+            }
+
+            $query->whereIn('id', $ids);
         }
 
-        // Only get items that have responsive images
         $query->whereNotNull('custom_properties->responsive_images');
 
         $mediaItems = $query->get();
@@ -39,39 +49,53 @@ class ClearResponsiveImagesCommand extends Command
         if ($mediaItems->isEmpty()) {
             $this->info('No media items with responsive images found.');
 
-            return 0;
+            return self::SUCCESS;
         }
 
-        if (! $this->option('confirm')) {
-            if (! $this->confirm("This will clear responsive images for {$mediaItems->count()} media items. Continue?")) {
-                $this->info('Operation cancelled.');
+        if (! $this->option('force') && ! $this->confirm("This will clear responsive images for {$mediaItems->count()} media items. Continue?")) {
+            $this->info('Operation cancelled.');
 
-                return 0;
-            }
+            return self::SUCCESS;
         }
 
-        $this->info("Clearing responsive images for {$mediaItems->count()} media items...");
+        $this->section('Clear responsive');
 
-        $progressBar = $this->output->createProgressBar($mediaItems->count());
-        $progressBar->start();
+        $total = $mediaItems->count();
+        $this->statusLine('Media items', 'info', (string) $total);
+        $this->newLine();
 
+        $cleared = 0;
+        $failures = [];
         $generator = app(ResponsiveImageGenerator::class);
 
         foreach ($mediaItems as $media) {
             try {
                 $generator->clearResponsiveImages($media);
-                $this->line(" Cleared: {$media->name}");
+                $cleared++;
             } catch (\Exception $e) {
-                $this->error(" Failed: {$media->name} - {$e->getMessage()}");
+                $failures[] = ['id' => $media->getKey(), 'name' => $media->name, 'error' => $e->getMessage()];
             }
-
-            $progressBar->advance();
         }
 
-        $progressBar->finish();
-        $this->newLine();
-        $this->info('Responsive images clearing completed.');
+        if ($cleared > 0) {
+            $this->statusLine('Cleared', 'ok', (string) $cleared);
+        }
 
-        return 0;
+        if (! empty($failures)) {
+            $this->statusLine('Failed', 'error', (string) count($failures));
+
+            foreach ($failures as $f) {
+                $this->components->twoColumnDetail(
+                    "  #{$f['id']} {$f['name']}",
+                    "<fg=red>✗</> {$f['error']}"
+                );
+            }
+        }
+
+        if ($cleared === 0 && empty($failures)) {
+            $this->statusLine('Result', 'info', 'nothing to do');
+        }
+
+        return self::SUCCESS;
     }
 }
