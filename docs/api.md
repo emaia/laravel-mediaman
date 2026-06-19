@@ -9,9 +9,14 @@ Public surface of the package, organized by class/trait. Each entry links back t
 - [MediaUploader](#mediauploader) — `Emaia\MediaMan\MediaUploader`
 - [HasMedia trait](#hasmedia-trait) — `Emaia\MediaMan\Traits\HasMedia`
 - [MediaChannel](#mediachannel) — `Emaia\MediaMan\MediaChannel`
+- [ConversionRegistry](#conversionregistry) — `Emaia\MediaMan\ConversionRegistry`
+- [ImageManipulator](#imagemanipulator) — `Emaia\MediaMan\ImageManipulator`
+- [ResponsiveImageGenerator](#responsiveimagegenerator) — `Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator`
 - [Generators](#generators) — `Emaia\MediaMan\Generators\*`
+- [Placeholders](#placeholders) — `Emaia\MediaMan\Placeholders\*`
 - [Downloaders](#downloaders) — `Emaia\MediaMan\Downloaders\*`
 - [Support](#support) — `Emaia\MediaMan\Support\*`
+- [Enums](#enums) — `Emaia\MediaMan\Enums\*`
 - [Events](#events)
 - [Exceptions](#exceptions)
 - [Facades](#facades)
@@ -45,6 +50,7 @@ Public surface of the package, organized by class/trait. Each entry links back t
 | `getOriginalPath(string $conversion = ''): string`                                           | Path on disk using `file_name` as-is.                                                                                                                                         |
 | `getFullPath(string $conversion = ''): string`                                               | Absolute path on disk.                                                                                                                                                        |
 | `getDirectory(): string`                                                                     | Base directory of this media.                                                                                                                                                 |
+| `filesystem(): Filesystem`                                                                    | Filesystem instance for this media's disk.                                                                                                                                     |
 
 ### Conversions & responsive
 
@@ -66,6 +72,8 @@ Public surface of the package, organized by class/trait. Each entry links back t
 | `getImageWidth(): ?int`                                                  | Original width in px.                     |
 | `getImageHeight(): ?int`                                                 | Original height in px.                    |
 | `clearResponsiveImages(): void`                                          | Remove variant files and metadata.        |
+| `clearConversionFormatCache(): void`                                     | Reset internal conversion-format map.     |
+| `hasResponsiveFormat(string $format): bool`                              | Whether responsive variants exist in a given format. |
 
 ### HTTP responses & mail
 
@@ -98,6 +106,8 @@ Public surface of the package, organized by class/trait. Each entry links back t
 | Signature                      | Description                |
 |--------------------------------|----------------------------|
 | `isOfType(string $type): bool` | e.g. `'image'`, `'video'`. |
+| `replaceFileExtension(string $fileName, string $newExtension): string` | Swap extension in a filename. |
+| `getExtensionFromMimeType(string $mimeType): string` | Resolve extension from MIME type. |
 
 ### Relationships
 
@@ -110,11 +120,13 @@ Public surface of the package, organized by class/trait. Each entry links back t
 
 ### Constants
 
-| Name              | Value           | Use                                       |
-|-------------------|-----------------|-------------------------------------------|
-| `DEFAULT_CHANNEL` | `'default'`     | Default value for channel parameters.     |
-| `CONVERSIONS_DIR` | `'conversions'` | Subdirectory holding conversions.         |
-| `RESPONSIVE_DIR`  | `'responsive'`  | Subdirectory holding responsive variants. |
+| Name                        | Value                | Use                                       |
+|-----------------------------|----------------------|-------------------------------------------|
+| `DEFAULT_CHANNEL`           | `'default'`          | Default value for channel parameters.     |
+| `CONVERSIONS_DIR`           | `'conversions'`      | Subdirectory holding conversions.         |
+| `RESPONSIVE_DIR`            | `'responsive'`       | Subdirectory holding responsive variants. |
+| `PROPERTY_IMAGE_META`       | `'image_meta'`       | Key in `custom_properties` for width, height, dominant color. |
+| `PROPERTY_RESPONSIVE_IMAGES` | `'responsive_images'` | Key in `custom_properties` for responsive variant descriptors. |
 
 ---
 
@@ -275,6 +287,46 @@ Public surface of the package, organized by class/trait. Each entry links back t
 
 ---
 
+## ConversionRegistry
+
+`Emaia\MediaMan\ConversionRegistry` — global singleton for named image conversions. Register once, reuse across any model or channel. Also available via the `Conversion` facade.
+
+| Signature                                    | Description                                      |
+|----------------------------------------------|--------------------------------------------------|
+| `register(string $name, callable $conversion): void` | Register a named conversion closure.              |
+| `exists(string $name): bool`                 | Whether a conversion name is registered.         |
+| `get(string $name): callable`                | Retrieve the conversion closure for a name.      |
+| `getFormat(string $name): ?string`           | Detected output format (e.g. `'jpg'`, `'webp'`). |
+| `all(): array`                               | All registered conversions keyed by name.         |
+
+Format is auto-detected at registration time via reflection on the closure's return type. See [Conversions](conversions.md).
+
+---
+
+## ImageManipulator
+
+`Emaia\MediaMan\ImageManipulator` — executes conversion closures via Intervention Image. Used by `PerformConversions` jobs and the `mediaman:generate-conversions` command.
+
+| Signature                                                                   | Description                                                                 |
+|-----------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| `manipulate(Media $media, array $conversions, bool $onlyIfMissing = true): void` | Run listed conversion closures against a media item. Skips existing files unless `$onlyIfMissing` is `false`. |
+
+---
+
+## ResponsiveImageGenerator
+
+`Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator` — generates and clears responsive image variants for a media item. Also consumable directly to wire custom width calculators.
+
+| Signature                                                                | Description                                           |
+|--------------------------------------------------------------------------|-------------------------------------------------------|
+| `generateResponsiveImages(Media $media, array $options = []): void`      | Generate responsive variants for a media item.        |
+| `clearResponsiveImages(Media $media): void`                              | Remove all responsive variant files from disk.        |
+| `setWidthCalculator(WidthCalculator $calculator): self`                  | Swap the width calculation strategy for this instance. |
+
+See [Responsive images](responsive-images.md).
+
+---
+
 ## Generators
 
 Customize where files live and how URLs/filenames are produced — see [Configuration → Pluggable generators](configuration.md#pluggable-generators).
@@ -324,6 +376,34 @@ use Emaia\MediaMan\Generators\PathGenerator;
 
 $this->app->bind(PathGenerator::class, MyTenantPathGenerator::class);
 ```
+
+### `WidthCalculator`
+
+Pluggable width calculation for responsive images. Two implementations ship out of the box; bind or configure via `mediaman.responsive_images.width_calculator`.
+
+```php
+interface WidthCalculator
+{
+    public function calculateWidthsFromFile(string $imagePath): Collection;
+    public function calculateWidthsFromBinary(string $binary): Collection;
+    public function calculateWidths(int $fileSize, int $width, int $height): Collection;
+}
+```
+
+| Implementation                          | Config value       | Description                                                                 |
+|-----------------------------------------|--------------------|-----------------------------------------------------------------------------|
+| `BreakpointWidthCalculator` (default)   | `'breakpoint'`     | Derives widths from the configured `breakpoints` array. `setBreakpoints(array)` / `getBreakpoints(): array` for customisation. |
+| `FileSizeOptimizedWidthCalculator`      | `'filesize'`       | Chooses widths so each responsive variant stays within a target byte budget. |
+
+Swap via service container or config:
+
+```php
+use Emaia\MediaMan\ResponsiveImages\WidthCalculator\WidthCalculator;
+
+$this->app->bind(WidthCalculator::class, FileSizeOptimizedWidthCalculator::class);
+```
+
+See [Responsive images → Width calculators](responsive-images.md).
 
 ---
 
@@ -385,6 +465,33 @@ Default: `HttpDownloader` — Laravel HTTP client + Guzzle, with `CURLOPT_RESOLV
 | `UrlGuard::resolve(string $url): array{host: string, port: int, ips: string[]}` | Validates and returns resolved IPs for DNS-rebinding-safe fetches. |
 
 See [Security → SSRF protection](security.md#ssrf-protection-for-remote-urls).
+
+---
+
+## Enums
+
+`Emaia\MediaMan\Enums\MediaFormat` and `Emaia\MediaMan\Enums\MediaType`.
+
+### `MediaFormat` (backed string enum)
+
+Determines the output format of a conversion. Detected automatically via reflection at registration time.
+
+**Cases:** `WEBP`, `AVIF`, `JPG`, `JPEG`, `PNG`, `GIF`, `BMP`, `TIFF`, `HEIC`, `HEIF`, `SVG`.
+
+| Signature                                                     | Description                                               |
+|---------------------------------------------------------------|-----------------------------------------------------------|
+| `MediaFormat::mimeType(): string`                             | MIME type for the format (e.g. `'image/webp'`).          |
+| `MediaFormat::extensionFromMimeType(string $mimeType): string` | Resolve the file extension from a MIME string.           |
+| `MediaFormat::tryFromValue(string $value): ?self`             | Resolve from MIME string or format name.                  |
+| `MediaFormat::responsiveFormats(): array`                     | Formats suitable for responsive variants (`WEBP`,`AVIF`,`JPG`,`PNG`). |
+| `MediaFormat::preferredOrder(): array`                        | Modern-format priority ordered (`AVIF`,`WEBP`,`JPG`,`PNG`). |
+| `MediaFormat::detectableFormats(): array`                     | Formats recognised by PHP's `getimagesize()`.              |
+
+### `MediaType` (backed string enum)
+
+Broad bucket classification used by `Media::isOfType()` and `$media->type` accessor.
+
+**Cases:** `IMAGE`, `VIDEO`, `AUDIO`, `DOCUMENT`, `OTHER`.
 
 ---
 
