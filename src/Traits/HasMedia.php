@@ -33,11 +33,18 @@ trait HasMedia
     }
 
     /**
+     * Sentinel cache key for the "all channels" (null) lookup so it does not
+     * collide with the explicit DEFAULT_CHANNEL key. Pivot data never contains
+     * a channel literally equal to this string.
+     */
+    private const ALL_CHANNELS_CACHE_KEY = '__all_channels__';
+
+    /**
      * Get all the media in the specified channel.
      */
     public function getMedia(?string $channel = Media::DEFAULT_CHANNEL): Collection
     {
-        $cacheKey = $channel ?? Media::DEFAULT_CHANNEL;
+        $cacheKey = $channel ?? self::ALL_CHANNELS_CACHE_KEY;
 
         if (! isset($this->mediaCache[$cacheKey])) {
             if ($this->relationLoaded('media')) {
@@ -322,16 +329,22 @@ trait HasMedia
     }
 
     /**
-     * Clear cached media for a channel, or all channels when null.
+     * Clear cached media for a channel, or all channels when null. Clearing a
+     * single channel also invalidates the all-channels cache (it would include
+     * the cleared channel's media and otherwise stay stale).
      */
     protected function clearMediaCache(?string $channel = null): void
     {
         if ($channel === null) {
             $this->mediaCache = [];
-        } else {
-            $cacheKey = $channel;
-            unset($this->mediaCache[$cacheKey]);
+
+            return;
         }
+
+        unset(
+            $this->mediaCache[$channel],
+            $this->mediaCache[self::ALL_CHANNELS_CACHE_KEY],
+        );
     }
 
     /**
