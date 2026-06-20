@@ -1,0 +1,293 @@
+<?php
+
+use Emaia\MediaMan\Events\MediaUploaded;
+use Emaia\MediaMan\Exceptions\MediaNotAcceptedByChannel;
+use Emaia\MediaMan\Jobs\PerformConversions;
+use Emaia\MediaMan\MediaUploader;
+use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\Tests\Models\Subject;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
+
+beforeEach(function () {
+    $this->subject = Subject::create();
+});
+
+function uploadImage(string $name = 'a.jpg'): Media
+{
+    return MediaUploader::source(UploadedFile::fake()->image($name))->upload();
+}
+
+// ─── Single rule ────────────────────────────────────────────────────
+
+it('attaches when a single anonymous rule passes', function () {
+    $this->subject->addMediaChannel('hero')
+        ->acceptsFile(fn (Media $m) => $m->mime_type === 'image/jpeg');
+
+    $media = uploadImage();
+
+    $this->subject->attachMedia($media, 'hero');
+
+    expect($this->subject->getMedia('hero'))->toHaveCount(1);
+});
+
+it('throws when a single anonymous rule fails', function () {
+    $this->subject->addMediaChannel('hero')
+        ->acceptsFile(fn (Media $m) => false);
+
+    $media = uploadImage();
+
+    expect(fn () => $this->subject->attachMedia($media, 'hero'))
+        ->toThrow(MediaNotAcceptedByChannel::class);
+
+    expect($this->subject->getMedia('hero'))->toHaveCount(0);
+});
+
+// ─── Stacked rules ──────────────────────────────────────────────────
+
+it('stacks rules with implicit AND', function () {
+    $this->subject->addMediaChannel('hero')
+        ->acceptsFile(fn (Media $m) => true)
+        ->acceptsFile(fn (Media $m) => true)
+        ->acceptsFile(fn (Media $m) => true);
+
+    $this->subject->attachMedia(uploadImage(), 'hero');
+
+    expect($this->subject->getMedia('hero'))->toHaveCount(1);
+});
+
+it('rejects when any stacked rule fails', function () {
+    $this->subject->addMediaChannel('hero')
+        ->acceptsFile(fn (Media $m) => true)
+        ->acceptsFile('blocker', fn (Media $m) => false)
+        ->acceptsFile(fn (Media $m) => true);
+
+    try {
+        $this->subject->attachMedia(uploadImage(), 'hero');
+        $this->fail('Expected MediaNotAcceptedByChannel to be thrown');
+    } catch (MediaNotAcceptedByChannel $e) {
+        expect($e->rule)->toBe('blocker');
+    }
+});
+
+// ─── Named rules and exception payload ──────────────────────────────
+
+it('carries rule name, channel and mediaId on the exception', function () {
+    $this->subject->addMediaChannel('hero')
+        ->acceptsFile('jpeg-only', fn (Media $m) => $m->mime_type === 'image/png');
+
+    $media = uploadImage();
+
+    try {
+        $this->subject->attachMedia($media, 'hero');
+        $this->fail('Expected MediaNotAcceptedByChannel to be thrown');
+    } catch (MediaNotAcceptedByChannel $e) {
+        expect($e->rule)->toBe('jpeg-only')
+            ->and($e->channel)->toBe('hero')
+            ->and($e->mediaId)->toBe($media->getKey());
+    }
+});
+
+it('leaves rule null on the exception for anonymous failures', function () {
+    $this->subject->addMediaChannel('hero')
+        ->acceptsFile(fn (Media $m) => false);
+
+    $media = uploadImage();
+
+    try {
+        $this->subject->attachMedia($media, 'hero');
+        $this->fail('Expected MediaNotAcceptedByChannel to be thrown');
+    } catch (MediaNotAcceptedByChannel $e) {
+        expect($e->rule)->toBeNull()
+            ->and($e->mediaId)->toBe($media->getKey());
+    }
+});
+
+it('rejects acceptsFile with a name but no closure', function () {
+    expect(fn () => $this->subject->addMediaChannel('hero')->acceptsFile('only-name'))
+        ->toThrow(InvalidArgumentException::class);
+});
+
+// ─── Reflection-detected $model parameter ───────────────────────────
+
+it('passes the owning model when the rule declares a second parameter', function () {
+    $seen = null;
+
+    $this->subject->addMediaChannel('hero')
+        ->acceptsFile(function (Media $m, $model) use (&$seen) {
+            $seen = $model;
+
+            return true;
+        });
+
+    $this->subject->attachMedia(uploadImage(), 'hero');
+
+    expect($seen)->toBe($this->subject);
+});
+
+// ─── Fast path single INSERT ────────────────────────────────────────
+
+it('keeps property-only rules on the single-INSERT fast path', function () {
+    $this->subject->addMediaChannel('hero')
+        ->acceptsFile(fn (Media $m) => true);
+
+    $a = uploadImage('a.jpg');
+    $b = uploadImage('b.jpg');
+    $c = uploadImage('c.jpg');
+
+    DB::enableQueryLog();
+
+    $this->subject->attachMedia([$a->getKey(), $b->getKey(), $c->getKey()], 'hero');
+
+    $inserts = collect(DB::getQueryLog())
+        ->filter(fn ($entry) => str_starts_with(strtolower(trim($entry['query'])), 'insert into "mediaman_mediables"'))
+        ->count();
+
+    DB::disableQueryLog();
+
+    expect($inserts)->toBe(1)
+        ->and($this->subject->getMedia('hero'))->toHaveCount(3);
+});
+
+// ─── Aggregate path: incremental count ──────────────────────────────
+
+it('runs aggregate rules incrementally so count() grows mid-batch', function () {
+    $this->subject->addMediaChannel('gallery')
+        ->acceptsFile('max-2', fn (Media $m, $model) => $model->getMedia('gallery')->count() < 2);
+
+    $a = uploadImage('a.jpg');
+    $b = uploadImage('b.jpg');
+    $c = uploadImage('c.jpg');
+
+    try {
+        $this->subject->attachMedia([$a->getKey(), $b->getKey(), $c->getKey()], 'gallery');
+        $this->fail('Expected MediaNotAcceptedByChannel');
+    } catch (MediaNotAcceptedByChannel $e) {
+        expect($e->rule)->toBe('max-2')
+            ->and($e->mediaId)->toBe($c->getKey());
+    }
+
+    // Rollback: nothing in the batch landed.
+    expect($this->subject->getMedia('gallery'))->toHaveCount(0);
+});
+
+it('keeps fully-passing aggregate batches attached', function () {
+    $this->subject->addMediaChannel('gallery')
+        ->acceptsFile('max-3', fn (Media $m, $model) => $model->getMedia('gallery')->count() < 3);
+
+    $a = uploadImage('a.jpg');
+    $b = uploadImage('b.jpg');
+
+    $this->subject->attachMedia([$a->getKey(), $b->getKey()], 'gallery');
+
+    expect($this->subject->getMedia('gallery'))->toHaveCount(2);
+});
+
+// ─── Lock SQL (skipped on SQLite) ───────────────────────────────────
+
+it('emits SELECT ... FOR UPDATE in the aggregate path', function () {
+    if (DB::connection()->getDriverName() === 'sqlite') {
+        $this->markTestSkipped('SQLite compiles lockForUpdate to an empty string; behavior covered by aggregate count tests.');
+    }
+
+    $this->subject->addMediaChannel('gallery')
+        ->acceptsFile('max', fn (Media $m, $model) => $model->getMedia('gallery')->count() < 10);
+
+    DB::enableQueryLog();
+
+    $this->subject->attachMedia(uploadImage()->getKey(), 'gallery');
+
+    $log = collect(DB::getQueryLog())->pluck('query');
+
+    DB::disableQueryLog();
+
+    expect($log->some(fn ($q) => str_contains(strtolower($q), 'for update')))->toBeTrue();
+});
+
+// ─── Conversion dispatch timing ─────────────────────────────────────
+
+it('does not dispatch PerformConversions when a rule rejects the attach', function () {
+    Bus::fake();
+
+    $this->subject->addMediaChannel('hero')
+        ->performConversions('thumbnail')
+        ->acceptsFile(fn (Media $m) => false);
+
+    $media = uploadImage();
+
+    try {
+        $this->subject->attachMedia($media, 'hero');
+    } catch (MediaNotAcceptedByChannel) {
+        // expected
+    }
+
+    Bus::assertNotDispatched(PerformConversions::class);
+});
+
+it('dispatches PerformConversions for attached items in the rule paths', function () {
+    Bus::fake();
+
+    $this->subject->addMediaChannel('hero')
+        ->performConversions('thumbnail')
+        ->acceptsFile(fn (Media $m) => true);
+
+    $this->subject->attachMedia(uploadImage(), 'hero');
+
+    Bus::assertDispatched(PerformConversions::class);
+});
+
+// ─── Channel without rules — legacy untouched ───────────────────────
+
+it('leaves the legacy attach path untouched when the channel has no rules', function () {
+    $this->subject->addMediaChannel('hero');
+
+    $a = uploadImage('a.jpg');
+    $b = uploadImage('b.jpg');
+
+    $this->subject->attachMedia([$a->getKey(), $b->getKey()], 'hero');
+
+    expect($this->subject->getMedia('hero'))->toHaveCount(2);
+});
+
+// ─── Channel isolation ──────────────────────────────────────────────
+
+it('does not run hero rules when attaching to a different channel', function () {
+    $this->subject->addMediaChannel('hero')
+        ->acceptsFile(fn (Media $m) => false);
+    $this->subject->addMediaChannel('avatar');
+
+    $media = uploadImage();
+
+    // hero would reject, but avatar has no rules.
+    $this->subject->attachMedia($media, 'avatar');
+
+    expect($this->subject->getMedia('avatar'))->toHaveCount(1)
+        ->and($this->subject->getMedia('hero'))->toHaveCount(0);
+});
+
+// ─── Media stays in library on rejection ────────────────────────────
+
+it('keeps rejected media available in the library for re-attach', function () {
+    Event::fake([MediaUploaded::class]);
+
+    $this->subject->addMediaChannel('hero')
+        ->acceptsFile(fn (Media $m) => false);
+    $this->subject->addMediaChannel('archive');
+
+    $media = uploadImage();
+
+    try {
+        $this->subject->attachMedia($media, 'hero');
+    } catch (MediaNotAcceptedByChannel) {
+        // expected
+    }
+
+    // The Media record is still there — re-attach somewhere else works.
+    expect($media->fresh())->not->toBeNull();
+
+    $this->subject->attachMedia($media, 'archive');
+
+    expect($this->subject->getMedia('archive'))->toHaveCount(1);
+});

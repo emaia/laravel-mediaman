@@ -321,6 +321,20 @@ trait HasMedia
      */
     private function performAggregateAttach(array $ids, string $channel, MediaChannel $mediaChannel, bool $detaching, ?int $startOrder): array
     {
+        try {
+            return $this->runAggregateAttachTransaction($ids, $channel, $mediaChannel, $detaching, $startOrder);
+        } catch (Throwable $e) {
+            // The in-memory cache was populated while reading state inside the
+            // transaction; after rollback the DB no longer matches those rows.
+            // Invalidate so the caller sees the post-rollback truth.
+            $this->clearMediaCache($channel);
+
+            throw $e;
+        }
+    }
+
+    private function runAggregateAttachTransaction(array $ids, string $channel, MediaChannel $mediaChannel, bool $detaching, ?int $startOrder): array
+    {
         return DB::transaction(function () use ($ids, $channel, $mediaChannel, $detaching, $startOrder) {
             // Lock the owning row so concurrent batches against the same
             // instance queue instead of racing past the cap.
