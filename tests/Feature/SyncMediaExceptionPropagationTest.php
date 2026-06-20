@@ -79,8 +79,7 @@ it('still swallows generic Throwable from syncMedia and logs a warning', functio
     expect($result)->toBeNull();
 
     Log::shouldHaveReceived('warning')
-        ->withArgs(fn (string $message, array $context) =>
-            str_contains($message, 'Failed to sync media')
+        ->withArgs(fn (string $message, array $context) => str_contains($message, 'Failed to sync media')
             && $context['error'] === 'unexpected failure'
         )
         ->once();

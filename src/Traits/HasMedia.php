@@ -237,7 +237,7 @@ trait HasMedia
         $invalid = array_diff($ids, $attachedIds);
 
         if (! empty($invalid)) {
-            throw new \InvalidArgumentException(
+            throw new InvalidArgumentException(
                 'Media ids not attached to this model in channel ['.$channel.']: '.implode(', ', $invalid)
             );
         }

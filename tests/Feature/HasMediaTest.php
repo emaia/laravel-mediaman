@@ -6,6 +6,7 @@ use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Tests\Models\Subject;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Queue;
 
 beforeEach(function () {
@@ -69,7 +70,7 @@ it('rethrows QueryException when attaching a non-existent media id', function ()
     // return — indistinguishable from "nothing to attach". The exception now
     // propagates so callers can react to the integrity error.
     $this->subject->attachMedia(99999, 'custom');
-})->throws(\Illuminate\Database\QueryException::class);
+})->throws(QueryException::class);
 
 it('returns number of detached media or null while disassociating', function () {
     $media = Media::factory()->create();
