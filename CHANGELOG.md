@@ -4,6 +4,10 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `Casts\Json` no longer emits a PHP 8.3 `E_DEPRECATED` notice when `custom_properties` is `null`. The cast previously called `json_decode($value, true)` directly on the raw column value, and `json_decode(null, ...)` has been deprecated since PHP 8.1. Get and set now short-circuit on `null`, returning `null` in both directions so the column roundtrips cleanly. Apps reporting deprecations (Sentry, strict-mode logs, CI test suites) stop seeing noise on every fresh Media read.
+
 ## [2.17.1] — 2026-06-20
 
 ### Fixed
