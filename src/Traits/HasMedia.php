@@ -2,13 +2,16 @@
 
 namespace Emaia\MediaMan\Traits;
 
+use Emaia\MediaMan\Exceptions\MediaNotAcceptedByCollection;
 use Emaia\MediaMan\Jobs\PerformConversions;
 use Emaia\MediaMan\MediaChannel;
 use Emaia\MediaMan\Models\Media;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use InvalidArgumentException;
 use Throwable;
 
 trait HasMedia
@@ -189,6 +192,12 @@ trait HasMedia
             $this->clearMediaCache($channel);
 
             return ['attached' => $attached, 'detached' => $detached, 'updated' => $updated];
+        } catch (MediaNotAcceptedByCollection|QueryException|InvalidArgumentException $e) {
+            // Domain and database-level exceptions must propagate so callers
+            // can react (validation feedback, deadlock retries, etc.). Silently
+            // returning null here hid validation failures behind a no-op
+            // success indistinguishable from "nothing to sync".
+            throw $e;
         } catch (Throwable $th) {
             Log::warning('MediaMan: Failed to sync media', [
                 'channel' => $channel,

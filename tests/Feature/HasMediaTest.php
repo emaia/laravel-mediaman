@@ -55,17 +55,21 @@ it('can attach a collection of media', function () {
     );
 });
 
-it('returns number of attached media or null while associating', function () {
+it('returns number of attached media when associating succeeds', function () {
     $media = Media::factory()->create();
 
     $attachedCount = $this->subject->attachMedia($media, 'custom');
 
     expect($attachedCount)->toEqual(1);
-
-    // try attaching a non-existing media record
-    $attached = $this->subject->attachMedia(5, 'custom');
-    expect($attached)->toEqual(null);
 });
+
+it('rethrows QueryException when attaching a non-existent media id', function () {
+    // Prior to the syncMedia rethrow fix the FK constraint violation was
+    // engulfed by a generic catch(Throwable) and surfaced as a silent null
+    // return — indistinguishable from "nothing to attach". The exception now
+    // propagates so callers can react to the integrity error.
+    $this->subject->attachMedia(99999, 'custom');
+})->throws(\Illuminate\Database\QueryException::class);
 
 it('returns number of detached media or null while disassociating', function () {
     $media = Media::factory()->create();
