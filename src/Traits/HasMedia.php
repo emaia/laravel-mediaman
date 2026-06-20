@@ -2,6 +2,7 @@
 
 namespace Emaia\MediaMan\Traits;
 
+use Emaia\MediaMan\Exceptions\MediaNotAcceptedByChannel;
 use Emaia\MediaMan\Exceptions\MediaNotAcceptedByCollection;
 use Emaia\MediaMan\Jobs\PerformConversions;
 use Emaia\MediaMan\MediaChannel;
@@ -144,7 +145,13 @@ trait HasMedia
             );
         }
 
-        if (! empty($conversions)) {
+        $hasRules = $mediaChannel !== null && $mediaChannel->hasFileRules();
+
+        // When the channel has no rules the legacy behavior stays intact:
+        // conversion jobs dispatch up-front for every requested id. With
+        // rules, dispatch moves to after the attach so rejected items do
+        // not trigger work.
+        if (! $hasRules && ! empty($conversions)) {
             $model = $this->mediaModel();
 
             $mediaInstances = $model::findMany($ids);
@@ -158,48 +165,27 @@ trait HasMedia
         }
 
         try {
-            $currentMediaIds = $this->getMedia($channel)->modelKeys();
-
-            $attached = [];
-            $detached = [];
-            $updated = [];
-
-            if ($detaching) {
-                $toDetach = array_diff($currentMediaIds, $ids);
-                if (! empty($toDetach)) {
-                    $this->media()->wherePivot('channel', $channel)->detach($toDetach);
-                    $detached = array_values($toDetach);
-                }
+            if (! $hasRules) {
+                $result = $this->performLegacyAttach($ids, $channel, $detaching, $startOrder);
+            } elseif (! $mediaChannel->anyRuleNeedsModel()) {
+                $result = $this->performFastPathAttach($ids, $channel, $mediaChannel, $detaching, $startOrder);
+            } else {
+                $result = $this->performAggregateAttach($ids, $channel, $mediaChannel, $detaching, $startOrder);
             }
 
-            $toAttach = [];
-            foreach ($ids as $id) {
-                if (in_array($id, $currentMediaIds)) {
-                    $updated[] = $id;
-                } else {
-                    $toAttach[] = $id;
-                }
+            // With rules the conversion dispatch is deferred until we know
+            // which ids actually made it into the pivot.
+            if ($hasRules && ! empty($conversions) && ! empty($result['attached'])) {
+                $model = $this->mediaModel();
+                $mediaInstances = $model::findMany($result['attached']);
+
+                $mediaInstances->each(function ($mediaInstance) use ($conversions) {
+                    PerformConversions::dispatch($mediaInstance, $conversions);
+                });
             }
 
-            if (! empty($toAttach)) {
-                $baseOrder = $startOrder ?? $this->getNextOrder($channel);
-                $pivotData = [];
-
-                foreach ($toAttach as $index => $attachId) {
-                    $pivotData[$attachId] = [
-                        'channel' => $channel,
-                        'order_column' => $baseOrder + $index,
-                    ];
-                }
-
-                $this->media()->attach($pivotData);
-                $attached = $toAttach;
-            }
-
-            $this->clearMediaCache($channel);
-
-            return ['attached' => $attached, 'detached' => $detached, 'updated' => $updated];
-        } catch (MediaNotAcceptedByCollection|QueryException|InvalidArgumentException $e) {
+            return $result;
+        } catch (MediaNotAcceptedByChannel|MediaNotAcceptedByCollection|QueryException|InvalidArgumentException $e) {
             // Domain and database-level exceptions must propagate so callers
             // can react (validation feedback, deadlock retries, etc.). Silently
             // returning null here hid validation failures behind a no-op
@@ -213,6 +199,189 @@ trait HasMedia
 
             return null;
         }
+    }
+
+    /**
+     * Legacy attach path used when the channel declares no file rules.
+     * Preserves the exact behavior the trait had before v3.
+     */
+    private function performLegacyAttach(array $ids, string $channel, bool $detaching, ?int $startOrder): array
+    {
+        $currentMediaIds = $this->getMedia($channel)->modelKeys();
+
+        $attached = [];
+        $detached = [];
+        $updated = [];
+
+        if ($detaching) {
+            $toDetach = array_diff($currentMediaIds, $ids);
+            if (! empty($toDetach)) {
+                $this->media()->wherePivot('channel', $channel)->detach($toDetach);
+                $detached = array_values($toDetach);
+            }
+        }
+
+        $toAttach = [];
+        foreach ($ids as $id) {
+            if (in_array($id, $currentMediaIds)) {
+                $updated[] = $id;
+            } else {
+                $toAttach[] = $id;
+            }
+        }
+
+        if (! empty($toAttach)) {
+            $baseOrder = $startOrder ?? $this->getNextOrder($channel);
+            $pivotData = [];
+
+            foreach ($toAttach as $index => $attachId) {
+                $pivotData[$attachId] = [
+                    'channel' => $channel,
+                    'order_column' => $baseOrder + $index,
+                ];
+            }
+
+            $this->media()->attach($pivotData);
+            $attached = $toAttach;
+        }
+
+        $this->clearMediaCache($channel);
+
+        return ['attached' => $attached, 'detached' => $detached, 'updated' => $updated];
+    }
+
+    /**
+     * Fast path for channels whose rules only read media properties (no
+     * second `$model` parameter). Validates every candidate up-front, then
+     * runs the same single-INSERT attach as the legacy path — no transaction
+     * overhead, no per-item DB round-trips.
+     */
+    private function performFastPathAttach(array $ids, string $channel, MediaChannel $mediaChannel, bool $detaching, ?int $startOrder): array
+    {
+        $currentMediaIds = $this->getMedia($channel)->modelKeys();
+
+        $toAttach = [];
+        $updated = [];
+        foreach ($ids as $id) {
+            if (in_array($id, $currentMediaIds)) {
+                $updated[] = $id;
+            } else {
+                $toAttach[] = $id;
+            }
+        }
+
+        if (! empty($toAttach)) {
+            $model = $this->mediaModel();
+            $mediaInstances = $model::findMany($toAttach);
+
+            foreach ($mediaInstances as $mediaInstance) {
+                $mediaChannel->validateFile($mediaInstance, $this, $channel);
+            }
+        }
+
+        $detached = [];
+        if ($detaching) {
+            $toDetach = array_diff($currentMediaIds, $ids);
+            if (! empty($toDetach)) {
+                $this->media()->wherePivot('channel', $channel)->detach($toDetach);
+                $detached = array_values($toDetach);
+            }
+        }
+
+        $attached = [];
+        if (! empty($toAttach)) {
+            $baseOrder = $startOrder ?? $this->getNextOrder($channel);
+            $pivotData = [];
+
+            foreach ($toAttach as $index => $attachId) {
+                $pivotData[$attachId] = [
+                    'channel' => $channel,
+                    'order_column' => $baseOrder + $index,
+                ];
+            }
+
+            $this->media()->attach($pivotData);
+            $attached = $toAttach;
+        }
+
+        $this->clearMediaCache($channel);
+
+        return ['attached' => $attached, 'detached' => $detached, 'updated' => $updated];
+    }
+
+    /**
+     * Aggregate path for channels whose rules depend on the owning model
+     * (e.g. `count() < 5`). Wraps the operation in a DB transaction, locks
+     * the owning row to serialize concurrent batches, and runs validation
+     * and attach incrementally so each item sees the count growing.
+     *
+     * Concurrency guarantee depends on a driver with real row locks
+     * (MySQL/InnoDB, Postgres). SQLite serializes writes via its file lock
+     * and gets equivalent safety without emitting `FOR UPDATE`.
+     */
+    private function performAggregateAttach(array $ids, string $channel, MediaChannel $mediaChannel, bool $detaching, ?int $startOrder): array
+    {
+        return DB::transaction(function () use ($ids, $channel, $mediaChannel, $detaching, $startOrder) {
+            // Lock the owning row so concurrent batches against the same
+            // instance queue instead of racing past the cap.
+            static::query()->lockForUpdate()->find($this->getKey());
+
+            // Forget any eager-loaded media so getMedia() re-reads from DB
+            // inside the lock — stale snapshots would let the count slip.
+            $this->unsetRelation('media');
+            $this->clearMediaCache($channel);
+
+            $currentMediaIds = $this->getMedia($channel)->modelKeys();
+
+            $detached = [];
+            if ($detaching) {
+                $toDetach = array_diff($currentMediaIds, $ids);
+                if (! empty($toDetach)) {
+                    $this->media()->wherePivot('channel', $channel)->detach($toDetach);
+                    $detached = array_values($toDetach);
+                    $this->clearMediaCache($channel);
+                }
+            }
+
+            $toAttach = [];
+            $updated = [];
+            foreach ($ids as $id) {
+                if (in_array($id, $currentMediaIds)) {
+                    $updated[] = $id;
+                } else {
+                    $toAttach[] = $id;
+                }
+            }
+
+            $attached = [];
+            if (! empty($toAttach)) {
+                $model = $this->mediaModel();
+                $mediaInstances = $model::findMany($toAttach)->keyBy(fn ($m) => $m->getKey());
+
+                $baseOrder = $startOrder ?? $this->getNextOrder($channel);
+
+                foreach ($toAttach as $index => $attachId) {
+                    $mediaInstance = $mediaInstances[$attachId] ?? null;
+                    if ($mediaInstance === null) {
+                        continue;
+                    }
+
+                    $mediaChannel->validateFile($mediaInstance, $this, $channel);
+
+                    $this->media()->attach([
+                        $attachId => [
+                            'channel' => $channel,
+                            'order_column' => $baseOrder + $index,
+                        ],
+                    ]);
+
+                    $attached[] = $attachId;
+                    $this->clearMediaCache($channel);
+                }
+            }
+
+            return ['attached' => $attached, 'detached' => $detached, 'updated' => $updated];
+        });
     }
 
     /**
