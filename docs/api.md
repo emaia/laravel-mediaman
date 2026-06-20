@@ -261,6 +261,7 @@ Public surface of the package, organized by class/trait. Each entry links back t
 | `detachMedia($media = null): ?int`                                                                                                 | Detach specific media (or all when `null`).                                                     |
 | `clearMediaChannel(string $channel = 'default'): void`                                                                             | Detach all in a channel.                                                                        |
 | `setMediaOrder(array $ids, string $channel = 'default'): void`                                                                     | Reorder positions in a transaction. Throws `InvalidArgumentException` if any id isn't attached. |
+| `forgetMediaCache(?string $channel = null): self`                                                                                  | Invalidate the in-memory cache for a channel, or every channel when `null`. Fluent.             |
 
 ### Channel registration
 

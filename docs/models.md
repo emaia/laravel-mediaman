@@ -70,6 +70,19 @@ $post->detachMedia();               // detach all media from all channels
 $post->clearMediaChannel('gallery'); // detach all media in a specific channel
 ```
 
+### Cache invalidation
+
+`getMedia()` results are cached per-instance to avoid hitting the database on repeat reads inside the same request. The cache is invalidated automatically whenever the trait mutates the pivot — `attachMedia`, `syncMedia`, `detachMedia`, `setMediaOrder`, and `clearMediaChannel` all clear the relevant entries.
+
+If something *outside* the trait changes the pivot — a queued job on the `sync` driver reusing the same model instance, a raw `DB::table()` insert, a sibling relation refresh — the cache stays stale until you tell it otherwise. `forgetMediaCache()` is the escape hatch:
+
+```php
+$post->forgetMediaCache('gallery');  // clear one channel
+$post->forgetMediaCache();           // clear every channel
+```
+
+Clearing a specific channel also invalidates the all-channels (`getMedia(null)`) snapshot, since it includes that channel's media. Returns `$this` so it chains fluently.
+
 ## `getFirst*` and `getLast*` helpers
 
 For the common single-image case (avatars, cover photos), prefer the dedicated helpers — they're shorter and read better.
