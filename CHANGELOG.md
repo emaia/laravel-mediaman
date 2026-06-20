@@ -4,6 +4,13 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `Casts\Json` no longer emits a PHP 8.3 `E_DEPRECATED` notice when `custom_properties` is `null`. The cast previously called `json_decode($value, true)` directly on the raw column value, and `json_decode(null, ...)` has been deprecated since PHP 8.1. Get and set now short-circuit on `null`, returning `null` in both directions so the column roundtrips cleanly. Apps reporting deprecations (Sentry, strict-mode logs, CI test suites) stop seeing noise on every fresh Media read.
+- `Media::getCustomProperty($name, $default)` now accepts any default value type. The `$default` parameter was previously declared as `?string`, so any non-string default — including the array shapes the package itself persists under `image_meta` and `conversion_hashes` — raised a `TypeError` before reaching `Arr::get()`. The signature is now `getCustomProperty(string $name, mixed $default = null): mixed`, matching the actual storage contract.
+- `HasMedia::syncMedia` no longer swallows domain and database exceptions. The `catch (Throwable)` block at the end of the method previously logged a warning and returned `null` for **every** failure, hiding `MediaNotAcceptedByCollection`, `QueryException` (deadlocks, constraint violations), and `InvalidArgumentException` behind a no-op result indistinguishable from "nothing to sync". Those three exception types now rethrow so callers can surface validation feedback, retry deadlocks, or fail fast on programmer error. Truly unexpected `Throwable`s keep the existing log-and-return-null behavior — the swallowing was the bug, not the logging. This unblocks the upcoming v3 `acceptsFile()` channel rules, whose `MediaNotAcceptedByChannel` would otherwise be silently absorbed here.
+- `HasMedia::getMedia(null)` no longer poisons the `default` channel cache. The cache key was derived as `$channel ?? Media::DEFAULT_CHANNEL`, so `getMedia(null)` (which intentionally returns media across **all** channels) stored its unfiltered result under the `'default'` key. The next call to `getMedia('default')` then hit that cache and returned media from every channel instead of just the default one. The all-channels lookup is now keyed by an internal sentinel string that pivot data can never collide with, and `clearMediaCache($channel)` also invalidates that sentinel so detach/attach side effects do not leave a stale "all channels" snapshot behind.
+
 ## [2.17.1] — 2026-06-20
 
 ### Fixed

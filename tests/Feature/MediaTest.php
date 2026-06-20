@@ -696,6 +696,19 @@ it('can forget custom data', function () {
         ->and($media->getCustomProperty('size'))->toEqual('small');
 });
 
+it('accepts non-string default values from getCustomProperty', function () {
+    $media = Media::factory()->create();
+
+    // Each call exercises a default of a different type — all must work
+    // without TypeError. Pre-fix the parameter was typed as ?string and
+    // any non-string default raised TypeError before Arr::get ran.
+    expect($media->getCustomProperty('missing', []))->toBe([])
+        ->and($media->getCustomProperty('missing', ['w' => 0, 'h' => 0]))->toBe(['w' => 0, 'h' => 0])
+        ->and($media->getCustomProperty('missing', 0))->toBe(0)
+        ->and($media->getCustomProperty('missing', false))->toBeFalse()
+        ->and($media->getCustomProperty('missing', 3.14))->toBe(3.14);
+});
+
 it('has a composite index on mediables table for mediable_type, mediable_id and channel', function () {
     $tableName = config('mediaman.tables.mediables');
     $indexes = DB::select("PRAGMA index_list('{$tableName}')");

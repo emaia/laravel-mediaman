@@ -12,12 +12,16 @@ class Json implements CastsAttributes
      *
      * @param  Model  $model
      * @param  string  $key
-     * @param  mixed  $value
+     * @param  string|null  $value
      * @param  array  $attributes
-     * @return array
+     * @return array|null
      */
     public function get($model, $key, $value, $attributes): mixed
     {
+        if ($value === null) {
+            return null;
+        }
+
         return json_decode($value, true);
     }
 
@@ -26,12 +30,16 @@ class Json implements CastsAttributes
      *
      * @param  Model  $model
      * @param  string  $key
-     * @param  array  $value
+     * @param  array|null  $value
      * @param  array  $attributes
-     * @return string
+     * @return string|null
      */
     public function set($model, $key, $value, $attributes): mixed
     {
+        if ($value === null) {
+            return null;
+        }
+
         return json_encode($value);
     }
 }

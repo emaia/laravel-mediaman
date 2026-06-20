@@ -2,13 +2,16 @@
 
 namespace Emaia\MediaMan\Traits;
 
+use Emaia\MediaMan\Exceptions\MediaNotAcceptedByCollection;
 use Emaia\MediaMan\Jobs\PerformConversions;
 use Emaia\MediaMan\MediaChannel;
 use Emaia\MediaMan\Models\Media;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use InvalidArgumentException;
 use Throwable;
 
 trait HasMedia
@@ -30,11 +33,18 @@ trait HasMedia
     }
 
     /**
+     * Sentinel cache key for the "all channels" (null) lookup so it does not
+     * collide with the explicit DEFAULT_CHANNEL key. Pivot data never contains
+     * a channel literally equal to this string.
+     */
+    private const ALL_CHANNELS_CACHE_KEY = '__all_channels__';
+
+    /**
      * Get all the media in the specified channel.
      */
     public function getMedia(?string $channel = Media::DEFAULT_CHANNEL): Collection
     {
-        $cacheKey = $channel ?? Media::DEFAULT_CHANNEL;
+        $cacheKey = $channel ?? self::ALL_CHANNELS_CACHE_KEY;
 
         if (! isset($this->mediaCache[$cacheKey])) {
             if ($this->relationLoaded('media')) {
@@ -189,6 +199,12 @@ trait HasMedia
             $this->clearMediaCache($channel);
 
             return ['attached' => $attached, 'detached' => $detached, 'updated' => $updated];
+        } catch (MediaNotAcceptedByCollection|QueryException|InvalidArgumentException $e) {
+            // Domain and database-level exceptions must propagate so callers
+            // can react (validation feedback, deadlock retries, etc.). Silently
+            // returning null here hid validation failures behind a no-op
+            // success indistinguishable from "nothing to sync".
+            throw $e;
         } catch (Throwable $th) {
             Log::warning('MediaMan: Failed to sync media', [
                 'channel' => $channel,
@@ -221,7 +237,7 @@ trait HasMedia
         $invalid = array_diff($ids, $attachedIds);
 
         if (! empty($invalid)) {
-            throw new \InvalidArgumentException(
+            throw new InvalidArgumentException(
                 'Media ids not attached to this model in channel ['.$channel.']: '.implode(', ', $invalid)
             );
         }
@@ -313,16 +329,22 @@ trait HasMedia
     }
 
     /**
-     * Clear cached media for a channel, or all channels when null.
+     * Clear cached media for a channel, or all channels when null. Clearing a
+     * single channel also invalidates the all-channels cache (it would include
+     * the cleared channel's media and otherwise stay stale).
      */
     protected function clearMediaCache(?string $channel = null): void
     {
         if ($channel === null) {
             $this->mediaCache = [];
-        } else {
-            $cacheKey = $channel;
-            unset($this->mediaCache[$cacheKey]);
+
+            return;
         }
+
+        unset(
+            $this->mediaCache[$channel],
+            $this->mediaCache[self::ALL_CHANNELS_CACHE_KEY],
+        );
     }
 
     /**

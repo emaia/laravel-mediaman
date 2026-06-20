@@ -709,7 +709,7 @@ class Media extends Model implements Attachable
         return Arr::has($this->custom_properties, $propertyName);
     }
 
-    public function getCustomProperty(string $propertyName, ?string $default = null): mixed
+    public function getCustomProperty(string $propertyName, mixed $default = null): mixed
     {
         return Arr::get($this->custom_properties, $propertyName, $default);
     }
