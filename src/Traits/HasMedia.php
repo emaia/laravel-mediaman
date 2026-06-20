@@ -147,23 +147,6 @@ trait HasMedia
 
         $hasRules = $mediaChannel !== null && $mediaChannel->hasFileRules();
 
-        // When the channel has no rules the legacy behavior stays intact:
-        // conversion jobs dispatch up-front for every requested id. With
-        // rules, dispatch moves to after the attach so rejected items do
-        // not trigger work.
-        if (! $hasRules && ! empty($conversions)) {
-            $model = $this->mediaModel();
-
-            $mediaInstances = $model::findMany($ids);
-
-            $mediaInstances->each(function ($mediaInstance) use ($conversions) {
-                PerformConversions::dispatch(
-                    $mediaInstance,
-                    $conversions
-                );
-            });
-        }
-
         try {
             if (! $hasRules) {
                 $result = $this->performLegacyAttach($ids, $channel, $detaching, $startOrder);
@@ -172,19 +155,6 @@ trait HasMedia
             } else {
                 $result = $this->performAggregateAttach($ids, $channel, $mediaChannel, $detaching, $startOrder);
             }
-
-            // With rules the conversion dispatch is deferred until we know
-            // which ids actually made it into the pivot.
-            if ($hasRules && ! empty($conversions) && ! empty($result['attached'])) {
-                $model = $this->mediaModel();
-                $mediaInstances = $model::findMany($result['attached']);
-
-                $mediaInstances->each(function ($mediaInstance) use ($conversions) {
-                    PerformConversions::dispatch($mediaInstance, $conversions);
-                });
-            }
-
-            return $result;
         } catch (MediaNotAcceptedByChannel|MediaNotAcceptedByCollection|QueryException|InvalidArgumentException $e) {
             // Domain and database-level exceptions must propagate so callers
             // can react (validation feedback, deadlock retries, etc.). Silently
@@ -199,6 +169,32 @@ trait HasMedia
 
             return null;
         }
+
+        // Dispatch conversions after the attach pipeline has committed so a
+        // queue connection error cannot mask a successful attach as a null
+        // return. The legacy "dispatch before attach" timing had the inverse
+        // failure mode — dispatched jobs would orphan if the attach later
+        // failed. Both paths now target the requested ids that survived
+        // validation: newly attached plus already-attached ("updated"),
+        // matching the legacy intent of "ensure these conversions exist for
+        // the requested set".
+        if (! empty($conversions)) {
+            $idsToDispatch = array_merge(
+                $result['attached'] ?? [],
+                $result['updated'] ?? [],
+            );
+
+            if (! empty($idsToDispatch)) {
+                $model = $this->mediaModel();
+                $mediaInstances = $model::findMany($idsToDispatch);
+
+                $mediaInstances->each(function ($mediaInstance) use ($conversions) {
+                    PerformConversions::dispatch($mediaInstance, $conversions);
+                });
+            }
+        }
+
+        return $result;
     }
 
     /**
@@ -342,6 +338,10 @@ trait HasMedia
 
             // Forget any eager-loaded media so getMedia() re-reads from DB
             // inside the lock — stale snapshots would let the count slip.
+            // Note: this also unsets the relation on the caller's instance
+            // (eg. after $product->load('media')->attachMedia(...) the next
+            // read of $product->media triggers a fresh DB query). That is
+            // the correct post-attach state but worth being aware of.
             $this->unsetRelation('media');
             $this->clearMediaCache($channel);
 
@@ -372,13 +372,20 @@ trait HasMedia
                 $model = $this->mediaModel();
                 $mediaInstances = $model::findMany($toAttach)->keyBy(fn ($m) => $m->getKey());
 
+                // Match the legacy/fast paths: a missing media id is a hard
+                // error, not a silent skip. Throwing here keeps the three
+                // paths consistent and surfaces the bad input early.
+                $missing = array_values(array_diff($toAttach, $mediaInstances->keys()->all()));
+                if (! empty($missing)) {
+                    throw new InvalidArgumentException(
+                        'Cannot attach: media not found for id(s) ['.implode(',', $missing).'].'
+                    );
+                }
+
                 $baseOrder = $startOrder ?? $this->getNextOrder($channel);
 
                 foreach ($toAttach as $index => $attachId) {
-                    $mediaInstance = $mediaInstances[$attachId] ?? null;
-                    if ($mediaInstance === null) {
-                        continue;
-                    }
+                    $mediaInstance = $mediaInstances[$attachId];
 
                     $mediaChannel->validateFile($mediaInstance, $this, $channel);
 

@@ -285,6 +285,8 @@ The concurrency guarantee depends on a driver with real row locks (MySQL/InnoDB,
 
 Keep rule closures cheap — they run per-item, and aggregate rules also run inside a transaction. Avoid HTTP calls and expensive filesystem reads in rules.
 
+**Side effect on the `media` relation.** The aggregate path invalidates any eager-loaded `media` relation on the model so rules read fresh data inside the transaction. After the attach call returns, accessing `$product->media` triggers a new query. If you need the relation hot for follow-up reads, call `$product->load('media')` again — or just rely on `getMedia($channel)`, which now reflects the post-attach state.
+
 ### Handling rejection in a controller
 
 ```php

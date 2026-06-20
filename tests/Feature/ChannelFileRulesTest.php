@@ -238,6 +238,69 @@ it('dispatches PerformConversions for attached items in the rule paths', functio
     Bus::assertDispatched(PerformConversions::class);
 });
 
+it('redispatches PerformConversions for already-attached media on re-sync (rules path)', function () {
+    Bus::fake();
+
+    $this->subject->addMediaChannel('hero')
+        ->performConversions('thumbnail')
+        ->acceptsFile(fn (Media $m) => true);
+
+    $media = uploadImage();
+
+    $this->subject->attachMedia($media, 'hero');
+    Bus::assertDispatched(PerformConversions::class, 1);
+
+    // syncMedia called again with the same id — already attached, becomes
+    // "updated". Conversions should still dispatch (matches legacy intent of
+    // "ensure these conversions exist for the requested set").
+    $this->subject->syncMedia($media->getKey(), 'hero');
+
+    Bus::assertDispatched(PerformConversions::class, 2);
+});
+
+// ─── Aggregate path validation of inputs ────────────────────────────
+
+it('throws InvalidArgumentException when an aggregate id does not exist', function () {
+    $this->subject->addMediaChannel('gallery')
+        ->acceptsFile('max', fn (Media $m, $model) => $model->getMedia('gallery')->count() < 10);
+
+    $a = uploadImage('a.jpg');
+
+    // The aggregate path used to silently skip missing ids — surfaced as a
+    // gap in order_column and zero feedback. Now it matches the legacy/fast
+    // paths and throws before any DB write.
+    expect(fn () => $this->subject->attachMedia([$a->getKey(), 99999], 'gallery'))
+        ->toThrow(InvalidArgumentException::class);
+
+    expect($this->subject->getMedia('gallery'))->toHaveCount(0);
+});
+
+// ─── Post-attach dispatch is outside the catch ──────────────────────
+
+it('does not mask a successful attach when conversion dispatch fails', function () {
+    $this->subject->addMediaChannel('hero')
+        ->performConversions('thumbnail')
+        ->acceptsFile(fn (Media $m) => true);
+
+    $media = uploadImage();
+
+    // Force the dispatch path to throw by pointing the queue at a missing
+    // connection. The attach has already committed by the time dispatch
+    // runs, so the exception must propagate — previously it was caught by
+    // syncMedia's catch(Throwable) and surfaced as a silent null return.
+    config(['queue.default' => 'nonexistent-connection']);
+
+    $threw = false;
+    try {
+        $this->subject->attachMedia($media, 'hero');
+    } catch (Throwable) {
+        $threw = true;
+    }
+
+    expect($threw)->toBeTrue()
+        ->and($this->subject->getMedia('hero'))->toHaveCount(1);
+});
+
 // ─── Channel without rules — legacy untouched ───────────────────────
 
 it('leaves the legacy attach path untouched when the channel has no rules', function () {
