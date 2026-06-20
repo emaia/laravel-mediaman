@@ -348,6 +348,17 @@ trait HasMedia
     }
 
     /**
+     * Invalidate the in-memory media cache from outside the trait. Pass a
+     * channel name to clear that channel only, or null to clear every channel.
+     */
+    public function forgetMediaCache(?string $channel = null): self
+    {
+        $this->clearMediaCache($channel);
+
+        return $this;
+    }
+
+    /**
      * Parse the media id's from the mixed input.
      *
      * @param  mixed  $media
