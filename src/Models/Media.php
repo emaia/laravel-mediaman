@@ -72,6 +72,13 @@ class Media extends Model implements Attachable
     public static function booted(): void
     {
         static::deleted(static function ($media) {
+            // Respect soft deletes: a soft delete fires the `deleted` event too,
+            // but the files must survive so a later restore() keeps working.
+            // Only a force delete (or a model without soft deletes) removes files.
+            if (method_exists($media, 'isForceDeleting') && ! $media->isForceDeleting()) {
+                return;
+            }
+
             // delete the media directory
             $deleted = Storage::disk($media->disk)->deleteDirectory($media->getDirectory());
             // if failed, try deleting the file then

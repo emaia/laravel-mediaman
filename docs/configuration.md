@@ -305,7 +305,39 @@ class Media extends BaseMedia
 }
 ```
 
-You'll also need a custom migration with `uuid` columns instead of `bigIncrements`. Publish and adjust.
+You'll also need a custom migration with `uuid` columns instead of `bigIncrements`. Publish and adjust. The media key flows through both pivots, so change them too:
+
+```php
+// media table
+$table->uuid('id')->primary();          // was: bigIncrements('id')
+
+// mediaman_collection_media + mediaman_mediables
+$table->foreignUuid('media_id');         // was: unsignedBigInteger('media_id')
+```
+
+The obfuscated storage path works unchanged — `DefaultPathGenerator` builds the directory from `$media->getKey()`, and `HasUuids` generates the key before the row is saved (and before the file is stored).
+
+### Soft deletes
+
+```php
+use Emaia\MediaMan\Models\Media as BaseMedia;
+use Illuminate\Database\Eloquent\SoftDeletes;
+
+class Media extends BaseMedia
+{
+    use SoftDeletes;
+}
+```
+
+Add the `deleted_at` column to the media table in your custom migration (`$table->softDeletes();`).
+
+File deletion is soft-delete aware: a soft delete (`$media->delete()`) keeps the files on disk so `restore()` stays functional, and **does not** fire the `MediaDeleted` event. The on-disk directory is removed only on a force delete (`$media->forceDelete()`) or on a model without the `SoftDeletes` trait.
+
+#### Effect on `getMedia()` and channel relations
+
+> **Soft-deleted media drop out of `getMedia()` automatically.** The `SoftDeletes` global scope filters the underlying relation query, so a soft-deleted record becomes invisible to `$model->getMedia('channel')`, `getFirstMedia()`, `getMediaUrl()`, and the rest of the `HasMedia` trait — even though the pivot row still references it. Use `withTrashed()` on a manual query (`Media::withTrashed()->whereIn('id', $ids)->get()`) when you need to surface trashed records explicitly. Restoring (`$media->restore()`) brings the record back into all channel queries automatically.
+
+`HasUuids` and `SoftDeletes` compose — add both traits to the same custom model when you want UUID keys and soft deletes together.
 
 ## Table names
 
