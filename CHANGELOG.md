@@ -6,6 +6,7 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ### Added
 
+- `MediaPrunedFromCollection` event — dispatched by `MediaCollection::enforceMaxItems()` whenever the cap configured via `onlyKeepLatest()` / `singleFile()` causes older media to be detached. Carries `$event->collection` and `$event->detachedMediaIds` so listeners can record an audit entry, notify the owning user, or clean up downstream state. Auto-prune itself is unchanged — the Media records are still only detached, never deleted — the event just makes it observable. See [Collections → Auto-prune oldest](docs/collections.md#auto-prune-oldest).
 - `HasMedia::forgetMediaCache(?string $channel = null): self` — public escape hatch to invalidate the in-memory media cache from outside the trait. The cache is cleared automatically by every mutation the trait owns (`attachMedia`, `syncMedia`, `detachMedia`, `setMediaOrder`, `clearMediaChannel`), but callers had no way to react when an external mutation — a queued job on the `sync` driver reusing the same model instance, a raw `DB::table()` insert, a sibling relation refresh — left the cache stale. Passing a channel clears that channel plus the all-channels snapshot (which would otherwise still include the channel's media); passing `null` clears every channel. Returns `$this` so it chains fluently. See [Models → Cache invalidation](docs/models.md#cache-invalidation).
 
 ## [2.17.2] — 2026-06-20

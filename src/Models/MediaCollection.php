@@ -2,6 +2,7 @@
 
 namespace Emaia\MediaMan\Models;
 
+use Emaia\MediaMan\Events\MediaPrunedFromCollection;
 use Emaia\MediaMan\Exceptions\MediaNotAcceptedByCollection;
 use Emaia\MediaMan\Traits\ResolvesModels;
 use Illuminate\Database\Eloquent\Collection;
@@ -139,8 +140,11 @@ class MediaCollection extends Model
         }
 
         $toDetach = $attached->take($attached->count() - $max);
+        $detachedIds = $toDetach->modelKeys();
 
-        $this->media()->detach($toDetach->modelKeys());
+        $this->media()->detach($detachedIds);
+
+        event(new MediaPrunedFromCollection($this, $detachedIds));
     }
 
     // ─── Attach / Sync / Detach (with hooks) ──────────────────────────
