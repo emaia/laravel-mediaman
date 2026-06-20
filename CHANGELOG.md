@@ -4,6 +4,8 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ## [Unreleased]
 
+## [2.18.0] — 2026-06-20
+
 ### Added
 
 - `MediaPrunedFromCollection` event — dispatched by `MediaCollection::enforceMaxItems()` whenever the cap configured via `onlyKeepLatest()` / `singleFile()` causes older media to be detached. Carries `$event->collection` and `$event->detachedMediaIds` so listeners can record an audit entry, notify the owning user, or clean up downstream state. Auto-prune itself is unchanged — the Media records are still only detached, never deleted — the event just makes it observable. See [Collections → Auto-prune oldest](docs/collections.md#auto-prune-oldest).
