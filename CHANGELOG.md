@@ -4,6 +4,10 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- File deletion is now **soft-delete aware**. The `Media` model's `deleted` observer fires on both soft and force deletes, so a custom `Media` subclass using Laravel's `SoftDeletes` previously had its on-disk directory wiped on a plain `$media->delete()` — leaving the soft-deleted record pointing at missing files and making `restore()` useless. The observer now skips file removal (and the `MediaDeleted` event) on a soft delete, and only deletes the directory on a force delete (`forceDelete()`) or on a model without soft deletes. The base `Media` model has no `SoftDeletes` trait, so its behavior is unchanged. See [Configuration → Custom models](docs/configuration.md#uuid-primary-keys).
+
 ## [2.17.0] — 2026-06-19
 
 ### Added
