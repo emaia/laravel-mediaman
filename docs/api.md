@@ -285,6 +285,11 @@ Public surface of the package, organized by class/trait. Each entry links back t
 | `useFallbackPath(string $path, ?string $conversion = null): self` | Default absolute path when channel is empty.                    |
 | `getFallbackUrl(?string $conversion = null): string`              |                                                                 |
 | `getFallbackPath(?string $conversion = null): string`             |                                                                 |
+| `acceptsFile(Closure $rule): self`                                | Register an anonymous validation rule. Stacks (AND).            |
+| `acceptsFile(string $name, Closure $rule): self`                  | Register a named validation rule for error reporting.           |
+| `hasFileRules(): bool`                                            |                                                                 |
+| `anyRuleNeedsModel(): bool`                                       | True if any rule's closure declares a second `$model` argument. |
+| `validateFile(Media $media, object $model, string $channel): void`| Runs every rule, throws `MediaNotAcceptedByChannel` on failure. |
 
 ---
 
@@ -522,6 +527,7 @@ All exceptions live under `Emaia\MediaMan\Exceptions`.
 | `InvalidBase64Data`            | Malformed base64 or data URI in `fromBase64()`.                   |
 | `UrlNotAllowed`                | URL rejected by `UrlGuard` (scheme, host, or resolved IP).        |
 | `MediaNotAcceptedByCollection` | Collection-level MIME rejection.                                  |
+| `MediaNotAcceptedByChannel`    | Channel `acceptsFile()` rule failed. Carries `channel`, `rule`, `mediaId`. |
 | `TemporaryUrlNotSupported`     | Disk doesn't support `temporaryUrl()`.                            |
 | `InvalidCopyTarget`            | Target of `Media::copy()` or `attachTo()` doesn't use `HasMedia`. |
 | `InvalidConversion`            | Conversion not registered.                                        |

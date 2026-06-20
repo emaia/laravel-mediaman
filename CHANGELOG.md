@@ -4,6 +4,11 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `MediaChannel::acceptsFile()` — channel-level validation rules that run at attach time, not at upload. Rules stack with implicit AND, can be named for error reporting, and receive the `Media` instance plus optionally the owning model (detected once via reflection at registration). When every rule reads only media properties the trait stays on the legacy single-INSERT fast path; when any rule declares a `$model` parameter the trait switches to an aggregate path inside a `DB::transaction` with `lockForUpdate()` on the owning row, so concurrent batches and `count() < N` constraints behave correctly. Failed batches roll back atomically — nothing from the lot lands in the pivot, the in-memory channel cache is invalidated, and `PerformConversions` is not dispatched for rejected items. The Media record itself stays in the library so callers can re-attach it elsewhere or retry without re-uploading. See [Models → Channel validation rules](docs/models.md#channel-validation-rules).
+- `MediaNotAcceptedByChannel` exception — carries `channel`, `rule` (`null` for anonymous rules), and `mediaId` (`int|string` to support UUID custom models) as public readonly props so controllers can `match ($e->rule)` directly instead of parsing the exception message.
+
 ## [2.18.0] — 2026-06-20
 
 ### Added

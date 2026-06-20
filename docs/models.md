@@ -244,6 +244,68 @@ public function registerMediaChannels(): void
 }
 ```
 
+## Channel validation rules
+
+`acceptsFile()` registers closures that run at **attach time** (not at upload). Every rule must return truthy or the attach fails with `MediaNotAcceptedByChannel` — the Media itself stays in the library, so the caller can re-attach it somewhere else or retry without re-uploading.
+
+```php
+use Emaia\MediaMan\Enums\MediaType;
+use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\Traits\HasMedia;
+
+public function registerMediaChannels(): void
+{
+    $this->addMediaChannel('hero')
+        ->acceptsFile('min-width', fn (Media $m) => $m->getImageWidth() >= 1920)
+        ->acceptsFile('landscape', fn (Media $m) => $m->getImageWidth() > $m->getImageHeight());
+
+    $this->addMediaChannel('gallery')
+        ->acceptsFile('image-only', fn (Media $m) => $m->isOfType(MediaType::IMAGE))
+        ->acceptsFile('max-5', fn (Media $m, HasMedia $model) =>
+            $model->getMedia('gallery')->count() < 5
+        );
+}
+```
+
+Rules stack with implicit AND — every registered closure must pass. Pass a string as the first argument to name a rule for error reporting; the exception's `$e->rule` carries that name back to the caller.
+
+Closures receive the `Media` instance, and the owning model as a **second** parameter when the signature declares it. The package detects this with reflection once at registration, so per-item validation stays reflection-free.
+
+### Property-only vs. aggregate rules
+
+When every rule reads only the media (`mime_type`, dimensions, size, custom properties), the trait runs the **fast path**: it validates all incoming items up-front and attaches them in a single INSERT — same throughput as a channel without rules.
+
+When any rule declares the second `$model` parameter, the trait switches to the **aggregate path**:
+
+- The owning model row is locked (`lockForUpdate()`) at the start of a `DB::transaction` so concurrent batches against the same instance queue instead of racing past a `count() < N` cap.
+- Each item is validated and attached one at a time, so aggregate rules see the count grow as the batch progresses.
+- If any item is rejected, the entire batch rolls back — nothing from the lot lands in the pivot.
+
+The concurrency guarantee depends on a driver with real row locks (MySQL/InnoDB, Postgres). SQLite serializes writes via its file lock and gets equivalent safety without emitting `FOR UPDATE`.
+
+Keep rule closures cheap — they run per-item, and aggregate rules also run inside a transaction. Avoid HTTP calls and expensive filesystem reads in rules.
+
+### Handling rejection in a controller
+
+```php
+use Emaia\MediaMan\Exceptions\MediaNotAcceptedByChannel;
+
+try {
+    $product->attachMedia($media, 'hero');
+} catch (MediaNotAcceptedByChannel $e) {
+    // Default: $media stays in the library available for re-attach.
+    // To discard: $media->delete();
+
+    return back()->with('error', match ($e->rule) {
+        'min-width' => 'The hero image must be at least 1920px wide.',
+        'landscape' => 'The hero image must be landscape.',
+        default     => 'Image rejected by the hero channel.',
+    });
+}
+```
+
+`$e->channel`, `$e->rule` and `$e->mediaId` are public readonly props — pattern-match on them instead of parsing the exception message.
+
 ## Cross-model operations
 
 When you want the same media on multiple models, use the helpers on the `Media` model rather than reattaching by id from each side. Both are documented under [Media → Copy and re-attach](media.md#copy-and-re-attach):
