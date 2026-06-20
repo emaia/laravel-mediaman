@@ -119,6 +119,18 @@ When a new media pushes the collection above `max_items`, the **oldest** (by `cr
 
 Auto-prune fires from both upload (`MediaUploader::source()->useCollection(...)->upload()`) and direct attach (`$collection->attachMedia($media)`).
 
+Every prune dispatches a `MediaPrunedFromCollection` event carrying the collection and the list of detached media ids — listen if you need an audit log, want to notify the owning user, or care about cleaning up something downstream:
+
+```php
+use Emaia\MediaMan\Events\MediaPrunedFromCollection;
+
+Event::listen(function (MediaPrunedFromCollection $event) {
+    Log::info("Pruned media from {$event->collection->name}", [
+        'detached_ids' => $event->detachedMediaIds,
+    ]);
+});
+```
+
 ### Fluent setters require `->save()`
 
 The setters mutate the model in memory only — call `->save()` to persist (matches Eloquent convention):

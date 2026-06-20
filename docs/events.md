@@ -9,12 +9,13 @@ MediaMan dispatches Laravel events at key points in the media lifecycle. Listen 
 
 ## Available events
 
-| Event                         | Dispatched when                          | Payload                                  |
-|-------------------------------|------------------------------------------|------------------------------------------|
-| `MediaUploaded`               | A file is uploaded via `MediaUploader`   | `$event->media`                          |
-| `MediaDeleted`                | A media record is deleted                | `$event->media`                          |
-| `ConversionCompleted`         | Image conversions finish (queued job)    | `$event->media`, `$event->conversions`   |
-| `ResponsiveImagesGenerated`   | Responsive variants finish (queued job)  | `$event->media`, `$event->options`       |
+| Event                         | Dispatched when                                                                | Payload                                       |
+|-------------------------------|--------------------------------------------------------------------------------|-----------------------------------------------|
+| `MediaUploaded`               | A file is uploaded via `MediaUploader`                                         | `$event->media`                               |
+| `MediaDeleted`                | A media record is deleted                                                      | `$event->media`                               |
+| `MediaPrunedFromCollection`   | `enforceMaxItems()` auto-detaches older media from a capped collection         | `$event->collection`, `$event->detachedMediaIds` |
+| `ConversionCompleted`         | Image conversions finish (queued job)                                          | `$event->media`, `$event->conversions`        |
+| `ResponsiveImagesGenerated`   | Responsive variants finish (queued job)                                        | `$event->media`, `$event->options`            |
 
 All event classes live under `Emaia\MediaMan\Events`.
 
