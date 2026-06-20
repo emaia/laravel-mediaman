@@ -348,15 +348,8 @@ trait HasMedia
     }
 
     /**
-     * Public escape hatch to invalidate the in-memory media cache from outside
-     * the trait. Useful when an external mutation (a queued job on the `sync`
-     * driver reusing the same model instance, a manual DB update, a sibling
-     * relation refresh) leaves the cache stale and the caller has no other
-     * signal to react to.
-     *
-     * Passing a channel name only clears that channel's cache (plus the
-     * all-channels snapshot, which would otherwise still contain the channel's
-     * stale media). Passing `null` clears every channel.
+     * Invalidate the in-memory media cache from outside the trait. Pass a
+     * channel name to clear that channel only, or null to clear every channel.
      */
     public function forgetMediaCache(?string $channel = null): self
     {
