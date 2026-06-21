@@ -27,7 +27,7 @@ The config file is organized in four blocks: essentials, validation/security def
 **Customization**
 - [Custom models](#custom-models)
 - [Table names](#table-names)
-- [Pluggable generators](#pluggable-generators)
+- [Pluggable MediaResolver](#pluggable-mediaresolver)
 - [Disk accessibility checks](#disk-accessibility-checks)
 
 ---
@@ -173,7 +173,7 @@ Default expiration for `Media::getTemporaryUrl()` when no explicit expiration is
 
 ## URL generation
 
-Apply a CDN prefix and/or cache-busting query string to all generated URLs (see [API → DefaultUrlGenerator](api.md#urlgenerator)):
+Apply a CDN prefix and/or cache-busting query string to all generated URLs (see [API → MediaResolver](api.md#mediaresolver)):
 
 ```php
 'url' => [
@@ -315,7 +315,7 @@ $table->uuid('id')->primary();          // was: bigIncrements('id')
 $table->foreignUuid('media_id');         // was: unsignedBigInteger('media_id')
 ```
 
-The obfuscated storage path works unchanged — `DefaultPathGenerator` builds the directory from `$media->getKey()`, and `HasUuids` generates the key before the row is saved (and before the file is stored).
+The obfuscated storage path works unchanged — `DefaultMediaResolver::directory()` builds the directory from `$media->getKey()`, and `HasUuids` generates the key before the row is saved (and before the file is stored).
 
 ### Soft deletes
 
@@ -352,27 +352,44 @@ Each table can be renamed if it conflicts with something in your app:
 ],
 ```
 
-## Pluggable generators
+## Pluggable MediaResolver
 
-Swap path, URL, and filename generation:
-
-```php
-'generators' => [
-    'path'       => \Emaia\MediaMan\Generators\DefaultPathGenerator::class,
-    'url'        => \Emaia\MediaMan\Generators\DefaultUrlGenerator::class,
-    'file_namer' => \Emaia\MediaMan\Generators\DefaultFileNamer::class,
-],
-```
-
-Or bind a custom implementation in any service provider:
+Path, URL, and filename generation live behind a single interface — `MediaResolver` — instead of the v2 trio (`PathGenerator` + `UrlGenerator` + `FileNamer`). One bind, one config key, one class to extend when you need to customize:
 
 ```php
-use Emaia\MediaMan\Generators\PathGenerator;
-
-$this->app->bind(PathGenerator::class, MyTenantPathGenerator::class);
+'resolver' => \Emaia\MediaMan\Resolvers\DefaultMediaResolver::class,
 ```
 
-See [API → Generators](api.md#generators) for the interfaces.
+Most customizations only touch one or two methods (tenant prefix on the directory, CDN URL strategy, custom conversion filename). Extend `DefaultMediaResolver` and override what you need; the rest stays default:
+
+```php
+namespace App\MediaMan;
+
+use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\Resolvers\DefaultMediaResolver;
+
+class TenantMediaResolver extends DefaultMediaResolver
+{
+    public function directory(Media $media): string
+    {
+        return 'tenants/'.tenant()->id.'/'.parent::directory($media);
+    }
+}
+```
+
+```php
+'resolver' => \App\MediaMan\TenantMediaResolver::class,
+```
+
+Or bind ad-hoc in any service provider:
+
+```php
+use Emaia\MediaMan\Resolvers\MediaResolver;
+
+$this->app->singleton(MediaResolver::class, TenantMediaResolver::class);
+```
+
+See [API → MediaResolver](api.md#mediaresolver) for the interface.
 
 ## Disk accessibility checks
 

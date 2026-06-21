@@ -83,7 +83,7 @@ Detection works at the top-level media directory. Stale conversion or responsive
 
 ## `APP_KEY` rotation
 
-`DefaultPathGenerator` includes `APP_KEY` in the obfuscation hash: the directory is `{id}-{md5(id . app_key)}`. Rotating the key would silently change every computed path, breaking URLs to all existing media.
+`DefaultMediaResolver::directory()` includes `APP_KEY` in the obfuscation hash: the directory is `{id}-{md5(id . app_key)}`. Rotating the key would silently change every computed path, breaking URLs to all existing media.
 
 **Plan the rotation as a three-step operation**, just like any other `APP_KEY` rotation (encrypted columns, signed URLs, sessions, etc.):
 
@@ -110,8 +110,8 @@ The command iterates `Media` records, computes the directory under the old and n
 
 It's safe to re-run: media whose files are already at the new location are reported as "already migrated" and skipped. Media with both old and new directories present (partial previous run) are flagged for manual review without touching anything.
 
-If you'd rather decouple paths from the key entirely, swap `PathGenerator` for a custom implementation that uses random tokens or another scheme — see [Configuration → Pluggable generators](configuration.md#pluggable-generators).
+If you'd rather decouple paths from the key entirely, swap the `MediaResolver` for a custom implementation that uses random tokens or another scheme — see [Configuration → Pluggable MediaResolver](configuration.md#pluggable-mediaresolver).
 
 ## Custom paths and URLs
 
-If you need to obfuscate URLs further or apply per-tenant directories, swap the `PathGenerator` and/or `UrlGenerator`. See [Configuration → Pluggable generators](configuration.md#pluggable-generators).
+If you need to obfuscate URLs further or apply per-tenant directories, swap the `MediaResolver`. See [Configuration → Pluggable MediaResolver](configuration.md#pluggable-mediaresolver).

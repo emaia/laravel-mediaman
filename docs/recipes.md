@@ -17,7 +17,7 @@ Most recipes follow the same shape:
 
 1. Listen to a MediaMan event (`MediaUploaded`, `ConversionCompleted`, `ResponsiveImagesGenerated`).
 2. Dispatch a queued job that runs a third-party library.
-3. Write any generated files into the Media's directory via `PathGenerator` (so paths remain pluggable).
+3. Write any generated files into the Media's directory via `MediaResolver` (so paths remain pluggable).
 4. Persist metadata in `custom_properties`.
 
 ---
@@ -106,7 +106,7 @@ composer require spatie/pdf-to-image
 
 ```php
 use Emaia\MediaMan\Events\MediaUploaded;
-use Emaia\MediaMan\Generators\PathGenerator;
+use Emaia\MediaMan\Resolvers\MediaResolver;
 use Spatie\PdfToImage\Pdf;
 
 class GeneratePdfThumbnail implements ShouldQueue
@@ -127,7 +127,7 @@ class GeneratePdfThumbnail implements ShouldQueue
 
         (new Pdf($tmpPdf))->saveImage($tmpJpg);
 
-        $thumbPath = app(PathGenerator::class)->getDirectory($media).'/preview.jpg';
+        $thumbPath = app(MediaResolver::class)->directory($media).'/preview.jpg';
         $disk->put($thumbPath, file_get_contents($tmpJpg));
 
         $media->setCustomProperty('preview_path', $thumbPath);
@@ -162,7 +162,7 @@ composer require pbmedia/laravel-ffmpeg
 
 ```php
 use Emaia\MediaMan\Events\MediaUploaded;
-use Emaia\MediaMan\Generators\PathGenerator;
+use Emaia\MediaMan\Resolvers\MediaResolver;
 use ProtoneMedia\LaravelFFMpeg\Support\FFMpeg;
 
 class GenerateVideoThumbnail implements ShouldQueue
@@ -176,7 +176,7 @@ class GenerateVideoThumbnail implements ShouldQueue
         }
 
         $disk = $media->filesystem();
-        $thumbPath = app(PathGenerator::class)->getDirectory($media).'/poster.jpg';
+        $thumbPath = app(MediaResolver::class)->directory($media).'/poster.jpg';
 
         // Read on the source disk, write the frame on the same disk.
         FFMpeg::fromDisk($media->disk)
