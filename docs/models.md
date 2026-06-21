@@ -264,6 +264,11 @@ public function registerMediaChannels(): void
         ->acceptsFile('max-5', fn (Media $m, HasMedia $model) =>
             $model->getMedia('gallery')->count() < 5
         );
+
+    $this->addMediaChannel('uploads')
+        ->acceptsFile('within-quota', fn (Media $m, HasMedia $model) =>
+            $model->getMedia('uploads')->sum('size') + $m->size <= 100 * 1024 * 1024
+        );
 }
 ```
 
@@ -279,7 +284,11 @@ When any rule declares the second `$model` parameter, the trait switches to the 
 
 - The owning model row is locked (`lockForUpdate()`) at the start of a `DB::transaction` so concurrent batches against the same instance queue instead of racing past a `count() < N` cap.
 - Each item is validated and attached one at a time, so aggregate rules see the count grow as the batch progresses.
-- If any item is rejected, the entire batch rolls back — nothing from the lot lands in the pivot.
+- The batch is **all-or-nothing**: if any item is rejected, the whole transaction rolls back, so you never end up with a partial subset whose contents depend on input order. A thrown exception always means "nothing changed", which keeps controller `catch` blocks honest.
+
+Rules run **before** the current item is attached, so `getMedia($channel)` reflects items already accepted earlier in the batch but not the candidate itself. A `count() < N` cap needs no compensation (the Nth accepted item makes the next read return `N`), but an aggregate **sum** must include the candidate explicitly — note the `+ $m->size` in the `within-quota` example above.
+
+**Want best-effort instead?** For bulk ingestion where you'd rather keep the items that fit and skip the rest, attach per-item in a loop — atomic is the primitive, partial builds on top of it. See [Recipes → Best-effort (partial) attach](recipes.md#best-effort-partial-attach).
 
 The concurrency guarantee depends on a driver with real row locks (MySQL/InnoDB, Postgres). SQLite serializes writes via its file lock and gets equivalent safety without emitting `FOR UPDATE`.
 
