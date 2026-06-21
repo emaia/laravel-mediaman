@@ -26,7 +26,7 @@ class MediaChannel
     protected array $fileRules = [];
 
     /** Cached so HasMedia::syncMedia can pick fast vs aggregate path in O(1). */
-    protected bool $anyRuleNeedsModel = false;
+    protected bool $hasModelAwareRules = false;
 
     public function performConversions(string ...$conversions): MediaChannel
     {
@@ -115,7 +115,7 @@ class MediaChannel
         ];
 
         if ($needsModel) {
-            $this->anyRuleNeedsModel = true;
+            $this->hasModelAwareRules = true;
         }
 
         return $this;
@@ -126,13 +126,13 @@ class MediaChannel
         return $this->fileRules !== [];
     }
 
-    public function anyRuleNeedsModel(): bool
+    public function hasModelAwareRules(): bool
     {
-        return $this->anyRuleNeedsModel;
+        return $this->hasModelAwareRules;
     }
 
     /** Run every registered rule; throw on the first failure. */
-    public function validateFile(Media $media, object $model, string $channelName): void
+    public function validateMedia(Media $media, object $model, string $channelName): void
     {
         foreach ($this->fileRules as $entry) {
             $passes = $entry['needs_model']
