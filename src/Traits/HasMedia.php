@@ -145,7 +145,7 @@ trait HasMedia
 
         try {
             if (! $hasRules) {
-                $result = $this->performLegacyAttach($ids, $channel, $detaching, $startOrder);
+                $result = $this->performBasicAttach($ids, $channel, $detaching, $startOrder);
             } elseif (! $mediaChannel->anyRuleNeedsModel()) {
                 $result = $this->performFastPathAttach($ids, $channel, $mediaChannel, $detaching, $startOrder);
             } else {
@@ -208,8 +208,8 @@ trait HasMedia
         return $instances;
     }
 
-    /** Legacy attach path — used when the channel declares no file rules. */
-    private function performLegacyAttach(array $ids, string $channel, bool $detaching, ?int $startOrder): array
+    /** Base attach path — used when the channel declares no file rules. */
+    private function performBasicAttach(array $ids, string $channel, bool $detaching, ?int $startOrder): array
     {
         $currentMediaIds = $this->getMedia($channel)->modelKeys();
 
