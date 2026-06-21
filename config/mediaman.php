@@ -1,9 +1,9 @@
 <?php
 
-use Emaia\MediaMan\Resolvers\DefaultMediaResolver;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Models\MediaCollection;
 use Emaia\MediaMan\Placeholders\BlurredSvgPlaceholder;
+use Emaia\MediaMan\Resolvers\DefaultMediaResolver;
 
 return [
 
@@ -174,7 +174,7 @@ return [
     ],
 
     /*
-    | Options applied to generated media URLs by DefaultUrlGenerator.
+    | Options applied to generated media URLs by DefaultMediaResolver.
     */
 
     'url' => [
