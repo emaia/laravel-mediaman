@@ -198,27 +198,36 @@ trait HasMedia
     }
 
     /**
-     * Verify every requested media id actually exists in the library. Throws
-     * an explicit InvalidArgumentException so all three attach paths surface
-     * the same domain error for the same condition, independent of whether
-     * the underlying connection enforces foreign keys (without FKs the
-     * legacy path would otherwise create orphan pivot rows silently).
+     * Load every requested media row and throw an explicit
+     * InvalidArgumentException when any id is missing. All three attach
+     * paths share this helper so the error type and message stay the same
+     * regardless of FK configuration on the underlying connection (without
+     * FKs the legacy path would otherwise create orphan pivot rows
+     * silently). Returning the loaded instances lets the rule-bearing
+     * paths reuse them for validateFile without a second SELECT.
+     *
+     * Note: this respects model global scopes — a soft-deleted custom
+     * `Media` row is treated as missing. That matches the intent (cannot
+     * attach trashed media) but is worth noting for callers running with
+     * SoftDeletes.
      */
-    private function ensureMediaIdsExist(array $ids): void
+    private function findMediaOrThrow(array $ids): Collection
     {
         if (empty($ids)) {
-            return;
+            return new Collection;
         }
 
         $model = $this->mediaModel();
-        $existing = $model::whereKey($ids)->pluck((new $model)->getKeyName())->all();
+        $instances = $model::findMany($ids);
 
-        $missing = array_values(array_diff($ids, $existing));
+        $missing = array_values(array_diff($ids, $instances->modelKeys()));
         if (! empty($missing)) {
             throw new InvalidArgumentException(
                 'Cannot attach: media not found for id(s) ['.implode(',', $missing).'].'
             );
         }
+
+        return $instances;
     }
 
     /**
@@ -242,7 +251,7 @@ trait HasMedia
             }
         }
 
-        $this->ensureMediaIdsExist($toAttach);
+        $this->findMediaOrThrow($toAttach);
 
         if ($detaching) {
             $toDetach = array_diff($currentMediaIds, $ids);
@@ -292,15 +301,10 @@ trait HasMedia
             }
         }
 
-        $this->ensureMediaIdsExist($toAttach);
+        $mediaInstances = $this->findMediaOrThrow($toAttach);
 
-        if (! empty($toAttach)) {
-            $model = $this->mediaModel();
-            $mediaInstances = $model::findMany($toAttach);
-
-            foreach ($mediaInstances as $mediaInstance) {
-                $mediaChannel->validateFile($mediaInstance, $this, $channel);
-            }
+        foreach ($mediaInstances as $mediaInstance) {
+            $mediaChannel->validateFile($mediaInstance, $this, $channel);
         }
 
         $detached = [];
@@ -395,13 +399,10 @@ trait HasMedia
                 }
             }
 
-            $this->ensureMediaIdsExist($toAttach);
+            $mediaInstances = $this->findMediaOrThrow($toAttach)->keyBy(fn ($m) => $m->getKey());
 
             $attached = [];
             if (! empty($toAttach)) {
-                $model = $this->mediaModel();
-                $mediaInstances = $model::findMany($toAttach)->keyBy(fn ($m) => $m->getKey());
-
                 $baseOrder = $startOrder ?? $this->getNextOrder($channel);
 
                 foreach ($toAttach as $index => $attachId) {

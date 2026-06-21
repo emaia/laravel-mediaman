@@ -287,6 +287,8 @@ Keep rule closures cheap — they run per-item, and aggregate rules also run ins
 
 **Side effect on the `media` relation.** The aggregate path invalidates any eager-loaded `media` relation on the model so rules read fresh data inside the transaction. After the attach call returns, accessing `$product->media` triggers a new query. If you need the relation hot for follow-up reads, call `$product->load('media')` again — or just rely on `getMedia($channel)`, which now reflects the post-attach state.
 
+**Soft-deleted media.** All three attach paths verify that every requested id exists by loading the Media row through the configured model. If your custom `Media` uses `SoftDeletes`, a trashed row is invisible to that query and the attach throws `InvalidArgumentException` reporting it as missing — which matches the intent of "cannot attach trashed media". Restore the row first (or use `Media::withTrashed()->find(...)` to surface it) before reattaching.
+
 ### Handling rejection in a controller
 
 ```php
