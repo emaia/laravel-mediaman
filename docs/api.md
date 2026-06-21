@@ -288,8 +288,8 @@ Public surface of the package, organized by class/trait. Each entry links back t
 | `acceptsFile(Closure $rule): self`                                | Register an anonymous validation rule. Stacks (AND).            |
 | `acceptsFile(string $name, Closure $rule): self`                  | Register a named validation rule for error reporting.           |
 | `hasFileRules(): bool`                                            |                                                                 |
-| `anyRuleNeedsModel(): bool`                                       | True if any rule's closure declares a second `$model` argument. |
-| `validateFile(Media $media, object $model, string $channel): void`| Runs every rule, throws `MediaNotAcceptedByChannel` on failure. |
+| `hasModelAwareRules(): bool`                                      | True when at least one rule declares a second `$model` argument. |
+| `validateMedia(Media $media, object $model, string $channel): void` | Runs every rule, throws `MediaNotAcceptedByChannel` on failure. |
 
 ---
 
