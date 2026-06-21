@@ -68,11 +68,7 @@ class DefaultMediaResolver implements MediaResolver
 
     // ─── Internals ─────────────────────────────────────────────────────
 
-    /**
-     * Prepend the configured URL prefix. If the storage URL is absolute,
-     * its path (and query, if any) is extracted before prefixing — this is
-     * what lets `url.prefix` work cleanly for S3-style absolute URLs.
-     */
+    /** Prepend `url.prefix`; strips scheme+host from absolute URLs first (S3+CDN case). */
     protected function applyPrefix(string $url): string
     {
         $prefix = config('mediaman.url.prefix');

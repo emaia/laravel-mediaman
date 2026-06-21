@@ -43,15 +43,11 @@ class MediaManServiceProvider extends ServiceProvider
 
         $this->app->bind(Downloader::class, HttpDownloader::class);
 
-        // Resolve via closure so the config keys are read at first resolve
-        // time, not at register time — lets tests (and apps) swap the
-        // implementation via Config::set without forcing an instance()
-        // override.
+        // Lazy closures so swapping these via Config::set takes effect without rebinding.
         $this->app->singleton(
             MediaResolver::class,
             fn ($app) => $app->make(config('mediaman.resolver'))
         );
-
         $this->app->singleton(
             PlaceholderGenerator::class,
             fn ($app) => $app->make(config('mediaman.placeholder.generator'))
