@@ -11,6 +11,7 @@
 - [Ordering media](#ordering-media)
 - [Channel fallbacks](#channel-fallbacks)
 - [Channel conversions](#channel-conversions)
+- [Channel validation rules](#channel-validation-rules)
 - [Cross-model operations](#cross-model-operations)
 
 ## Setup
