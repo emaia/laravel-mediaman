@@ -4,6 +4,16 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `MediaChannel::acceptsFile()` — channel-level validation rules that run at attach time, not at upload. Rules stack with implicit AND, can be named for error reporting, and receive the `Media` instance plus optionally the owning model (detected once via reflection at registration). When every rule reads only media properties the trait stays on the legacy single-INSERT fast path; when any rule declares a `$model` parameter the trait switches to an aggregate path inside a `DB::transaction` with `lockForUpdate()` on the owning row, so concurrent batches and `count() < N` constraints behave correctly. Failed batches roll back atomically — nothing from the lot lands in the pivot, the in-memory channel cache is invalidated, and `PerformConversions` is not dispatched for rejected items. The Media record itself stays in the library so callers can re-attach it elsewhere or retry without re-uploading. See [Models → Channel validation rules](docs/models.md#channel-validation-rules).
+- `MediaNotAcceptedByChannel` exception — carries `channel`, `rule` (`null` for anonymous rules), and `mediaId` (`int|string` to support UUID custom models) as public readonly props so controllers can `match ($e->rule)` directly instead of parsing the exception message.
+
+### Changed
+
+- `HasMedia::attachMedia` / `syncMedia` now throw `InvalidArgumentException` when any requested media id does not exist, before any DB write happens. Previously the legacy and fast paths relied on a foreign key violation to surface this (`QueryException` when FKs were enforced, **silent orphan pivot rows** when they were not), and the aggregate path silently skipped missing ids. All three paths now share the same explicit pre-flight check and the same exception type — independent of the connection's FK configuration. **BC:** callers that catch `QueryException` for this case must switch to `InvalidArgumentException`.
+- `PerformConversions` dispatch moves to after the attach pipeline has committed. Previously it dispatched up-front in the legacy path, which would orphan queued jobs if the attach itself later failed; and was caught by `syncMedia`'s `catch (Throwable)` in the rule paths, masking a successful attach as a silent `null` return when a queue connection error fired during dispatch. Now both paths dispatch after the transaction window for the requested set of ids (`attached + updated`), so a dispatch failure propagates as an exception rather than swallowing a committed attach.
+
 ## [2.18.0] — 2026-06-20
 
 ### Added

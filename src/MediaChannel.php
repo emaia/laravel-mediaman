@@ -2,6 +2,12 @@
 
 namespace Emaia\MediaMan;
 
+use Closure;
+use Emaia\MediaMan\Exceptions\MediaNotAcceptedByChannel;
+use Emaia\MediaMan\Models\Media;
+use InvalidArgumentException;
+use ReflectionFunction;
+
 class MediaChannel
 {
     protected array $conversions = [];
@@ -15,6 +21,12 @@ class MediaChannel
 
     /** @var array<string, string> */
     protected array $conversionFallbackPaths = [];
+
+    /** @var array<int, array{name: ?string, rule: Closure, needs_model: bool}> */
+    protected array $fileRules = [];
+
+    /** Cached so HasMedia::syncMedia can pick fast vs aggregate path in O(1). */
+    protected bool $hasModelAwareRules = false;
 
     public function performConversions(string ...$conversions): MediaChannel
     {
@@ -71,5 +83,69 @@ class MediaChannel
         }
 
         return $this->fallbackPath;
+    }
+
+    /**
+     * Register a validation closure run at attach time. Rules stack (AND).
+     * Closure receives Media + optionally the owning model when its signature declares it.
+     * See docs/models.md → Channel validation rules.
+     */
+    public function acceptsFile(string|Closure $nameOrRule, ?Closure $rule = null): MediaChannel
+    {
+        if ($nameOrRule instanceof Closure) {
+            $resolved = $nameOrRule;
+            $name = null;
+        } else {
+            if ($rule === null) {
+                throw new InvalidArgumentException(
+                    'When a rule name is provided, a closure must follow as the second argument.'
+                );
+            }
+
+            $resolved = $rule;
+            $name = $nameOrRule;
+        }
+
+        $needsModel = (new ReflectionFunction($resolved))->getNumberOfParameters() >= 2;
+
+        $this->fileRules[] = [
+            'name' => $name,
+            'rule' => $resolved,
+            'needs_model' => $needsModel,
+        ];
+
+        if ($needsModel) {
+            $this->hasModelAwareRules = true;
+        }
+
+        return $this;
+    }
+
+    public function hasFileRules(): bool
+    {
+        return $this->fileRules !== [];
+    }
+
+    public function hasModelAwareRules(): bool
+    {
+        return $this->hasModelAwareRules;
+    }
+
+    /** Run every registered rule; throw on the first failure. */
+    public function validateMedia(Media $media, object $model, string $channelName): void
+    {
+        foreach ($this->fileRules as $entry) {
+            $passes = $entry['needs_model']
+                ? ($entry['rule'])($media, $model)
+                : ($entry['rule'])($media);
+
+            if (! $passes) {
+                throw MediaNotAcceptedByChannel::ruleFailed(
+                    $channelName,
+                    $media->getKey(),
+                    $entry['name'],
+                );
+            }
+        }
     }
 }

@@ -8,6 +8,7 @@
 - [SVG to PNG fallback](#svg-to-png-fallback)
 - [ZIP download of multiple media](#zip-download-of-multiple-media)
 - [Multi-file form upload](#multi-file-form-upload)
+- [Best-effort (partial) attach](#best-effort-partial-attach)
 - [String or stream upload](#string-or-stream-upload)
 
 Common needs that MediaMan deliberately doesn't ship out-of-the-box — here's how to bolt them onto the existing event/queue/custom-properties flow.
@@ -312,6 +313,31 @@ foreach ($files as $i => $file) {
 ```
 
 **Trade-offs:** No special API for multi-file — but the iteration is one line, and you keep full control over per-file fluent options (different collections, custom properties, etc.).
+
+---
+
+## Best-effort (partial) attach
+
+**Use case:** Bulk ingestion (imports, seeders) into a channel with aggregate `acceptsFile` rules, where you want to keep every item that fits and skip the rejected ones — instead of the default all-or-nothing batch.
+
+**Approach:** `attachMedia()` is atomic per call, so make each item its own call and catch the rejection. Atomic is the primitive; partial is one loop on top.
+
+```php
+use Emaia\MediaMan\Exceptions\MediaNotAcceptedByChannel;
+
+$attached = $skipped = [];
+
+foreach ($mediaIds as $id) {
+    try {
+        $product->attachMedia($id, 'gallery');
+        $attached[] = $id;
+    } catch (MediaNotAcceptedByChannel $e) {
+        $skipped[] = ['id' => $e->mediaId, 'rule' => $e->rule];
+    }
+}
+```
+
+**Trade-offs:** One `attachMedia` call (and, for aggregate channels, one short transaction + row lock) per item instead of one for the whole batch — fine for ingestion, and you get a precise per-item report. For all-or-nothing interactive flows, pass the whole array to a single `attachMedia([...])` and let the batch roll back as a unit.
 
 ---
 

@@ -2,6 +2,7 @@
 
 namespace Emaia\MediaMan\Traits;
 
+use Emaia\MediaMan\Exceptions\MediaNotAcceptedByChannel;
 use Emaia\MediaMan\Exceptions\MediaNotAcceptedByCollection;
 use Emaia\MediaMan\Jobs\PerformConversions;
 use Emaia\MediaMan\MediaChannel;
@@ -32,11 +33,7 @@ trait HasMedia
         return $this->getMedia($channel)->isNotEmpty();
     }
 
-    /**
-     * Sentinel cache key for the "all channels" (null) lookup so it does not
-     * collide with the explicit DEFAULT_CHANNEL key. Pivot data never contains
-     * a channel literally equal to this string.
-     */
+    /** Sentinel cache key for the all-channels (null) lookup so it cannot collide with DEFAULT_CHANNEL. */
     private const ALL_CHANNELS_CACHE_KEY = '__all_channels__';
 
     /**
@@ -144,66 +141,18 @@ trait HasMedia
             );
         }
 
-        if (! empty($conversions)) {
-            $model = $this->mediaModel();
-
-            $mediaInstances = $model::findMany($ids);
-
-            $mediaInstances->each(function ($mediaInstance) use ($conversions) {
-                PerformConversions::dispatch(
-                    $mediaInstance,
-                    $conversions
-                );
-            });
-        }
+        $hasRules = $mediaChannel !== null && $mediaChannel->hasFileRules();
 
         try {
-            $currentMediaIds = $this->getMedia($channel)->modelKeys();
-
-            $attached = [];
-            $detached = [];
-            $updated = [];
-
-            if ($detaching) {
-                $toDetach = array_diff($currentMediaIds, $ids);
-                if (! empty($toDetach)) {
-                    $this->media()->wherePivot('channel', $channel)->detach($toDetach);
-                    $detached = array_values($toDetach);
-                }
+            if (! $hasRules) {
+                $result = $this->performBasicAttach($ids, $channel, $detaching, $startOrder);
+            } elseif (! $mediaChannel->hasModelAwareRules()) {
+                $result = $this->performFastPathAttach($ids, $channel, $mediaChannel, $detaching, $startOrder);
+            } else {
+                $result = $this->performAggregateAttach($ids, $channel, $mediaChannel, $detaching, $startOrder);
             }
-
-            $toAttach = [];
-            foreach ($ids as $id) {
-                if (in_array($id, $currentMediaIds)) {
-                    $updated[] = $id;
-                } else {
-                    $toAttach[] = $id;
-                }
-            }
-
-            if (! empty($toAttach)) {
-                $baseOrder = $startOrder ?? $this->getNextOrder($channel);
-                $pivotData = [];
-
-                foreach ($toAttach as $index => $attachId) {
-                    $pivotData[$attachId] = [
-                        'channel' => $channel,
-                        'order_column' => $baseOrder + $index,
-                    ];
-                }
-
-                $this->media()->attach($pivotData);
-                $attached = $toAttach;
-            }
-
-            $this->clearMediaCache($channel);
-
-            return ['attached' => $attached, 'detached' => $detached, 'updated' => $updated];
-        } catch (MediaNotAcceptedByCollection|QueryException|InvalidArgumentException $e) {
-            // Domain and database-level exceptions must propagate so callers
-            // can react (validation feedback, deadlock retries, etc.). Silently
-            // returning null here hid validation failures behind a no-op
-            // success indistinguishable from "nothing to sync".
+        } catch (MediaNotAcceptedByChannel|MediaNotAcceptedByCollection|QueryException|InvalidArgumentException $e) {
+            // Rethrow domain/DB errors so callers can react; only swallow truly unexpected throwables below.
             throw $e;
         } catch (Throwable $th) {
             Log::warning('MediaMan: Failed to sync media', [
@@ -212,6 +161,221 @@ trait HasMedia
             ]);
 
             return null;
+        }
+
+        // Dispatch after commit so queue errors do not mask a successful attach.
+        // See docs/models.md (Channel conversions / validation rules) for the rationale.
+        if (! empty($conversions)) {
+            $idsToDispatch = array_merge(
+                $result['attached'] ?? [],
+                $result['updated'] ?? [],
+            );
+
+            if (! empty($idsToDispatch)) {
+                $model = $this->mediaModel();
+                $mediaInstances = $model::findMany($idsToDispatch);
+
+                $mediaInstances->each(function ($mediaInstance) use ($conversions) {
+                    PerformConversions::dispatch($mediaInstance, $conversions);
+                });
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Load every requested media row, throwing InvalidArgumentException when any id is missing.
+     * Shared by all three attach paths so the error type is consistent regardless of FK config.
+     * Respects global scopes — soft-deleted Media is treated as missing (see docs/models.md).
+     */
+    private function loadMediaOrThrow(array $ids): Collection
+    {
+        if (empty($ids)) {
+            return new Collection;
+        }
+
+        $model = $this->mediaModel();
+        $instances = $model::findMany($ids);
+
+        $missing = array_values(array_diff($ids, $instances->modelKeys()));
+        if (! empty($missing)) {
+            throw new InvalidArgumentException(
+                'Cannot attach: media not found for id(s) ['.implode(',', $missing).'].'
+            );
+        }
+
+        return $instances;
+    }
+
+    /** Base attach path — used when the channel declares no file rules. */
+    private function performBasicAttach(array $ids, string $channel, bool $detaching, ?int $startOrder): array
+    {
+        $currentMediaIds = $this->getMedia($channel)->modelKeys();
+
+        $attached = [];
+        $detached = [];
+        $updated = [];
+
+        $toAttach = [];
+        foreach ($ids as $id) {
+            if (in_array($id, $currentMediaIds)) {
+                $updated[] = $id;
+            } else {
+                $toAttach[] = $id;
+            }
+        }
+
+        $this->loadMediaOrThrow($toAttach);
+
+        if ($detaching) {
+            $toDetach = array_diff($currentMediaIds, $ids);
+            if (! empty($toDetach)) {
+                $this->media()->wherePivot('channel', $channel)->detach($toDetach);
+                $detached = array_values($toDetach);
+            }
+        }
+
+        if (! empty($toAttach)) {
+            $baseOrder = $startOrder ?? $this->getNextOrder($channel);
+            $pivotData = [];
+
+            foreach ($toAttach as $index => $attachId) {
+                $pivotData[$attachId] = [
+                    'channel' => $channel,
+                    'order_column' => $baseOrder + $index,
+                ];
+            }
+
+            $this->media()->attach($pivotData);
+            $attached = $toAttach;
+        }
+
+        $this->clearMediaCache($channel);
+
+        return ['attached' => $attached, 'detached' => $detached, 'updated' => $updated];
+    }
+
+    /** Fast path — property-only rules: validate up-front then single-INSERT attach. */
+    private function performFastPathAttach(array $ids, string $channel, MediaChannel $mediaChannel, bool $detaching, ?int $startOrder): array
+    {
+        $currentMediaIds = $this->getMedia($channel)->modelKeys();
+
+        $toAttach = [];
+        $updated = [];
+        foreach ($ids as $id) {
+            if (in_array($id, $currentMediaIds)) {
+                $updated[] = $id;
+            } else {
+                $toAttach[] = $id;
+            }
+        }
+
+        $mediaInstances = $this->loadMediaOrThrow($toAttach);
+
+        foreach ($mediaInstances as $mediaInstance) {
+            $mediaChannel->validateMedia($mediaInstance, $this, $channel);
+        }
+
+        $detached = [];
+        if ($detaching) {
+            $toDetach = array_diff($currentMediaIds, $ids);
+            if (! empty($toDetach)) {
+                $this->media()->wherePivot('channel', $channel)->detach($toDetach);
+                $detached = array_values($toDetach);
+            }
+        }
+
+        $attached = [];
+        if (! empty($toAttach)) {
+            $baseOrder = $startOrder ?? $this->getNextOrder($channel);
+            $pivotData = [];
+
+            foreach ($toAttach as $index => $attachId) {
+                $pivotData[$attachId] = [
+                    'channel' => $channel,
+                    'order_column' => $baseOrder + $index,
+                ];
+            }
+
+            $this->media()->attach($pivotData);
+            $attached = $toAttach;
+        }
+
+        $this->clearMediaCache($channel);
+
+        return ['attached' => $attached, 'detached' => $detached, 'updated' => $updated];
+    }
+
+    /**
+     * Aggregate path — rules that read the owning model run inside a transaction
+     * with lockForUpdate and per-item validate/attach so count()-style caps work in batch.
+     * Concurrency guarantee depends on a driver with row locks (MySQL/Postgres); SQLite
+     * relies on its file lock. See docs/models.md → Channel validation rules.
+     */
+    private function performAggregateAttach(array $ids, string $channel, MediaChannel $mediaChannel, bool $detaching, ?int $startOrder): array
+    {
+        try {
+            return DB::transaction(function () use ($ids, $channel, $mediaChannel, $detaching, $startOrder) {
+                // Serialize concurrent batches against the same model row.
+                static::query()->lockForUpdate()->find($this->getKey());
+
+                // Re-read inside the lock; side effect: the caller's eager-loaded relation is flushed too (documented).
+                $this->unsetRelation('media');
+                $this->clearMediaCache($channel);
+
+                $currentMediaIds = $this->getMedia($channel)->modelKeys();
+
+                $detached = [];
+                if ($detaching) {
+                    $toDetach = array_diff($currentMediaIds, $ids);
+                    if (! empty($toDetach)) {
+                        $this->media()->wherePivot('channel', $channel)->detach($toDetach);
+                        $detached = array_values($toDetach);
+                        $this->clearMediaCache($channel);
+                    }
+                }
+
+                $toAttach = [];
+                $updated = [];
+                foreach ($ids as $id) {
+                    if (in_array($id, $currentMediaIds)) {
+                        $updated[] = $id;
+                    } else {
+                        $toAttach[] = $id;
+                    }
+                }
+
+                $mediaInstances = $this->loadMediaOrThrow($toAttach)->keyBy(fn ($m) => $m->getKey());
+
+                $attached = [];
+                if (! empty($toAttach)) {
+                    $baseOrder = $startOrder ?? $this->getNextOrder($channel);
+
+                    foreach ($toAttach as $index => $attachId) {
+                        $mediaInstance = $mediaInstances[$attachId];
+
+                        $mediaChannel->validateMedia($mediaInstance, $this, $channel);
+
+                        $this->media()->attach([
+                            $attachId => [
+                                'channel' => $channel,
+                                'order_column' => $baseOrder + $index,
+                            ],
+                        ]);
+
+                        $attached[] = $attachId;
+                        $this->clearMediaCache($channel);
+                    }
+                }
+
+                return ['attached' => $attached, 'detached' => $detached, 'updated' => $updated];
+            });
+        } catch (Throwable $e) {
+            // Cache reflects mid-transaction reads; flush so caller sees post-rollback state.
+            $this->clearMediaCache($channel);
+
+            throw $e;
         }
     }
 
