@@ -260,20 +260,30 @@ it('redispatches PerformConversions for already-attached media on re-sync (rules
 
 // ─── Aggregate path validation of inputs ────────────────────────────
 
-it('throws InvalidArgumentException when an aggregate id does not exist', function () {
-    $this->subject->addMediaChannel('gallery')
-        ->acceptsFile('max', fn (Media $m, $model) => $model->getMedia('gallery')->count() < 10);
+it('throws InvalidArgumentException for non-existent ids across all attach paths', function (string $channel, ?Closure $rule, ?Closure $modelRule) {
+    $registration = $this->subject->addMediaChannel($channel);
+
+    if ($rule !== null) {
+        $registration->acceptsFile($rule);
+    }
+    if ($modelRule !== null) {
+        $registration->acceptsFile('max', $modelRule);
+    }
 
     $a = uploadImage('a.jpg');
 
-    // The aggregate path used to silently skip missing ids — surfaced as a
-    // gap in order_column and zero feedback. Now it matches the legacy/fast
-    // paths and throws before any DB write.
-    expect(fn () => $this->subject->attachMedia([$a->getKey(), 99999], 'gallery'))
+    // All three attach paths (legacy, fast, aggregate) validate ids up-front
+    // and throw the same exception type for the same condition — independent
+    // of the connection's FK enforcement.
+    expect(fn () => $this->subject->attachMedia([$a->getKey(), 99999], $channel))
         ->toThrow(InvalidArgumentException::class);
 
-    expect($this->subject->getMedia('gallery'))->toHaveCount(0);
-});
+    expect($this->subject->getMedia($channel))->toHaveCount(0);
+})->with([
+    'legacy (no rules)' => ['legacy', null, null],
+    'fast path (property rule)' => ['fast', fn (Media $m) => true, null],
+    'aggregate (model rule)' => ['aggregate', null, fn (Media $m, $model) => $model->getMedia('aggregate')->count() < 10],
+]);
 
 // ─── Post-attach dispatch is outside the catch ──────────────────────
 

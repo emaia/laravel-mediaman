@@ -198,6 +198,30 @@ trait HasMedia
     }
 
     /**
+     * Verify every requested media id actually exists in the library. Throws
+     * an explicit InvalidArgumentException so all three attach paths surface
+     * the same domain error for the same condition, independent of whether
+     * the underlying connection enforces foreign keys (without FKs the
+     * legacy path would otherwise create orphan pivot rows silently).
+     */
+    private function ensureMediaIdsExist(array $ids): void
+    {
+        if (empty($ids)) {
+            return;
+        }
+
+        $model = $this->mediaModel();
+        $existing = $model::whereKey($ids)->pluck((new $model)->getKeyName())->all();
+
+        $missing = array_values(array_diff($ids, $existing));
+        if (! empty($missing)) {
+            throw new InvalidArgumentException(
+                'Cannot attach: media not found for id(s) ['.implode(',', $missing).'].'
+            );
+        }
+    }
+
+    /**
      * Legacy attach path used when the channel declares no file rules.
      * Preserves the exact behavior the trait had before v3.
      */
@@ -209,20 +233,22 @@ trait HasMedia
         $detached = [];
         $updated = [];
 
-        if ($detaching) {
-            $toDetach = array_diff($currentMediaIds, $ids);
-            if (! empty($toDetach)) {
-                $this->media()->wherePivot('channel', $channel)->detach($toDetach);
-                $detached = array_values($toDetach);
-            }
-        }
-
         $toAttach = [];
         foreach ($ids as $id) {
             if (in_array($id, $currentMediaIds)) {
                 $updated[] = $id;
             } else {
                 $toAttach[] = $id;
+            }
+        }
+
+        $this->ensureMediaIdsExist($toAttach);
+
+        if ($detaching) {
+            $toDetach = array_diff($currentMediaIds, $ids);
+            if (! empty($toDetach)) {
+                $this->media()->wherePivot('channel', $channel)->detach($toDetach);
+                $detached = array_values($toDetach);
             }
         }
 
@@ -265,6 +291,8 @@ trait HasMedia
                 $toAttach[] = $id;
             }
         }
+
+        $this->ensureMediaIdsExist($toAttach);
 
         if (! empty($toAttach)) {
             $model = $this->mediaModel();
@@ -367,20 +395,12 @@ trait HasMedia
                 }
             }
 
+            $this->ensureMediaIdsExist($toAttach);
+
             $attached = [];
             if (! empty($toAttach)) {
                 $model = $this->mediaModel();
                 $mediaInstances = $model::findMany($toAttach)->keyBy(fn ($m) => $m->getKey());
-
-                // Match the legacy/fast paths: a missing media id is a hard
-                // error, not a silent skip. Throwing here keeps the three
-                // paths consistent and surfaces the bad input early.
-                $missing = array_values(array_diff($toAttach, $mediaInstances->keys()->all()));
-                if (! empty($missing)) {
-                    throw new InvalidArgumentException(
-                        'Cannot attach: media not found for id(s) ['.implode(',', $missing).'].'
-                    );
-                }
 
                 $baseOrder = $startOrder ?? $this->getNextOrder($channel);
 
