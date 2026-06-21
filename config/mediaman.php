@@ -1,8 +1,6 @@
 <?php
 
-use Emaia\MediaMan\Generators\DefaultFileNamer;
-use Emaia\MediaMan\Generators\DefaultPathGenerator;
-use Emaia\MediaMan\Generators\DefaultUrlGenerator;
+use Emaia\MediaMan\Resolvers\DefaultMediaResolver;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Models\MediaCollection;
 use Emaia\MediaMan\Placeholders\BlurredSvgPlaceholder;
@@ -327,16 +325,13 @@ return [
     ],
 
     /*
-    | Pluggable generators for paths, URLs, and filenames. Defaults preserve
-    | the existing layout bit-for-bit; swap them for tenant-prefixed paths,
-    | CDN URL strategies, or custom filename formats.
+    | Pluggable MediaResolver — the single surface for every path, URL, and
+    | filename produced by MediaMan. Extend `DefaultMediaResolver` and
+    | override only the methods you need: tenant-prefixed paths, CDN URL
+    | strategies, custom filename formats, anything else.
     */
 
-    'generators' => [
-        'path' => DefaultPathGenerator::class,
-        'url' => DefaultUrlGenerator::class,
-        'file_namer' => DefaultFileNamer::class,
-    ],
+    'resolver' => DefaultMediaResolver::class,
 
     /*
     | When true, the package performs a write/delete probe before mutating
