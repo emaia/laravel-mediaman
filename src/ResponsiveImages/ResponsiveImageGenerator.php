@@ -4,9 +4,8 @@ namespace Emaia\MediaMan\ResponsiveImages;
 
 use Emaia\MediaMan\Enums\MediaFormat;
 use Emaia\MediaMan\Enums\MediaType;
-use Emaia\MediaMan\Generators\FileNamer;
-use Emaia\MediaMan\Generators\PathGenerator;
 use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\Resolvers\MediaResolver;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\WidthCalculator;
 use Intervention\Image\Format;
 use Intervention\Image\ImageManager;
@@ -91,8 +90,8 @@ class ResponsiveImageGenerator
             default => $image->encodeUsingFormat(Format::JPEG, quality: $quality),
         };
 
-        $directory = app(PathGenerator::class)->getPathForResponsive($media);
-        $fileName = app(FileNamer::class)->getResponsiveFileName($media->file_name, $targetWidth, $format);
+        $directory = app(MediaResolver::class)->pathForResponsive($media);
+        $fileName = app(MediaResolver::class)->responsiveFileName($media->file_name, $targetWidth, $format);
         $path = $directory.'/'.$fileName;
 
         $media->filesystem()->put($path, $encodedImage->toStream());
@@ -112,7 +111,7 @@ class ResponsiveImageGenerator
      */
     public function clearResponsiveImages(Media $media): void
     {
-        $responsiveDir = app(PathGenerator::class)->getPathForResponsive($media);
+        $responsiveDir = app(MediaResolver::class)->pathForResponsive($media);
         $filesystem = $media->filesystem();
 
         if ($filesystem->exists($responsiveDir)) {
