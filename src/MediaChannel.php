@@ -25,11 +25,7 @@ class MediaChannel
     /** @var array<int, array{name: ?string, rule: Closure, needs_model: bool}> */
     protected array $fileRules = [];
 
-    /**
-     * Aggregate flag updated incrementally as rules are registered so the
-     * fast-path/aggregate-path branch in HasMedia::syncMedia can be picked
-     * in O(1) without iterating $fileRules.
-     */
+    /** Cached so HasMedia::syncMedia can pick fast vs aggregate path in O(1). */
     protected bool $anyRuleNeedsModel = false;
 
     public function performConversions(string ...$conversions): MediaChannel
@@ -90,13 +86,9 @@ class MediaChannel
     }
 
     /**
-     * Register a validation closure that runs at attach time. Rules stack
-     * with AND semantics — every registered rule must return truthy or the
-     * attach throws MediaNotAcceptedByChannel.
-     *
-     * The closure receives the Media instance, plus the owning model as a
-     * second argument when its signature declares it (detected via reflection
-     * at registration so per-item validation stays reflection-free).
+     * Register a validation closure run at attach time. Rules stack (AND).
+     * Closure receives Media + optionally the owning model when its signature declares it.
+     * See docs/models.md → Channel validation rules.
      */
     public function acceptsFile(string|Closure $nameOrRule, ?Closure $rule = null): MediaChannel
     {
@@ -139,11 +131,7 @@ class MediaChannel
         return $this->anyRuleNeedsModel;
     }
 
-    /**
-     * Run every registered rule against the given media, throwing on the
-     * first failure. The owning model is passed only when a rule declares a
-     * second parameter.
-     */
+    /** Run every registered rule; throw on the first failure. */
     public function validateFile(Media $media, object $model, string $channelName): void
     {
         foreach ($this->fileRules as $entry) {

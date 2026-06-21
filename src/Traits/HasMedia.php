@@ -33,11 +33,7 @@ trait HasMedia
         return $this->getMedia($channel)->isNotEmpty();
     }
 
-    /**
-     * Sentinel cache key for the "all channels" (null) lookup so it does not
-     * collide with the explicit DEFAULT_CHANNEL key. Pivot data never contains
-     * a channel literally equal to this string.
-     */
+    /** Sentinel cache key for the all-channels (null) lookup so it cannot collide with DEFAULT_CHANNEL. */
     private const ALL_CHANNELS_CACHE_KEY = '__all_channels__';
 
     /**
@@ -156,10 +152,7 @@ trait HasMedia
                 $result = $this->performAggregateAttach($ids, $channel, $mediaChannel, $detaching, $startOrder);
             }
         } catch (MediaNotAcceptedByChannel|MediaNotAcceptedByCollection|QueryException|InvalidArgumentException $e) {
-            // Domain and database-level exceptions must propagate so callers
-            // can react (validation feedback, deadlock retries, etc.). Silently
-            // returning null here hid validation failures behind a no-op
-            // success indistinguishable from "nothing to sync".
+            // Rethrow domain/DB errors so callers can react; only swallow truly unexpected throwables below.
             throw $e;
         } catch (Throwable $th) {
             Log::warning('MediaMan: Failed to sync media', [
@@ -170,14 +163,8 @@ trait HasMedia
             return null;
         }
 
-        // Dispatch conversions after the attach pipeline has committed so a
-        // queue connection error cannot mask a successful attach as a null
-        // return. The legacy "dispatch before attach" timing had the inverse
-        // failure mode — dispatched jobs would orphan if the attach later
-        // failed. Both paths now target the requested ids that survived
-        // validation: newly attached plus already-attached ("updated"),
-        // matching the legacy intent of "ensure these conversions exist for
-        // the requested set".
+        // Dispatch after commit so queue errors do not mask a successful attach.
+        // See docs/models.md (Channel conversions / validation rules) for the rationale.
         if (! empty($conversions)) {
             $idsToDispatch = array_merge(
                 $result['attached'] ?? [],
@@ -198,18 +185,9 @@ trait HasMedia
     }
 
     /**
-     * Load every requested media row and throw an explicit
-     * InvalidArgumentException when any id is missing. All three attach
-     * paths share this helper so the error type and message stay the same
-     * regardless of FK configuration on the underlying connection (without
-     * FKs the legacy path would otherwise create orphan pivot rows
-     * silently). Returning the loaded instances lets the rule-bearing
-     * paths reuse them for validateFile without a second SELECT.
-     *
-     * Note: this respects model global scopes — a soft-deleted custom
-     * `Media` row is treated as missing. That matches the intent (cannot
-     * attach trashed media) but is worth noting for callers running with
-     * SoftDeletes.
+     * Load every requested media row, throwing InvalidArgumentException when any id is missing.
+     * Shared by all three attach paths so the error type is consistent regardless of FK config.
+     * Respects global scopes — soft-deleted Media is treated as missing (see docs/models.md).
      */
     private function findMediaOrThrow(array $ids): Collection
     {
@@ -230,10 +208,7 @@ trait HasMedia
         return $instances;
     }
 
-    /**
-     * Legacy attach path used when the channel declares no file rules.
-     * Preserves the exact behavior the trait had before v3.
-     */
+    /** Legacy attach path — used when the channel declares no file rules. */
     private function performLegacyAttach(array $ids, string $channel, bool $detaching, ?int $startOrder): array
     {
         $currentMediaIds = $this->getMedia($channel)->modelKeys();
@@ -281,12 +256,7 @@ trait HasMedia
         return ['attached' => $attached, 'detached' => $detached, 'updated' => $updated];
     }
 
-    /**
-     * Fast path for channels whose rules only read media properties (no
-     * second `$model` parameter). Validates every candidate up-front, then
-     * runs the same single-INSERT attach as the legacy path — no transaction
-     * overhead, no per-item DB round-trips.
-     */
+    /** Fast path — property-only rules: validate up-front then single-INSERT attach. */
     private function performFastPathAttach(array $ids, string $channel, MediaChannel $mediaChannel, bool $detaching, ?int $startOrder): array
     {
         $currentMediaIds = $this->getMedia($channel)->modelKeys();
@@ -338,23 +308,17 @@ trait HasMedia
     }
 
     /**
-     * Aggregate path for channels whose rules depend on the owning model
-     * (e.g. `count() < 5`). Wraps the operation in a DB transaction, locks
-     * the owning row to serialize concurrent batches, and runs validation
-     * and attach incrementally so each item sees the count growing.
-     *
-     * Concurrency guarantee depends on a driver with real row locks
-     * (MySQL/InnoDB, Postgres). SQLite serializes writes via its file lock
-     * and gets equivalent safety without emitting `FOR UPDATE`.
+     * Aggregate path — rules that read the owning model run inside a transaction
+     * with lockForUpdate and per-item validate/attach so count()-style caps work in batch.
+     * Concurrency guarantee depends on a driver with row locks (MySQL/Postgres); SQLite
+     * relies on its file lock. See docs/models.md → Channel validation rules.
      */
     private function performAggregateAttach(array $ids, string $channel, MediaChannel $mediaChannel, bool $detaching, ?int $startOrder): array
     {
         try {
             return $this->runAggregateAttachTransaction($ids, $channel, $mediaChannel, $detaching, $startOrder);
         } catch (Throwable $e) {
-            // The in-memory cache was populated while reading state inside the
-            // transaction; after rollback the DB no longer matches those rows.
-            // Invalidate so the caller sees the post-rollback truth.
+            // Cache reflects mid-transaction reads; flush so caller sees post-rollback state.
             $this->clearMediaCache($channel);
 
             throw $e;
@@ -364,16 +328,10 @@ trait HasMedia
     private function runAggregateAttachTransaction(array $ids, string $channel, MediaChannel $mediaChannel, bool $detaching, ?int $startOrder): array
     {
         return DB::transaction(function () use ($ids, $channel, $mediaChannel, $detaching, $startOrder) {
-            // Lock the owning row so concurrent batches against the same
-            // instance queue instead of racing past the cap.
+            // Serialize concurrent batches against the same model row.
             static::query()->lockForUpdate()->find($this->getKey());
 
-            // Forget any eager-loaded media so getMedia() re-reads from DB
-            // inside the lock — stale snapshots would let the count slip.
-            // Note: this also unsets the relation on the caller's instance
-            // (eg. after $product->load('media')->attachMedia(...) the next
-            // read of $product->media triggers a fresh DB query). That is
-            // the correct post-attach state but worth being aware of.
+            // Re-read inside the lock; side effect: the caller's eager-loaded relation is flushed too (documented).
             $this->unsetRelation('media');
             $this->clearMediaCache($channel);
 
