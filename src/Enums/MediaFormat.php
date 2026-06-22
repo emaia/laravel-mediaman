@@ -40,7 +40,7 @@ enum MediaFormat: string
      */
     public static function responsiveFormats(): array
     {
-        return [self::AVIF, self::WEBP, self::JPG, self::JPEG, self::PNG, self::GIF];
+        return [self::AVIF, self::WEBP, self::HEIC, self::JPG, self::JPEG, self::PNG, self::GIF];
     }
 
     /**
@@ -48,7 +48,7 @@ enum MediaFormat: string
      */
     public static function preferredOrder(): array
     {
-        return [self::AVIF, self::WEBP, self::JPG, self::JPEG, self::PNG];
+        return [self::AVIF, self::HEIC, self::WEBP, self::JPG, self::JPEG, self::PNG];
     }
 
     /**

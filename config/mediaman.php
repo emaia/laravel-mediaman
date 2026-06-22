@@ -249,7 +249,7 @@ return [
         'breakpoints' => [320, 640, 1024, 1366, 1920],
 
         /*
-        | Output formats. Supported: webp, avif, jpg, png.
+        | Output formats. Supported: webp, avif, jpg, png, heic.
         */
 
         'formats' => ['webp'],

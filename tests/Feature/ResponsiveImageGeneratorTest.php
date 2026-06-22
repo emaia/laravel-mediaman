@@ -122,3 +122,24 @@ it('uses the configured width calculator when widths option is omitted', functio
 
     expect($media->fresh()->getResponsiveImages()->pluck('width')->unique()->toArray())->toEqual([300]);
 });
+
+it('generates heic/heif responsive variants when the driver supports it', function () {
+    $file = UploadedFile::fake()->image('photo.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [320],
+        'formats' => ['heic', 'webp'],
+    ]);
+
+    $responsive = $media->fresh()->getResponsiveImages();
+    $formats = $responsive->pluck('format')->toArray();
+
+    expect($formats)->toContain('webp');
+
+    if (in_array('heic', $formats)) {
+        $heic = $responsive->firstWhere('format', 'heic');
+        expect((int) $heic->width)->toBe(320);
+        expect($heic->url)->toEndWith('.heic');
+    }
+});

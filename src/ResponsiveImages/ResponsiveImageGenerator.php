@@ -7,6 +7,7 @@ use Emaia\MediaMan\Enums\MediaType;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Resolvers\MediaResolver;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\WidthCalculator;
+use Illuminate\Support\Facades\Log;
 use Intervention\Image\Format;
 use Intervention\Image\ImageManager;
 
@@ -62,13 +63,24 @@ class ResponsiveImageGenerator
             }
 
             foreach ($formats as $format) {
-                $responsiveData[] = $this->generateSingleResponsiveImage(
-                    $media,
-                    clone $originalImage,
-                    $targetWidth,
-                    $format,
-                    $quality
-                );
+                try {
+                    $responsiveData[] = $this->generateSingleResponsiveImage(
+                        $media,
+                        clone $originalImage,
+                        $targetWidth,
+                        $format,
+                        $quality
+                    );
+                } catch (\Throwable $e) {
+                    Log::warning('MediaMan: Skipping responsive format — driver does not support encoding', [
+                        'mediaId' => $media->id,
+                        'format' => $format,
+                        'width' => $targetWidth,
+                        'error' => $e->getMessage(),
+                    ]);
+
+                    continue;
+                }
             }
         }
 
@@ -86,6 +98,7 @@ class ResponsiveImageGenerator
         $encodedImage = match ($format) {
             MediaFormat::WEBP->value => $image->encodeUsingFormat(Format::WEBP, quality: $quality),
             MediaFormat::AVIF->value => $image->encodeUsingFormat(Format::AVIF, quality: $quality),
+            MediaFormat::HEIC->value => $image->encodeUsingFormat(Format::HEIC, quality: $quality),
             MediaFormat::PNG->value => $image->encodeUsingFormat(Format::PNG),
             default => $image->encodeUsingFormat(Format::JPEG, quality: $quality),
         };
