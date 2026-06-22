@@ -12,7 +12,7 @@ Public surface of the package, organized by class/trait. Each entry links back t
 - [ConversionRegistry](#conversionregistry) — `Emaia\MediaMan\ConversionRegistry`
 - [ImageManipulator](#imagemanipulator) — `Emaia\MediaMan\ImageManipulator`
 - [ResponsiveImageGenerator](#responsiveimagegenerator) — `Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator`
-- [Generators](#generators) — `Emaia\MediaMan\Generators\*`
+- [MediaResolver](#mediaresolver) — `Emaia\MediaMan\Resolvers\MediaResolver`
 - [Placeholders](#placeholders) — `Emaia\MediaMan\Placeholders\*`
 - [Downloaders](#downloaders) — `Emaia\MediaMan\Downloaders\*`
 - [Support](#support) — `Emaia\MediaMan\Support\*`
@@ -198,7 +198,7 @@ Public surface of the package, organized by class/trait. Each entry links back t
 | Signature                                                  | Description                                   |
 |------------------------------------------------------------|-----------------------------------------------|
 | `useName(string)` / `setName`                              | Display name.                                 |
-| `useFileName(string)` / `setFileName`                      | On-disk filename (sanitized via `FileNamer`). |
+| `useFileName(string)` / `setFileName`                      | On-disk filename (sanitized via `MediaResolver::baseName()`). |
 | `useCollection(string)` / `toCollection` / `setCollection` | Bundle into collection (created on demand).   |
 | `useDisk(string)` / `toDisk` / `setDisk`                   | Target disk.                                  |
 | `withCustomProperties(array)` / `useCustomProperties`      | Extra metadata stored as JSON.                |
@@ -333,54 +333,66 @@ See [Responsive images](responsive-images.md).
 
 ---
 
-## Generators
+## MediaResolver
 
-Customize where files live and how URLs/filenames are produced — see [Configuration → Pluggable generators](configuration.md#pluggable-generators).
-
-### `PathGenerator`
+Single pluggable surface for paths, URLs, and filenames. Replaces the v2 `PathGenerator` + `UrlGenerator` + `FileNamer` trio with one interface, one bind, one config key — most customizations touched all three together (changing the path implies changing the URL) so the consolidation removes indirection without removing flexibility.
 
 ```php
-interface PathGenerator
+interface MediaResolver
 {
-    public function getDirectory(Media $media): string;
-    public function getPathForConversion(Media $media, string $conversion): string;
-    public function getPathForResponsive(Media $media): string;
+    // Paths
+    public function directory(Media $media): string;
+    public function pathForConversion(Media $media, string $conversion): string;
+    public function pathForResponsive(Media $media): string;
+
+    // URLs
+    public function url(Media $media, ?string $conversion = null): string;
+    public function temporaryUrl(Media $media, DateTimeInterface $expiration, ?string $conversion = null): string;
+
+    // Filenames
+    public function baseName(string $originalName): string;
+    public function conversionFileName(string $originalName, string $conversion, string $extension): string;
+    public function responsiveFileName(string $originalName, int $width, string $format): string;
 }
 ```
 
-Default: `DefaultPathGenerator` — `{id}-{md5(id.app_key)}` layout.
+Default: `DefaultMediaResolver` — preserves v2 behavior bit-for-bit:
 
-### `UrlGenerator`
+- `{id}-{md5(id.app_key)}` obfuscated directory
+- Conversions under `{dir}/conversions/{conversion}`, responsive variants under `{dir}/responsive-images`
+- URL pipeline applies `url.prefix` and `url.version_query` config, stripping scheme+host from absolute storage URLs before prefixing (the S3+CDN case)
+- Temporary signed URLs are **not** prefixed or version-tagged
+- Filename sanitization (path traversal, control chars, double-extension defense), `{basename}.{ext}` for conversions, `{basename}_{width}w.{format}` for responsive variants
+
+**Customize selectively** by extending the default and overriding only what you need:
 
 ```php
-interface UrlGenerator
+namespace App\MediaMan;
+
+use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\Resolvers\DefaultMediaResolver;
+
+class TenantMediaResolver extends DefaultMediaResolver
 {
-    public function getUrl(Media $media, ?string $conversion = null): string;
-    public function getTemporaryUrl(Media $media, DateTimeInterface $expiration, ?string $conversion = null): string;
+    public function directory(Media $media): string
+    {
+        return 'tenants/'.tenant()->id.'/'.parent::directory($media);
+    }
 }
 ```
 
-Default: `DefaultUrlGenerator` — applies `url.prefix` and `url.version_query` config. Strips scheme+host from absolute storage URLs before prefixing (S3+CDN setups). Temporary signed URLs are **not** prefixed or version-tagged.
-
-### `FileNamer`
+Bind it in `config/mediaman.php`:
 
 ```php
-interface FileNamer
-{
-    public function getBaseName(string $originalName): string;
-    public function getConversionFileName(string $originalName, string $conversion, string $extension): string;
-    public function getResponsiveFileName(string $originalName, int $width, string $format): string;
-}
+'resolver' => App\MediaMan\TenantMediaResolver::class,
 ```
 
-Default: `DefaultFileNamer` — sanitizes user input, keeps the original basename for conversions (extension swap only), uses `{basename}_{width}w.{format}` for responsive variants.
-
-Bind any generator in a service provider:
+Or wire ad-hoc in a service provider:
 
 ```php
-use Emaia\MediaMan\Generators\PathGenerator;
+use Emaia\MediaMan\Resolvers\MediaResolver;
 
-$this->app->bind(PathGenerator::class, MyTenantPathGenerator::class);
+$this->app->singleton(MediaResolver::class, TenantMediaResolver::class);
 ```
 
 ### `WidthCalculator`

@@ -84,6 +84,6 @@ This means `$media->getUrl('thumb')` produces the correct extension whether the 
 
 ## Customize storage layout
 
-The default `Emaia\MediaMan\Generators\DefaultPathGenerator` stores conversions under `{media_dir}/conversions/{conversion-name}/{file_name}`. Swap it for custom layouts (per-tenant, hash-based, etc.) — see [Pluggable generators](configuration.md#pluggable-generators) and [API → Generators](api.md#generators).
+The default `Emaia\MediaMan\Resolvers\DefaultMediaResolver` stores conversions under `{media_dir}/conversions/{conversion-name}/{file_name}`. Swap it for custom layouts (per-tenant, hash-based, etc.) — see [Pluggable MediaResolver](configuration.md#pluggable-mediaresolver) and [API → MediaResolver](api.md#mediaresolver).
 
-Custom filenames (e.g., `photo-thumb.jpg` instead of `photo.jpg`) are controlled by the `FileNamer` interface.
+Custom filenames (e.g., `photo-thumb.jpg` instead of `photo.jpg`) are controlled by overriding `MediaResolver::conversionFileName()`.

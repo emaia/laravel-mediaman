@@ -5,8 +5,8 @@ namespace Emaia\MediaMan\Console\Commands;
 use Emaia\MediaMan\Console\Concerns\CommandOutputStyle;
 use Emaia\MediaMan\Console\Concerns\ParsesMediaIds;
 use Emaia\MediaMan\ConversionRegistry;
-use Emaia\MediaMan\Generators\PathGenerator;
 use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\Resolvers\MediaResolver;
 use Illuminate\Console\Command;
 
 class ClearConversionsCommand extends Command
@@ -87,13 +87,13 @@ class ClearConversionsCommand extends Command
         $cleared = 0;
         $skipped = 0;
         $failures = [];
-        $pathGenerator = app(PathGenerator::class);
+        $resolver = app(MediaResolver::class);
 
         foreach ($mediaItems as $media) {
             $filesystem = $media->filesystem();
 
             foreach ($conversionNames as $conv) {
-                $conversionDir = $pathGenerator->getPathForConversion($media, $conv);
+                $conversionDir = $resolver->pathForConversion($media, $conv);
 
                 try {
                     if (! $filesystem->exists($conversionDir)) {

@@ -10,9 +10,9 @@ use Emaia\MediaMan\Exceptions\DisallowedExtension;
 use Emaia\MediaMan\Exceptions\FileSizeExceeded;
 use Emaia\MediaMan\Exceptions\InvalidBase64Data;
 use Emaia\MediaMan\Exceptions\MimeTypeNotAllowed;
-use Emaia\MediaMan\Generators\FileNamer;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Placeholders\PlaceholderGenerator;
+use Emaia\MediaMan\Resolvers\MediaResolver;
 use Emaia\MediaMan\Support\UrlGuard;
 use Emaia\MediaMan\Traits\ResolvesModels;
 use Illuminate\Http\Request;
@@ -357,7 +357,7 @@ class MediaUploader
      */
     protected function sanitizeFileName(string $fileName): string
     {
-        return app(FileNamer::class)->getBaseName($fileName);
+        return app(MediaResolver::class)->baseName($fileName);
     }
 
     /**
