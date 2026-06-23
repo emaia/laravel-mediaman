@@ -87,3 +87,17 @@ This means `$media->getUrl('thumb')` produces the correct extension whether the 
 The default `Emaia\MediaMan\Resolvers\DefaultMediaResolver` stores conversions under `{media_dir}/conversions/{conversion-name}/{file_name}`. Swap it for custom layouts (per-tenant, hash-based, etc.) — see [Pluggable MediaResolver](configuration.md#pluggable-mediaresolver) and [API → MediaResolver](api.md#mediaresolver).
 
 Custom filenames (e.g., `photo-thumb.jpg` instead of `photo.jpg`) are controlled by overriding `MediaResolver::conversionFileName()`.
+
+## Per-conversion disk
+
+Each conversion can opt into a different filesystem disk, separating hot variants from cold originals:
+
+```php
+Conversion::register('thumb', fn ($img) => $img->cover(64, 64), disk: 'public');
+Conversion::register('archive', fn ($img) => $img->scaleDown(4096), disk: 's3-glacier');
+Conversion::register('medium', fn ($img) => $img->scaleDown(800));  // omits → uses $media->disk
+```
+
+URLs, temporary URLs, HTTP responses, mail attachments, and `mediaman:clean` / `mediaman:doctor` / `mediaman:rotate-paths` all respect the per-conversion disk automatically.
+
+> Changing the disk of an already-registered conversion does **not** migrate existing files. Old conversion files remain on the previous disk. Run `mediaman:clean --disk=old-disk` to scan for leftovers, or copy files manually before switching.

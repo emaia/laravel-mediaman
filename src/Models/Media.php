@@ -77,10 +77,18 @@ class Media extends Model implements Attachable
                 return;
             }
 
-            // delete the media directory
-            $deleted = Storage::disk($media->disk)->deleteDirectory($media->getDirectory());
-            // if failed, try deleting the file then
-            ! $deleted && Storage::disk($media->disk)->delete($media->getPath());
+            // delete the media directory on the main disk
+            $mainDeleted = Storage::disk($media->disk)->deleteDirectory($media->getDirectory());
+            ! $mainDeleted && Storage::disk($media->disk)->delete($media->getPath());
+
+            // clean conversion directories on any other disks they were stored on
+            foreach ($media->getConversionDisks() as $conversionDisk) {
+                if ($conversionDisk === $media->disk) {
+                    continue;
+                }
+
+                Storage::disk($conversionDisk)->deleteDirectory($media->getDirectory());
+            }
 
             event(new MediaDeleted($media));
         });
@@ -272,10 +280,11 @@ class Media extends Model implements Attachable
         $formats = array_map(fn (MediaFormat $f) => $f->value, MediaFormat::detectableFormats());
         $baseDirectory = app(MediaResolver::class)->pathForConversion($this, $conversion);
         $baseFileName = pathinfo($this->file_name, PATHINFO_FILENAME);
+        $fs = $this->conversionFilesystem($conversion);
 
         foreach ($formats as $format) {
             $testPath = $baseDirectory.'/'.$baseFileName.'.'.$format;
-            if ($this->filesystem()->exists($testPath)) {
+            if ($fs->exists($testPath)) {
                 return $format;
             }
         }
@@ -289,6 +298,45 @@ class Media extends Model implements Attachable
     public function filesystem(): Filesystem
     {
         return Storage::disk($this->disk);
+    }
+
+    /**
+     * Resolve the effective disk for a conversion, falling back to the media's
+     * own disk when the conversion was registered without an explicit disk.
+     */
+    public function getConversionDisk(string $conversion): string
+    {
+        $disk = app(ConversionRegistry::class)->getDisk($conversion);
+
+        return $disk ?? $this->disk ?? config('mediaman.disk') ?? config('filesystems.default');
+    }
+
+    /**
+     * Get the filesystem for a specific conversion, respecting any per-conversion
+     * disk registered in the ConversionRegistry.
+     */
+    public function conversionFilesystem(string $conversion): Filesystem
+    {
+        return Storage::disk($this->getConversionDisk($conversion));
+    }
+
+    /**
+     * All unique disks used by conversions registered for this media, including
+     * the media's own disk when at least one conversion omits an explicit disk.
+     *
+     * @return string[]
+     */
+    public function getConversionDisks(): array
+    {
+        $registry = app(ConversionRegistry::class);
+        $disks = [];
+
+        foreach (array_keys($registry->all()) as $conversion) {
+            $disk = $registry->getDisk($conversion) ?? $this->disk;
+            $disks[$disk] = true;
+        }
+
+        return array_keys($disks);
     }
 
     /**
@@ -449,7 +497,7 @@ class Media extends Model implements Attachable
     {
         $path = $this->getPathWithCorrectExtension($conversion);
 
-        return $this->filesystem()->exists($path);
+        return $this->conversionFilesystem($conversion)->exists($path);
     }
 
     /**
@@ -728,10 +776,12 @@ class Media extends Model implements Attachable
      */
     public function toResponse(?string $conversion = null): StreamedResponse
     {
-        return $this->filesystem()->download(
-            $this->getPath($conversion ?? ''),
-            $this->file_name
-        );
+        $path = $this->getPath($conversion ?? '');
+        $fs = $conversion !== null && $conversion !== ''
+            ? $this->conversionFilesystem($conversion)
+            : $this->filesystem();
+
+        return $fs->download($path, $this->file_name);
     }
 
     /**
@@ -739,10 +789,12 @@ class Media extends Model implements Attachable
      */
     public function toInlineResponse(?string $conversion = null): StreamedResponse
     {
-        return $this->filesystem()->response(
-            $this->getPath($conversion ?? ''),
-            $this->file_name
-        );
+        $path = $this->getPath($conversion ?? '');
+        $fs = $conversion !== null && $conversion !== ''
+            ? $this->conversionFilesystem($conversion)
+            : $this->filesystem();
+
+        return $fs->response($path, $this->file_name);
     }
 
     /**
@@ -752,9 +804,12 @@ class Media extends Model implements Attachable
      */
     public function getStream(?string $conversion = null)
     {
-        return $this->filesystem()->readStream(
-            $this->getPath($conversion ?? '')
-        );
+        $path = $this->getPath($conversion ?? '');
+        $fs = $conversion !== null && $conversion !== ''
+            ? $this->conversionFilesystem($conversion)
+            : $this->filesystem();
+
+        return $fs->readStream($path);
     }
 
     /**
@@ -764,10 +819,16 @@ class Media extends Model implements Attachable
      */
     public function getTemporaryUrl(?DateTimeInterface $expiration = null, ?string $conversion = null): string
     {
-        $filesystem = $this->filesystem();
+        $filesystem = $conversion !== null && $conversion !== ''
+            ? $this->conversionFilesystem($conversion)
+            : $this->filesystem();
 
         if (! $filesystem->providesTemporaryUrls()) {
-            throw TemporaryUrlNotSupported::forDisk($this->disk);
+            throw TemporaryUrlNotSupported::forDisk(
+                $conversion !== null && $conversion !== ''
+                    ? $this->getConversionDisk($conversion)
+                    : $this->disk
+            );
         }
 
         $expiration ??= now()->addMinutes(
@@ -787,7 +848,11 @@ class Media extends Model implements Attachable
      */
     public function mailAttachment(?string $conversion = null): Attachment
     {
-        return Attachment::fromStorageDisk($this->disk, $this->getPath($conversion ?? ''))
+        $disk = $conversion !== null && $conversion !== ''
+            ? $this->getConversionDisk($conversion)
+            : $this->disk;
+
+        return Attachment::fromStorageDisk($disk, $this->getPath($conversion ?? ''))
             ->as($this->file_name)
             ->withMime($this->mime_type);
     }
@@ -881,33 +946,39 @@ class Media extends Model implements Attachable
 
     protected function copyConversions(Media $target): void
     {
-        $conversionsDir = $this->getDirectory().'/'.self::CONVERSIONS_DIR;
+        $registry = app(ConversionRegistry::class);
+        $resolver = app(MediaResolver::class);
 
-        if (! $this->filesystem()->exists($conversionsDir)) {
-            return;
-        }
+        foreach (array_keys($registry->all()) as $conversion) {
+            $sourceFs = $this->conversionFilesystem($conversion);
+            $sourceDir = $resolver->pathForConversion($this, $conversion);
 
-        $sameDisk = $this->disk === $target->disk;
-        $sourceFs = $this->filesystem();
-        $targetFs = $target->filesystem();
-
-        foreach ($sourceFs->allFiles($conversionsDir) as $file) {
-            $relativePath = substr($file, strlen($conversionsDir) + 1);
-            $targetPath = $target->getDirectory().'/'.self::CONVERSIONS_DIR.'/'.$relativePath;
-
-            if ($sameDisk) {
-                $sourceFs->copy($file, $targetPath);
-
+            if (! $sourceFs->exists($sourceDir)) {
                 continue;
             }
 
-            $stream = $sourceFs->readStream($file);
+            $targetFs = $target->conversionFilesystem($conversion);
+            $targetDir = $resolver->pathForConversion($target, $conversion);
+            $sameDisk = $this->getConversionDisk($conversion) === $target->getConversionDisk($conversion);
 
-            try {
-                $targetFs->writeStream($targetPath, $stream);
-            } finally {
-                if (is_resource($stream)) {
-                    fclose($stream);
+            foreach ($sourceFs->allFiles($sourceDir) as $file) {
+                $relativePath = substr($file, strlen($sourceDir) + 1);
+                $targetPath = $targetDir.'/'.$relativePath;
+
+                if ($sameDisk) {
+                    $sourceFs->copy($file, $targetPath);
+
+                    continue;
+                }
+
+                $stream = $sourceFs->readStream($file);
+
+                try {
+                    $targetFs->writeStream($targetPath, $stream);
+                } finally {
+                    if (is_resource($stream)) {
+                        fclose($stream);
+                    }
                 }
             }
         }

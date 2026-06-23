@@ -89,10 +89,32 @@ class DoctorCommand extends Command
 
         $this->statusLine('Configured', 'info', $configured === null ? "null (fallback to filesystems.default = '{$effective}')" : "'{$effective}'");
 
+        $this->probeDisk($effective, 'Probe (write/read/delete)');
+
+        $this->checkConversionDisks();
+    }
+
+    /**
+     * Probe every distinct disk referenced by conversion registrations.
+     */
+    protected function checkConversionDisks(): void
+    {
+        $registry = app(ConversionRegistry::class);
+
+        foreach ($registry->disks() as $diskName) {
+            $this->probeDisk($diskName, "Conversion disk '{$diskName}'");
+        }
+    }
+
+    /**
+     * Write a probe file to a disk and verify read-back integrity.
+     */
+    protected function probeDisk(string $diskName, string $label): void
+    {
         try {
-            $disk = Storage::disk($effective);
+            $disk = Storage::disk($diskName);
         } catch (Throwable $e) {
-            $this->statusLine('Probe (write/read/delete)', 'error', "disk '{$effective}' is not defined in filesystems.php");
+            $this->statusLine($label, 'error', "disk '{$diskName}' is not defined in filesystems.php");
 
             return;
         }
@@ -106,14 +128,14 @@ class DoctorCommand extends Command
             $disk->delete($probeFile);
 
             if ($readBack !== $probeContent) {
-                $this->statusLine('Probe (write/read/delete)', 'error', 'read-back content did not match (disk integrity issue)');
+                $this->statusLine($label, 'error', 'read-back content did not match (disk integrity issue)');
 
                 return;
             }
 
-            $this->statusLine('Probe (write/read/delete)', 'ok', 'OK');
+            $this->statusLine($label, 'ok', 'OK');
         } catch (Throwable $e) {
-            $this->statusLine('Probe (write/read/delete)', 'error', $e->getMessage());
+            $this->statusLine($label, 'error', $e->getMessage());
 
             // Best-effort cleanup if write succeeded but a later step failed.
             try {

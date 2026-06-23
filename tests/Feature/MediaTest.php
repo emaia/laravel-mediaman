@@ -251,10 +251,11 @@ it('can get the url to a converted image', function () {
 
     $filesystem = Mockery::mock(Filesystem::class)->makePartial();
 
-    // Assert filesystem calls url with the correct path on disk...
+    // Assert filesystem calls url with the correct path on disk.
+    // getUrl('thumbnail') routes through conversionFilesystem() now.
     $filesystem->shouldReceive('url')->with($media->getPath('thumbnail'))->once()->andReturn('url');
 
-    $media->shouldReceive('filesystem')->once()->andReturn($filesystem);
+    $media->shouldReceive('conversionFilesystem')->with('thumbnail')->once()->andReturn($filesystem);
 
     expect($media->getUrl('thumbnail'))->toEqual('url');
 });

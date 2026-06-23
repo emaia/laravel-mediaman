@@ -39,7 +39,7 @@ class ImageManipulator
                 $media->filesystem()->readStream($media->getOriginalPath())
             ));
 
-            $filesystem = $media->filesystem();
+            $filesystem = $media->conversionFilesystem($conversion);
 
             if ($image instanceof EncodedImage) {
                 $extension = $this->getExtensionFromMimeType($image->mediaType());

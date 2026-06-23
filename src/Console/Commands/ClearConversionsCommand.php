@@ -90,9 +90,8 @@ class ClearConversionsCommand extends Command
         $resolver = app(MediaResolver::class);
 
         foreach ($mediaItems as $media) {
-            $filesystem = $media->filesystem();
-
             foreach ($conversionNames as $conv) {
+                $filesystem = $media->conversionFilesystem($conv);
                 $conversionDir = $resolver->pathForConversion($media, $conv);
 
                 try {

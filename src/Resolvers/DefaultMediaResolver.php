@@ -28,8 +28,12 @@ class DefaultMediaResolver implements MediaResolver
 
     public function url(Media $media, ?string $conversion = null): string
     {
+        $filesystem = $conversion !== null
+            ? $media->conversionFilesystem($conversion)
+            : $media->filesystem();
+
         $path = $media->getPath($conversion ?? '');
-        $url = $media->filesystem()->url($path);
+        $url = $filesystem->url($path);
 
         $url = $this->applyPrefix($url);
         $url = $this->applyVersionQuery($url, $media);
@@ -39,7 +43,11 @@ class DefaultMediaResolver implements MediaResolver
 
     public function temporaryUrl(Media $media, DateTimeInterface $expiration, ?string $conversion = null): string
     {
-        return $media->filesystem()->temporaryUrl(
+        $filesystem = $conversion !== null
+            ? $media->conversionFilesystem($conversion)
+            : $media->filesystem();
+
+        return $filesystem->temporaryUrl(
             $media->getPath($conversion ?? ''),
             $expiration
         );

@@ -1,5 +1,6 @@
 <?php
 
+use Emaia\MediaMan\ConversionRegistry;
 use Emaia\MediaMan\MediaUploader;
 use Emaia\MediaMan\Models\Media;
 use Illuminate\Http\UploadedFile;
@@ -10,7 +11,7 @@ it('reports no orphans when everything is clean', function () {
     MediaUploader::source($file)->upload();
 
     $this->artisan('mediaman:clean')
-        ->expectsOutputToContain('Media records on this disk: 1')
+        ->expectsOutputToContain('Media records whose primary disk is here: 1')
         ->expectsOutputToContain('No orphaned files found')
         ->expectsOutputToContain('No reverse orphans found')
         ->assertExitCode(0);
@@ -78,7 +79,7 @@ it('shows record count correctly', function () {
     MediaUploader::source(UploadedFile::fake()->image('b.jpg'))->upload();
 
     $this->artisan('mediaman:clean')
-        ->expectsOutputToContain('Media records on this disk: 2')
+        ->expectsOutputToContain('Media records whose primary disk is here: 2')
         ->assertExitCode(0);
 });
 
@@ -115,7 +116,42 @@ it('allows scanning a specific disk', function () {
 
     $this->artisan('mediaman:clean', ['--disk' => 'secondary'])
         ->expectsOutputToContain('Disk: secondary')
-        ->expectsOutputToContain('Media records on this disk: 0')
+        ->expectsOutputToContain('Media records whose primary disk is here: 0')
         ->expectsOutputToContain('orphan/other.txt')
         ->assertExitCode(0);
+});
+
+it('does not flag conversion files as orphans on a conversion-only disk', function () {
+    Storage::fake('public');
+    Storage::fake('default');
+
+    $registry = app(ConversionRegistry::class);
+    $registry->register('thumb', fn ($img) => $img->resize(200, 200), disk: 'public');
+
+    $media = new Media;
+    $media->name = 'test';
+    $media->file_name = 'photo.jpg';
+    $media->mime_type = 'image/jpeg';
+    $media->disk = 'default';
+    $media->size = 1024;
+    $media->save();
+
+    $mediaDir = $media->getDirectory();
+    Storage::disk('default')->put($media->getPath(), 'original-content');
+
+    // Put conversion files on the public disk (conversion-only disk)
+    Storage::disk('public')->put("{$mediaDir}/conversions/thumb/photo.webp", 'thumb-content');
+
+    // Also put some truly orphaned files on the public disk
+    Storage::disk('public')->put('orphan-dir/bad.txt', 'orphan');
+
+    $this->artisan('mediaman:clean', ['--disk' => 'public'])
+        ->expectsOutputToContain('Disk: public')
+        ->assertExitCode(0);
+
+    // Media record is on 'default', not 'public'
+    $this->artisan('mediaman:clean', ['--disk' => 'public'])
+        ->expectsOutputToContain('Found 1 orphaned file(s)')
+        ->expectsOutputToContain('orphan-dir')
+        ->doesntExpectOutputToContain("{$mediaDir}/conversions/thumb/photo.webp");
 });
