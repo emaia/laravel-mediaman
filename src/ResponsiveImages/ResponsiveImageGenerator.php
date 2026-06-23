@@ -7,6 +7,7 @@ use Emaia\MediaMan\Enums\MediaType;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Resolvers\MediaResolver;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\WidthCalculator;
+use Illuminate\Support\Facades\Log;
 use Intervention\Image\Format;
 use Intervention\Image\ImageManager;
 
@@ -62,13 +63,24 @@ class ResponsiveImageGenerator
             }
 
             foreach ($formats as $format) {
-                $responsiveData[] = $this->generateSingleResponsiveImage(
-                    $media,
-                    clone $originalImage,
-                    $targetWidth,
-                    $format,
-                    $quality
-                );
+                try {
+                    $responsiveData[] = $this->generateSingleResponsiveImage(
+                        $media,
+                        clone $originalImage,
+                        $targetWidth,
+                        $format,
+                        $quality
+                    );
+                } catch (\Throwable $e) {
+                    Log::warning('MediaMan: Skipping responsive format — driver does not support encoding', [
+                        'mediaId' => $media->id,
+                        'format' => $format,
+                        'width' => $targetWidth,
+                        'error' => $e->getMessage(),
+                    ]);
+
+                    continue;
+                }
             }
         }
 
@@ -86,9 +98,20 @@ class ResponsiveImageGenerator
         $encodedImage = match ($format) {
             MediaFormat::WEBP->value => $image->encodeUsingFormat(Format::WEBP, quality: $quality),
             MediaFormat::AVIF->value => $image->encodeUsingFormat(Format::AVIF, quality: $quality),
+            MediaFormat::HEIC->value => $image->encodeUsingFormat(Format::HEIC, quality: $quality),
+            MediaFormat::JPG->value, MediaFormat::JPEG->value => $image->encodeUsingFormat(Format::JPEG, quality: $quality),
             MediaFormat::PNG->value => $image->encodeUsingFormat(Format::PNG),
-            default => $image->encodeUsingFormat(Format::JPEG, quality: $quality),
+            MediaFormat::GIF->value => $image->encodeUsingFormat(Format::GIF),
+            default => throw new \InvalidArgumentException("Unsupported responsive format [{$format}]."),
         };
+
+        $size = strlen((string) $encodedImage);
+
+        if ($size === 0) {
+            throw new \RuntimeException(
+                "Encoder for [{$format}] returned zero bytes — the driver likely lacks support (e.g. imagick without libheif for HEIC)."
+            );
+        }
 
         $directory = app(MediaResolver::class)->pathForResponsive($media);
         $fileName = app(MediaResolver::class)->responsiveFileName($media->file_name, $targetWidth, $format);
@@ -102,7 +125,7 @@ class ResponsiveImageGenerator
             'format' => $format,
             'path' => $path,
             'url' => $media->filesystem()->url($path),
-            'size' => strlen((string) $encodedImage),
+            'size' => $size,
         ];
     }
 
