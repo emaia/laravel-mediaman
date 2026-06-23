@@ -94,6 +94,32 @@ $media = MediaUploader::fromBase64($data, 'photo.png', 'User Avatar')->upload();
 
 Payload size is checked **before** decoding to prevent memory exhaustion (`config('mediaman.base64.max_size_bytes')`, default 50 MB). Oversized payloads throw `FileSizeExceeded`; malformed data throws `InvalidBase64Data`.
 
+## From raw bytes (in-memory content)
+
+```php
+// Programmatic content (PDF generator, headless screenshot, webhook body)
+$media = MediaUploader::fromString($pdfBytes, 'invoice.pdf')->upload();
+
+// Optional custom display name (third argument)
+$media = MediaUploader::fromString($bytes, 'invoice.pdf', 'August Invoice')->upload();
+```
+
+MIME type is sniffed from content (via `finfo`), so the `$fileName` extension doesn't have to be accurate. The package-level `max_file_size` validation still applies during upload.
+
+## From a PHP stream
+
+```php
+$stream = fopen('php://temp', 'r+b');
+fwrite($stream, $generatedBytes);
+rewind($stream);
+
+$media = MediaUploader::fromStream($stream, 'report.xlsx')->upload();
+
+fclose($stream);   // caller owns the stream
+```
+
+Useful for SFTP wrappers, PSR-7 `StreamInterface::detach()`, or content piped from another process. `fromStream()` reads through the stream into a temp file but does **not** close it — the caller stays responsible for `fclose()`.
+
 ## From a remote URL
 
 ```php

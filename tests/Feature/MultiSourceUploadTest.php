@@ -269,3 +269,79 @@ it('rejects oversized files via HEAD Content-Length pre-check', function () {
 
     $downloader->download('https://example.com/huge.zip', fakeTmpFile());
 })->throws(FileSizeExceeded::class);
+
+// --- fromString ---
+
+it('fromString uploads raw bytes under the given file name', function () {
+    $media = MediaUploader::fromString('hello world', 'note.txt')->upload();
+
+    expect($media)->toBeInstanceOf(Media::class)
+        ->and($media->file_name)->toBe('note.txt')
+        ->and($media->mime_type)->toBe('text/plain')
+        ->and($media->filesystem()->get($media->getPath()))->toBe('hello world');
+});
+
+it('fromString sniffs MIME from content, not from the extension', function () {
+    // A 1×1 transparent PNG — sniffed from magic bytes regardless of the name we pass
+    $pngBytes = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=');
+
+    $media = MediaUploader::fromString($pngBytes, 'mystery.bin')->upload();
+
+    expect($media->mime_type)->toBe('image/png');
+});
+
+it('fromString accepts a custom display name', function () {
+    $media = MediaUploader::fromString('hi', 'note.txt', 'My Custom Name')->upload();
+
+    expect($media->name)->toBe('My Custom Name');
+});
+
+// --- fromStream ---
+
+it('fromStream uploads from an open resource handle', function () {
+    $tmp = fakeTmpFile('streamed content');
+    $stream = fopen($tmp, 'rb');
+
+    try {
+        $media = MediaUploader::fromStream($stream, 'streamed.txt')->upload();
+
+        expect($media->file_name)->toBe('streamed.txt')
+            ->and($media->mime_type)->toBe('text/plain')
+            ->and($media->filesystem()->get($media->getPath()))->toBe('streamed content');
+    } finally {
+        if (is_resource($stream)) {
+            fclose($stream);
+        }
+        @unlink($tmp);
+    }
+});
+
+it('fromStream does not close the caller-owned stream', function () {
+    $tmp = fakeTmpFile('streamed');
+    $stream = fopen($tmp, 'rb');
+
+    MediaUploader::fromStream($stream, 'streamed.txt')->upload();
+
+    expect(is_resource($stream))->toBeTrue();
+
+    fclose($stream);
+    @unlink($tmp);
+});
+
+it('fromStream accepts a custom display name', function () {
+    $tmp = fakeTmpFile('hi');
+    $stream = fopen($tmp, 'rb');
+
+    try {
+        $media = MediaUploader::fromStream($stream, 'streamed.txt', 'Streamed Title')->upload();
+
+        expect($media->name)->toBe('Streamed Title');
+    } finally {
+        fclose($stream);
+        @unlink($tmp);
+    }
+});
+
+it('fromStream throws when input is not a resource', function () {
+    MediaUploader::fromStream('not-a-resource', 'foo.txt');
+})->throws(InvalidArgumentException::class, 'expects a PHP stream resource');

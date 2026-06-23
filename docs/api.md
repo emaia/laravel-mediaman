@@ -191,6 +191,8 @@ Public surface of the package, organized by class/trait. Each entry links back t
 | `MediaUploader::fromRequest(string $key = 'file', ?Request $request = null): self`      | Convenience for pulling a single file off the current request. Resolves the request from the container when not passed. Throws `InvalidArgumentException` when missing or multi-file. |
 | `MediaUploader::fromDisk(string $path, string $disk): self`                             | Import from any Laravel filesystem disk.                                                                                                                                              |
 | `MediaUploader::fromBase64(string $data, string $filename, ?string $name = null): self` | Raw base64 or data URI.                                                                                                                                                               |
+| `MediaUploader::fromString(string $content, string $fileName, ?string $name = null): self` | Raw bytes (generated PDFs, screenshots, webhook payloads). MIME sniffed from content.                                                                                              |
+| `MediaUploader::fromStream($stream, string $fileName, ?string $name = null): self`       | Buffers a readable PHP stream resource to a temp file. Caller owns/closes the stream.                                                                                                |
 | `MediaUploader::fromUrl(string $url): self`                                             | SSRF-guarded remote download. Requires ext-curl.                                                                                                                                      |
 
 ### Fluent setters
