@@ -6,7 +6,10 @@ use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\BreakpointWidthCalculator;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\WidthCalculator;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Log;
 use Intervention\Image\ImageManager;
+use Intervention\Image\Interfaces\EncodedImageInterface;
+use Intervention\Image\Interfaces\ImageInterface;
 
 beforeEach(function () {
     $this->generator = app(ResponsiveImageGenerator::class);
@@ -142,4 +145,84 @@ it('generates heic/heif responsive variants when the driver supports it', functi
         expect((int) $heic->width)->toBe(320);
         expect($heic->url)->toEndWith('.heic');
     }
+});
+
+it('generates jpg variants when jpg format requested', function () {
+    $file = UploadedFile::fake()->image('photo.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [320],
+        'formats' => ['jpg'],
+    ]);
+
+    $responsive = $media->fresh()->getResponsiveImages();
+
+    expect($responsive)->toHaveCount(1)
+        ->and($responsive->first()->format)->toBe('jpg')
+        ->and($responsive->first()->url)->toEndWith('.jpg');
+});
+
+it('skips a format when the encoder returns zero bytes (e.g. imagick without libheif)', function () {
+    Log::spy();
+
+    $file = UploadedFile::fake()->image('photo.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    // Simulate a driver that "succeeds" with an empty payload — the silent-failure
+    // mode of imagick without libheif when asked to encode HEIC.
+    $emptyEncoded = Mockery::mock(EncodedImageInterface::class);
+    $emptyEncoded->shouldReceive('__toString')->andReturn('');
+
+    $image = Mockery::mock(ImageInterface::class);
+    $image->shouldReceive('width')->andReturn(800);
+    $image->shouldReceive('height')->andReturn(600);
+    $image->shouldReceive('scaleDown')->andReturnSelf();
+    $image->shouldReceive('encodeUsingFormat')->andReturn($emptyEncoded);
+    $image->shouldReceive('__clone');
+
+    $manager = Mockery::mock(ImageManager::class);
+    $manager->shouldReceive('decode')->andReturn($image);
+
+    $generator = new ResponsiveImageGenerator($manager, app(WidthCalculator::class));
+
+    $generator->generateResponsiveImages($media, [
+        'widths' => [320],
+        'formats' => ['heic'],
+    ]);
+
+    $formats = $media->fresh()->getResponsiveImages()->pluck('format')->toArray();
+
+    // Zero-byte HEIC was skipped — no garbage `.heic` file on disk, no entry in the
+    // responsive_images metadata.
+    expect($formats)->toBe([]);
+
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn ($message, $context) => str_contains($message, 'Skipping responsive format')
+            && ($context['format'] ?? null) === 'heic'
+            && str_contains($context['error'] ?? '', 'zero bytes'));
+});
+
+it('skips unknown formats with a warning instead of falling back to JPEG bytes', function () {
+    Log::spy();
+
+    $file = UploadedFile::fake()->image('photo.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [320],
+        'formats' => ['webp', 'bogus'],
+    ]);
+
+    $responsive = $media->fresh()->getResponsiveImages();
+    $formats = $responsive->pluck('format')->toArray();
+
+    // webp succeeded, bogus was skipped — disk never got a `bogus`-extension file
+    // carrying JPEG bytes (the regression this guards against).
+    expect($formats)->toBe(['webp']);
+
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn ($message, $context) => str_contains($message, 'Skipping responsive format')
+            && ($context['format'] ?? null) === 'bogus'
+            && str_contains($context['error'] ?? '', 'Unsupported responsive format'));
 });

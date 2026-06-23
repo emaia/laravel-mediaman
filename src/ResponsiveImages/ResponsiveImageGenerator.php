@@ -99,9 +99,19 @@ class ResponsiveImageGenerator
             MediaFormat::WEBP->value => $image->encodeUsingFormat(Format::WEBP, quality: $quality),
             MediaFormat::AVIF->value => $image->encodeUsingFormat(Format::AVIF, quality: $quality),
             MediaFormat::HEIC->value => $image->encodeUsingFormat(Format::HEIC, quality: $quality),
+            MediaFormat::JPG->value, MediaFormat::JPEG->value => $image->encodeUsingFormat(Format::JPEG, quality: $quality),
             MediaFormat::PNG->value => $image->encodeUsingFormat(Format::PNG),
-            default => $image->encodeUsingFormat(Format::JPEG, quality: $quality),
+            MediaFormat::GIF->value => $image->encodeUsingFormat(Format::GIF),
+            default => throw new \InvalidArgumentException("Unsupported responsive format [{$format}]."),
         };
+
+        $size = strlen((string) $encodedImage);
+
+        if ($size === 0) {
+            throw new \RuntimeException(
+                "Encoder for [{$format}] returned zero bytes — the driver likely lacks support (e.g. imagick without libheif for HEIC)."
+            );
+        }
 
         $directory = app(MediaResolver::class)->pathForResponsive($media);
         $fileName = app(MediaResolver::class)->responsiveFileName($media->file_name, $targetWidth, $format);
@@ -115,7 +125,7 @@ class ResponsiveImageGenerator
             'format' => $format,
             'path' => $path,
             'url' => $media->filesystem()->url($path),
-            'size' => strlen((string) $encodedImage),
+            'size' => $size,
         ];
     }
 
