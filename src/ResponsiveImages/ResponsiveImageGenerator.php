@@ -117,14 +117,15 @@ class ResponsiveImageGenerator
         $fileName = app(MediaResolver::class)->responsiveFileName($media->file_name, $targetWidth, $format);
         $path = $directory.'/'.$fileName;
 
-        $media->filesystem()->put($path, $encodedImage->toStream());
+        $filesystem = $media->responsiveFilesystem();
+        $filesystem->put($path, $encodedImage->toStream());
 
         return [
             'width' => $targetWidth,
             'height' => $image->height(),
             'format' => $format,
             'path' => $path,
-            'url' => $media->filesystem()->url($path),
+            'url' => $filesystem->url($path),
             'size' => $size,
         ];
     }
@@ -135,7 +136,7 @@ class ResponsiveImageGenerator
     public function clearResponsiveImages(Media $media): void
     {
         $responsiveDir = app(MediaResolver::class)->pathForResponsive($media);
-        $filesystem = $media->filesystem();
+        $filesystem = $media->responsiveFilesystem();
 
         if ($filesystem->exists($responsiveDir)) {
             $filesystem->deleteDirectory($responsiveDir);

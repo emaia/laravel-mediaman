@@ -215,12 +215,36 @@ return [
     ],
 
     /*
+    | Conversion storage. Resolution chain for a conversion's effective disk
+    | (most specific wins): explicit `disk:` arg on Conversion::register() →
+    | this config default → the media's own disk. Set to keep originals on a
+    | durable cloud disk (S3, GCS) while serving frequently-accessed variants
+    | from a hotter local disk, without having to repeat `disk: 'X'` on every
+    | register call.
+    */
+
+    'conversions' => [
+
+        'disk' => env('MEDIAMAN_CONVERSIONS_DISK'),
+
+    ],
+
+    /*
     | Responsive image generation. The feature is opt-in: nothing is
     | generated unless you call generateResponsive() on an upload or
     | flip `auto_generate` on.
     */
 
     'responsive_images' => [
+
+        /*
+        | Disk for generated responsive variants. When null, variants live
+        | on the same disk as the original media. Set to keep originals on
+        | a durable cloud disk (S3, GCS) while serving high-traffic variants
+        | from a hotter local disk.
+        */
+
+        'disk' => env('MEDIAMAN_RESPONSIVE_DISK'),
 
         /*
         | Kill-switch for the whole responsive pipeline. When false, even

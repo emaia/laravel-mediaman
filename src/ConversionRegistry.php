@@ -11,6 +11,9 @@ use SplFileObject;
 
 class ConversionRegistry
 {
+    /**
+     * @var array<string, array{closure: callable, format: ?string, disk: ?string}>
+     */
     protected array $conversions = [];
 
     /**
@@ -22,13 +25,19 @@ class ConversionRegistry
     }
 
     /**
-     * Register a new conversion.
+     * Register a new conversion with an optional per-conversion disk.
+     *
+     * When `$disk` is `null`, conversion files are stored on the media's own
+     * disk. Passing an explicit disk separates the conversion from the original
+     * file — useful for hot/cold storage tiering and saving egress on cloud
+     * disks whose originals are rarely accessed.
      */
-    public function register(string $name, callable $conversion): void
+    public function register(string $name, callable $conversion, ?string $disk = null): void
     {
         $this->conversions[$name] = [
             'closure' => $conversion,
             'format' => $this->detectFormat($conversion),
+            'disk' => $disk,
         ];
     }
 
@@ -64,6 +73,36 @@ class ConversionRegistry
     public function exists(string $name): bool
     {
         return isset($this->conversions[$name]);
+    }
+
+    /**
+     * Get the per-conversion disk, or null when the media's own disk is used.
+     */
+    public function getDisk(string $name): ?string
+    {
+        if (! $this->exists($name)) {
+            return null;
+        }
+
+        return $this->conversions[$name]['disk'] ?? null;
+    }
+
+    /**
+     * All unique, non-null disk names across every registered conversion.
+     *
+     * @return string[]
+     */
+    public function disks(): array
+    {
+        $disks = [];
+
+        foreach ($this->conversions as $item) {
+            if (isset($item['disk'])) {
+                $disks[$item['disk']] = true;
+            }
+        }
+
+        return array_keys($disks);
     }
 
     /**

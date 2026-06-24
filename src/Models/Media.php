@@ -77,10 +77,25 @@ class Media extends Model implements Attachable
                 return;
             }
 
-            // delete the media directory
-            $deleted = Storage::disk($media->disk)->deleteDirectory($media->getDirectory());
-            // if failed, try deleting the file then
-            ! $deleted && Storage::disk($media->disk)->delete($media->getPath());
+            // delete the media directory on the main disk
+            $mainDeleted = Storage::disk($media->disk)->deleteDirectory($media->getDirectory());
+            ! $mainDeleted && Storage::disk($media->disk)->delete($media->getPath());
+
+            // clean variant directories on any other disks they were stored on.
+            // Deduplicate against the main disk and against each other so we
+            // never touch the same disk twice.
+            $variantDisks = array_unique(array_merge(
+                $media->getConversionDisks(),
+                [$media->responsiveDisk()],
+            ));
+
+            foreach ($variantDisks as $variantDisk) {
+                if ($variantDisk === $media->disk) {
+                    continue;
+                }
+
+                Storage::disk($variantDisk)->deleteDirectory($media->getDirectory());
+            }
 
             event(new MediaDeleted($media));
         });
@@ -272,10 +287,11 @@ class Media extends Model implements Attachable
         $formats = array_map(fn (MediaFormat $f) => $f->value, MediaFormat::detectableFormats());
         $baseDirectory = app(MediaResolver::class)->pathForConversion($this, $conversion);
         $baseFileName = pathinfo($this->file_name, PATHINFO_FILENAME);
+        $fs = $this->conversionFilesystem($conversion);
 
         foreach ($formats as $format) {
             $testPath = $baseDirectory.'/'.$baseFileName.'.'.$format;
-            if ($this->filesystem()->exists($testPath)) {
+            if ($fs->exists($testPath)) {
                 return $format;
             }
         }
@@ -289,6 +305,69 @@ class Media extends Model implements Attachable
     public function filesystem(): Filesystem
     {
         return Storage::disk($this->disk);
+    }
+
+    /**
+     * Resolve the effective disk for a conversion. Resolution chain (most
+     * specific wins): explicit `disk:` on the register call → the global
+     * `mediaman.conversions.disk` config default → the media's own disk →
+     * `mediaman.disk` → Laravel's `filesystems.default`.
+     */
+    public function getConversionDisk(string $conversion): string
+    {
+        $disk = app(ConversionRegistry::class)->getDisk($conversion)
+            ?? config('mediaman.conversions.disk');
+
+        return $disk ?? $this->disk ?? config('mediaman.disk') ?? config('filesystems.default');
+    }
+
+    /**
+     * Get the filesystem for a specific conversion, respecting any per-conversion
+     * disk registered in the ConversionRegistry or the config default.
+     */
+    public function conversionFilesystem(string $conversion): Filesystem
+    {
+        return Storage::disk($this->getConversionDisk($conversion));
+    }
+
+    /**
+     * All unique disks used by conversions registered for this media. Each
+     * conversion is resolved through `getConversionDisk()` so the config
+     * default and the media's own disk are reflected when no explicit disk
+     * was registered.
+     *
+     * @return string[]
+     */
+    public function getConversionDisks(): array
+    {
+        $registry = app(ConversionRegistry::class);
+        $disks = [];
+
+        foreach (array_keys($registry->all()) as $conversion) {
+            $disks[$this->getConversionDisk($conversion)] = true;
+        }
+
+        return array_keys($disks);
+    }
+
+    /**
+     * Resolve the effective disk for responsive variants of this media. Falls
+     * back from `mediaman.responsive_images.disk` to the media's own disk.
+     */
+    public function responsiveDisk(): string
+    {
+        return config('mediaman.responsive_images.disk')
+            ?? $this->disk
+            ?? config('mediaman.disk')
+            ?? config('filesystems.default');
+    }
+
+    /**
+     * Get the filesystem where responsive variants are stored.
+     */
+    public function responsiveFilesystem(): Filesystem
+    {
+        return Storage::disk($this->responsiveDisk());
     }
 
     /**
@@ -449,7 +528,7 @@ class Media extends Model implements Attachable
     {
         $path = $this->getPathWithCorrectExtension($conversion);
 
-        return $this->filesystem()->exists($path);
+        return $this->conversionFilesystem($conversion)->exists($path);
     }
 
     /**
@@ -728,10 +807,12 @@ class Media extends Model implements Attachable
      */
     public function toResponse(?string $conversion = null): StreamedResponse
     {
-        return $this->filesystem()->download(
-            $this->getPath($conversion ?? ''),
-            $this->file_name
-        );
+        $path = $this->getPath($conversion ?? '');
+        $fs = $conversion !== null && $conversion !== ''
+            ? $this->conversionFilesystem($conversion)
+            : $this->filesystem();
+
+        return $fs->download($path, $this->file_name);
     }
 
     /**
@@ -739,10 +820,12 @@ class Media extends Model implements Attachable
      */
     public function toInlineResponse(?string $conversion = null): StreamedResponse
     {
-        return $this->filesystem()->response(
-            $this->getPath($conversion ?? ''),
-            $this->file_name
-        );
+        $path = $this->getPath($conversion ?? '');
+        $fs = $conversion !== null && $conversion !== ''
+            ? $this->conversionFilesystem($conversion)
+            : $this->filesystem();
+
+        return $fs->response($path, $this->file_name);
     }
 
     /**
@@ -752,9 +835,12 @@ class Media extends Model implements Attachable
      */
     public function getStream(?string $conversion = null)
     {
-        return $this->filesystem()->readStream(
-            $this->getPath($conversion ?? '')
-        );
+        $path = $this->getPath($conversion ?? '');
+        $fs = $conversion !== null && $conversion !== ''
+            ? $this->conversionFilesystem($conversion)
+            : $this->filesystem();
+
+        return $fs->readStream($path);
     }
 
     /**
@@ -764,10 +850,16 @@ class Media extends Model implements Attachable
      */
     public function getTemporaryUrl(?DateTimeInterface $expiration = null, ?string $conversion = null): string
     {
-        $filesystem = $this->filesystem();
+        $filesystem = $conversion !== null && $conversion !== ''
+            ? $this->conversionFilesystem($conversion)
+            : $this->filesystem();
 
         if (! $filesystem->providesTemporaryUrls()) {
-            throw TemporaryUrlNotSupported::forDisk($this->disk);
+            throw TemporaryUrlNotSupported::forDisk(
+                $conversion !== null && $conversion !== ''
+                    ? $this->getConversionDisk($conversion)
+                    : $this->disk
+            );
         }
 
         $expiration ??= now()->addMinutes(
@@ -787,7 +879,11 @@ class Media extends Model implements Attachable
      */
     public function mailAttachment(?string $conversion = null): Attachment
     {
-        return Attachment::fromStorageDisk($this->disk, $this->getPath($conversion ?? ''))
+        $disk = $conversion !== null && $conversion !== ''
+            ? $this->getConversionDisk($conversion)
+            : $this->disk;
+
+        return Attachment::fromStorageDisk($disk, $this->getPath($conversion ?? ''))
             ->as($this->file_name)
             ->withMime($this->mime_type);
     }
@@ -881,19 +977,59 @@ class Media extends Model implements Attachable
 
     protected function copyConversions(Media $target): void
     {
-        $conversionsDir = $this->getDirectory().'/'.self::CONVERSIONS_DIR;
+        $registry = app(ConversionRegistry::class);
+        $resolver = app(MediaResolver::class);
 
-        if (! $this->filesystem()->exists($conversionsDir)) {
+        foreach (array_keys($registry->all()) as $conversion) {
+            $sourceFs = $this->conversionFilesystem($conversion);
+            $sourceDir = $resolver->pathForConversion($this, $conversion);
+
+            if (! $sourceFs->exists($sourceDir)) {
+                continue;
+            }
+
+            $targetFs = $target->conversionFilesystem($conversion);
+            $targetDir = $resolver->pathForConversion($target, $conversion);
+            $sameDisk = $this->getConversionDisk($conversion) === $target->getConversionDisk($conversion);
+
+            foreach ($sourceFs->allFiles($sourceDir) as $file) {
+                $relativePath = substr($file, strlen($sourceDir) + 1);
+                $targetPath = $targetDir.'/'.$relativePath;
+
+                if ($sameDisk) {
+                    $sourceFs->copy($file, $targetPath);
+
+                    continue;
+                }
+
+                $stream = $sourceFs->readStream($file);
+
+                try {
+                    $targetFs->writeStream($targetPath, $stream);
+                } finally {
+                    if (is_resource($stream)) {
+                        fclose($stream);
+                    }
+                }
+            }
+        }
+    }
+
+    protected function copyResponsiveVariants(Media $target): void
+    {
+        $sourceFs = $this->responsiveFilesystem();
+        $responsiveDir = $this->getDirectory().'/'.self::RESPONSIVE_DIR;
+
+        if (! $sourceFs->exists($responsiveDir)) {
             return;
         }
 
-        $sameDisk = $this->disk === $target->disk;
-        $sourceFs = $this->filesystem();
-        $targetFs = $target->filesystem();
+        $targetFs = $target->responsiveFilesystem();
+        $sameDisk = $this->responsiveDisk() === $target->responsiveDisk();
 
-        foreach ($sourceFs->allFiles($conversionsDir) as $file) {
-            $relativePath = substr($file, strlen($conversionsDir) + 1);
-            $targetPath = $target->getDirectory().'/'.self::CONVERSIONS_DIR.'/'.$relativePath;
+        foreach ($sourceFs->allFiles($responsiveDir) as $file) {
+            $relativePath = substr($file, strlen($responsiveDir) + 1);
+            $targetPath = $target->getDirectory().'/'.self::RESPONSIVE_DIR.'/'.$relativePath;
 
             if ($sameDisk) {
                 $sourceFs->copy($file, $targetPath);
@@ -906,33 +1042,6 @@ class Media extends Model implements Attachable
             try {
                 $targetFs->writeStream($targetPath, $stream);
             } finally {
-                if (is_resource($stream)) {
-                    fclose($stream);
-                }
-            }
-        }
-    }
-
-    protected function copyResponsiveVariants(Media $target): void
-    {
-        $responsiveDir = $this->getDirectory().'/'.self::RESPONSIVE_DIR;
-
-        if (! $this->filesystem()->exists($responsiveDir)) {
-            return;
-        }
-
-        $allFiles = $this->filesystem()->allFiles($responsiveDir);
-
-        foreach ($allFiles as $file) {
-            $relativePath = substr($file, strlen($responsiveDir) + 1);
-            $targetPath = $target->getDirectory().'/'.self::RESPONSIVE_DIR.'/'.$relativePath;
-
-            if ($this->disk === $target->disk) {
-                $this->filesystem()->copy($file, $targetPath);
-            } else {
-                $stream = $this->filesystem()->readStream($file);
-                $target->filesystem()->writeStream($targetPath, $stream);
-
                 if (is_resource($stream)) {
                     fclose($stream);
                 }

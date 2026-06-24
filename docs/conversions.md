@@ -7,6 +7,7 @@
 - [Retrieve a converted URL](#retrieve-a-converted-url)
 - [Format detection](#format-detection)
 - [Customize storage layout](#customize-storage-layout)
+- [Conversion disk](#conversion-disk)
 
 A conversion is a transformation (resize, crop, format swap, watermark, …) applied to an image when it's attached to a channel. MediaMan uses [intervention/image](https://github.com/Intervention/image) under the hood — anything that library supports is fair game.
 
@@ -87,3 +88,28 @@ This means `$media->getUrl('thumb')` produces the correct extension whether the 
 The default `Emaia\MediaMan\Resolvers\DefaultMediaResolver` stores conversions under `{media_dir}/conversions/{conversion-name}/{file_name}`. Swap it for custom layouts (per-tenant, hash-based, etc.) — see [Pluggable MediaResolver](configuration.md#pluggable-mediaresolver) and [API → MediaResolver](api.md#mediaresolver).
 
 Custom filenames (e.g., `photo-thumb.jpg` instead of `photo.jpg`) are controlled by overriding `MediaResolver::conversionFileName()`.
+
+## Conversion disk
+
+Conversions can opt into a different filesystem disk than the original — useful for hot/cold storage tiering (originals on S3, hot variants served from local). Resolution chain, most specific wins:
+
+1. **Per-registration override** — `disk:` arg on `Conversion::register()`
+2. **Config default** — `config('mediaman.conversions.disk')` covers every conversion that didn't declare its own
+3. **Media's primary disk** — `$media->disk` (current behavior when nothing else is set)
+
+```php
+// All conversions land on 'public' unless overridden
+// config/mediaman.php
+'conversions' => ['disk' => 'public'],
+
+// AppServiceProvider
+Conversion::register('thumb', fn ($img) => $img->cover(64, 64));                    // → 'public'
+Conversion::register('cover', fn ($img) => $img->cover(800, 600));                  // → 'public'
+Conversion::register('archive', fn ($img) => $img->scaleDown(4096), disk: 's3-glacier'); // override
+```
+
+Or skip the config and use per-registration disks only — both styles work, the override always wins.
+
+URLs, temporary URLs, HTTP responses, mail attachments, and `mediaman:clean` / `mediaman:doctor` / `mediaman:rotate-paths` all respect the resolved disk automatically.
+
+> Changing the disk of an already-registered conversion does **not** migrate existing files. Old conversion files remain on the previous disk. Run `mediaman:clean --disk=old-disk` to scan for leftovers, or copy files manually before switching.
