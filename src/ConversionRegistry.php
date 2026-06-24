@@ -16,21 +16,15 @@ class ConversionRegistry
      */
     protected array $conversions = [];
 
-    /**
-     * Get all the registered conversions.
-     */
+    /** @return array<string, callable> Name → closure for every registered conversion. */
     public function all(): array
     {
         return array_map(fn ($item) => $item['closure'], $this->conversions);
     }
 
     /**
-     * Register a new conversion with an optional per-conversion disk.
-     *
-     * When `$disk` is `null`, conversion files are stored on the media's own
-     * disk. Passing an explicit disk separates the conversion from the original
-     * file — useful for hot/cold storage tiering and saving egress on cloud
-     * disks whose originals are rarely accessed.
+     * `$disk = null` stores conversion files on the media's own disk; passing
+     * an explicit disk enables hot/cold storage tiering for the variant.
      */
     public function register(string $name, callable $conversion, ?string $disk = null): void
     {
@@ -41,11 +35,7 @@ class ConversionRegistry
         ];
     }
 
-    /**
-     * Get the conversion with the specified name.
-     *
-     * @throws InvalidConversion
-     */
+    /** @throws InvalidConversion */
     public function get(string $name): callable
     {
         if (! $this->exists($name)) {
@@ -55,9 +45,7 @@ class ConversionRegistry
         return $this->conversions[$name]['closure'];
     }
 
-    /**
-     * Get the pre-computed output format for a conversion.
-     */
+    /** Pre-computed output format from registration-time reflection, or null. */
     public function getFormat(string $name): ?string
     {
         if (! $this->exists($name)) {
@@ -67,17 +55,12 @@ class ConversionRegistry
         return $this->conversions[$name]['format'];
     }
 
-    /**
-     * Determine if a conversion with the specified name exists.
-     */
     public function exists(string $name): bool
     {
         return isset($this->conversions[$name]);
     }
 
-    /**
-     * Get the per-conversion disk, or null when the media's own disk is used.
-     */
+    /** Per-conversion disk override, or null when the media's own disk is used. */
     public function getDisk(string $name): ?string
     {
         if (! $this->exists($name)) {
@@ -105,9 +88,7 @@ class ConversionRegistry
         return array_keys($disks);
     }
 
-    /**
-     * Detect the output format from a conversion closure at registration time.
-     */
+    /** Inspects the closure source for `encodeUsingFormat()` / `encode('mime')` calls. */
     private function detectFormat(callable $converter): ?string
     {
         try {
@@ -146,9 +127,6 @@ class ConversionRegistry
         return null;
     }
 
-    /**
-     * Extract the closure source code using Reflection.
-     */
     private function getClosureCode(ReflectionFunction $reflection): ?string
     {
         try {

@@ -69,7 +69,7 @@ class GenerateResponsiveImagesCommand extends Command
                 GenerateResponsiveImages::dispatch($media);
             }
 
-            $this->statusLine('Dispatched', 'ok', "{$total} (queued)");
+            $this->statusLine('Dispatched', 'ok', "$total (queued)");
 
             return self::SUCCESS;
         }

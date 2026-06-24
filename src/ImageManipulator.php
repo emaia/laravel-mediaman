@@ -95,9 +95,6 @@ class ImageManipulator
         }
     }
 
-    /**
-     * Get the conversion path with specific extension.
-     */
     protected function getConversionPathWithExtension(Media $media, string $conversion, string $extension): string
     {
         $resolver = app(MediaResolver::class);

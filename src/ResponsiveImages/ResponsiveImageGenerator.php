@@ -10,6 +10,7 @@ use Emaia\MediaMan\ResponsiveImages\WidthCalculator\WidthCalculator;
 use Illuminate\Support\Facades\Log;
 use Intervention\Image\Format;
 use Intervention\Image\ImageManager;
+use Intervention\Image\Interfaces\ImageInterface;
 
 class ResponsiveImageGenerator
 {
@@ -23,9 +24,6 @@ class ResponsiveImageGenerator
         $this->widthCalculator = $widthCalculator;
     }
 
-    /**
-     * Generate responsive images for a media item.
-     */
     public function generateResponsiveImages(Media $media, array $options = []): void
     {
         if (! $media->isOfType(MediaType::IMAGE)) {
@@ -88,10 +86,7 @@ class ResponsiveImageGenerator
         $media->save();
     }
 
-    /**
-     * Generate a single responsive image variant.
-     */
-    protected function generateSingleResponsiveImage(Media $media, $image, int $targetWidth, string $format, int $quality): array
+    protected function generateSingleResponsiveImage(Media $media, ImageInterface $image, int $targetWidth, string $format, int $quality): array
     {
         $image->scaleDown($targetWidth, null);
 
@@ -102,14 +97,14 @@ class ResponsiveImageGenerator
             MediaFormat::JPG->value, MediaFormat::JPEG->value => $image->encodeUsingFormat(Format::JPEG, quality: $quality),
             MediaFormat::PNG->value => $image->encodeUsingFormat(Format::PNG),
             MediaFormat::GIF->value => $image->encodeUsingFormat(Format::GIF),
-            default => throw new \InvalidArgumentException("Unsupported responsive format [{$format}]."),
+            default => throw new \InvalidArgumentException("Unsupported responsive format [$format]."),
         };
 
         $size = strlen((string) $encodedImage);
 
         if ($size === 0) {
             throw new \RuntimeException(
-                "Encoder for [{$format}] returned zero bytes — the driver likely lacks support (e.g. imagick without libheif for HEIC)."
+                "Encoder for [$format] returned zero bytes — the driver likely lacks support (e.g. imagick without libheif for HEIC)."
             );
         }
 
@@ -146,9 +141,6 @@ class ResponsiveImageGenerator
         $media->save();
     }
 
-    /**
-     * Set a custom width calculator.
-     */
     public function setWidthCalculator(WidthCalculator $calculator): self
     {
         $this->widthCalculator = $calculator;

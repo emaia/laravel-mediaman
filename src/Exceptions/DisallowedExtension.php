@@ -8,6 +8,6 @@ class DisallowedExtension extends Exception
 {
     public static function forExtension(string $extension): self
     {
-        return new self("The file extension `.{$extension}` is not allowed for upload.");
+        return new self("The file extension `.$extension` is not allowed for upload.");
     }
 }

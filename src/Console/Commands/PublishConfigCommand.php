@@ -16,7 +16,7 @@ class PublishConfigCommand extends Command
         $this->publishConfig();
     }
 
-    protected function publishConfig()
+    protected function publishConfig(): void
     {
         $destinationConfigPath = config_path('mediaman.php');
         $sourceConfigPath = __DIR__.'/../../../config/mediaman.php';

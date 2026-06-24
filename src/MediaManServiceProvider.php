@@ -107,7 +107,7 @@ class MediaManServiceProvider extends ServiceProvider
                 'imagick' => ImageManager::usingDriver(ImagickDriver::class),
                 'gd' => ImageManager::usingDriver(GdDriver::class),
                 default => throw new InvalidArgumentException(
-                    "Unsupported image driver [{$driver}]. Supported: \"vips\", \"imagick\", \"gd\"."
+                    "Unsupported image driver [$driver]. Supported: \"vips\", \"imagick\", \"gd\"."
                 ),
             };
         });

@@ -27,36 +27,25 @@ class MediaUploader
 {
     use ResolvesModels;
 
-    /** @var UploadedFile */
-    protected $file;
+    protected UploadedFile $file;
 
-    /** @var string */
-    protected $name;
+    protected ?string $name = null;
 
-    /** @var array */
-    protected $collections = [];
+    /** @var string[] */
+    protected array $collections = [];
 
-    /** @var string */
-    protected $fileName;
+    protected ?string $fileName = null;
 
-    /** @var string */
-    protected $disk;
+    protected ?string $disk = null;
 
-    /** @var array */
-    protected $custom_properties = [];
+    protected array $custom_properties = [];
 
     protected ?array $allowedMimeTypes = null;
 
     protected ?int $maxFileSize = null;
 
-    /**
-     * Enable automatic responsive image generation.
-     */
     protected bool $generateResponsive = false;
 
-    /**
-     * Options for responsive image generation.
-     */
     protected array $responsiveOptions = [];
 
     public function __construct(UploadedFile $file)
@@ -83,7 +72,7 @@ class MediaUploader
 
         if (! $file instanceof UploadedFile) {
             throw new \InvalidArgumentException(
-                "No uploaded file in request field [{$key}]."
+                "No uploaded file in request field [$key]."
             );
         }
 
@@ -101,7 +90,7 @@ class MediaUploader
         $filesystem = Storage::disk($disk);
 
         if (! $filesystem->exists($path)) {
-            throw new \RuntimeException("File [{$path}] not found on disk [{$disk}].");
+            throw new \RuntimeException("File [$path] not found on disk [$disk].");
         }
 
         $tmpPath = tempnam(sys_get_temp_dir(), 'mediaman_');
@@ -286,7 +275,7 @@ class MediaUploader
             $target = fopen($tmpPath, 'wb');
 
             if ($target === false) {
-                throw new \RuntimeException("Failed to open temp file [{$tmpPath}] for writing.");
+                throw new \RuntimeException("Failed to open temp file [$tmpPath] for writing.");
             }
 
             try {
@@ -389,9 +378,7 @@ class MediaUploader
         return $rebuilt;
     }
 
-    /**
-     * Set the file to be uploaded.
-     */
+    /** Replace the source file mid-chain, re-deriving default `name` / `fileName` from it. */
     public function setFile(UploadedFile $file): MediaUploader
     {
         $this->file = $file;
@@ -405,9 +392,7 @@ class MediaUploader
         return $this;
     }
 
-    /**
-     * Set the name of the media item.
-     */
+    /** Display name persisted in the `name` column. Defaults to the file basename. */
     public function setName(string $name): MediaUploader
     {
         $this->name = $name;
@@ -420,9 +405,7 @@ class MediaUploader
         return $this->setName($name);
     }
 
-    /**
-     * Set the name of the media item.
-     */
+    /** Attach the upload to a collection (created if missing). */
     public function setCollection(string $name): MediaUploader
     {
         $this->collections[] = $name;
@@ -441,7 +424,7 @@ class MediaUploader
     }
 
     /**
-     * Set the name of the file.
+     * Override the on-disk file name (sanitized through the resolver's `baseName()`).
      */
     public function setFileName(string $fileName): MediaUploader
     {
@@ -455,17 +438,12 @@ class MediaUploader
         return $this->setFileName($fileName);
     }
 
-    /**
-     * Sanitize the file name.
-     */
     protected function sanitizeFileName(string $fileName): string
     {
         return app(MediaResolver::class)->baseName($fileName);
     }
 
-    /**
-     * Specify the disk where the file will be stored.
-     */
+    /** Disk where the file lands on success. Defaults to `mediaman.disk`. */
     public function setDisk(string $disk): MediaUploader
     {
         $this->disk = $disk;
@@ -483,9 +461,7 @@ class MediaUploader
         return $this->setDisk($disk);
     }
 
-    /**
-     * Set any custom custom_properties to be saved to the media item.
-     */
+    /** Custom properties (free-form JSON column) persisted on the media row. */
     public function withCustomProperties(array $custom_properties): MediaUploader
     {
         $this->custom_properties = $custom_properties;
@@ -498,12 +474,7 @@ class MediaUploader
         return $this->withCustomProperties($custom_properties);
     }
 
-    /**
-     * Set the allowed MIME types for this upload.
-     *
-     * Overrides the global `mediaman.allowed_mime_types` config.
-     * Supports wildcards like 'image/*'.
-     */
+    /** Overrides `mediaman.allowed_mime_types` for this upload. Wildcards (`image/*`) supported. */
     public function allowMimeTypes(array $mimeTypes): MediaUploader
     {
         $this->allowedMimeTypes = $mimeTypes;
@@ -511,12 +482,7 @@ class MediaUploader
         return $this;
     }
 
-    /**
-     * Set the maximum allowed file size for this upload, in bytes.
-     *
-     * Overrides the global `mediaman.max_file_size` config.
-     * Pass 0 to disable the check for this upload.
-     */
+    /** Overrides `mediaman.max_file_size` for this upload. Pass 0 to disable the check. */
     public function maxFileSize(int $bytes): MediaUploader
     {
         $this->maxFileSize = $bytes;
@@ -525,17 +491,9 @@ class MediaUploader
     }
 
     /**
-     * Upload the file to the specified disk.
-     *
-     * The media row, the physical file write, and the collection attachment
-     * run inside a single transaction: if the write fails (throws, or the
-     * driver returns `false`) or the attachment is rejected, the row is rolled
-     * back and any partially written file is cleaned up — a failed upload never
-     * leaves an orphan row or an orphan file.
-     *
-     * Responsive image generation and the `MediaUploaded` event run *after* the
-     * transaction commits: they may dispatch queued jobs (which must not race
-     * an uncommitted row) and are best-effort relative to a durable upload.
+     * Atomic: row + file write + collection attach run in a single transaction;
+     * a partial failure rolls back the row and cleans the written file.
+     * Responsive generation + `MediaUploaded` event fire after commit.
      */
     public function upload(): Media
     {
@@ -622,8 +580,8 @@ class MediaUploader
     }
 
     /**
-     * Write the uploaded file to the media's storage directory. Treats a
-     * `false` return from the filesystem driver as a hard failure.
+     * Treats a `false` return from the filesystem driver as a hard failure
+     * (S3 deny, full disk) instead of silently leaving an orphan row.
      *
      * @throws MediaFileWriteFailed
      */
@@ -640,10 +598,7 @@ class MediaUploader
         }
     }
 
-    /**
-     * Attach the media to the requested collection, or to the configured
-     * default collection when none was requested.
-     */
+    /** Requested collection if any, otherwise the configured default (when one exists). */
     protected function attachToCollections(Media $media): void
     {
         if (count($this->collections) > 0) {
@@ -660,8 +615,7 @@ class MediaUploader
             return;
         }
 
-        // add to the default collection
-        // todo: allow not to add in the default collection
+        // todo: opt-out of the default collection
         $collectionModel = $this->collectionModel();
         $collection = $collectionModel::findByName(config('mediaman.collection'));
 
@@ -673,10 +627,9 @@ class MediaUploader
     }
 
     /**
-     * Best-effort removal of anything written for a media whose upload failed
-     * mid-flight. Each media owns an obfuscated directory, so deleting it is
-     * safe and never touches another media's files. Swallows its own errors —
-     * the original failure is what the caller should see.
+     * Best-effort cleanup for failed uploads. Each media owns an obfuscated
+     * directory so deleting it never touches another media's files. Swallows
+     * its own errors — the original failure is what the caller should see.
      */
     protected function cleanupFailedUpload(Media $media): void
     {
@@ -691,11 +644,7 @@ class MediaUploader
         }
     }
 
-    /**
-     * Generate responsive images when enabled. Runs after the upload commits;
-     * a failure here is logged but never rolls back the upload — responsive
-     * variants are a derived artifact that can be regenerated later.
-     */
+    /** Logged but never rolled back — variants are a derived artifact, regenerable later. */
     protected function generateResponsiveImagesIfRequested(Media $media): void
     {
         $requested = $this->generateResponsive
@@ -719,9 +668,7 @@ class MediaUploader
         }
     }
 
-    /**
-     * Enable responsive image generation.
-     */
+    /** Enable responsive variant generation; chain `withBreakpoints`/`withFormats`/`withQuality`. */
     public function generateResponsive(array $options = []): MediaUploader
     {
         $this->generateResponsive = true;
@@ -735,18 +682,14 @@ class MediaUploader
         return str_starts_with($this->file->getMimeType() ?? '', 'image/');
     }
 
-    /**
-     * Determine whether to generate a placeholder for this upload.
-     */
     protected function shouldGeneratePlaceholder(): bool
     {
         return (bool) config('mediaman.placeholder.enabled', true);
     }
 
     /**
-     * Read width/height from an image file. Uses getimagesize() which reads
-     * only the file header (no pixel decode), falling back to a full decode
-     * for image formats the PHP function doesn't support (AVIF, HEIC, etc.).
+     * `getimagesize()` reads only the header (no pixel decode); falls back to
+     * a full Intervention decode for formats it doesn't support (AVIF, HEIC).
      */
     protected function readImageMeta(string $path): ?array
     {
@@ -771,9 +714,7 @@ class MediaUploader
         }
     }
 
-    /**
-     * Set responsive image breakpoints.
-     */
+    /** Override responsive widths (px) for this upload. */
     public function withBreakpoints(array $breakpoints): MediaUploader
     {
         $this->responsiveOptions['widths'] = $breakpoints;
@@ -781,9 +722,7 @@ class MediaUploader
         return $this;
     }
 
-    /**
-     * Set responsive image formats.
-     */
+    /** Override responsive output formats for this upload (e.g. `['webp', 'jpg']`). */
     public function withFormats(array $formats): MediaUploader
     {
         $this->responsiveOptions['formats'] = $formats;
@@ -791,9 +730,7 @@ class MediaUploader
         return $this;
     }
 
-    /**
-     * Set responsive image quality.
-     */
+    /** Override responsive encoder quality (0-100) for this upload. */
     public function withQuality(int $quality): MediaUploader
     {
         $this->responsiveOptions['quality'] = $quality;
@@ -801,11 +738,7 @@ class MediaUploader
         return $this;
     }
 
-    /**
-     * Validate the file MIME type against allowed types.
-     *
-     * @throws MimeTypeNotAllowed
-     */
+    /** @throws MimeTypeNotAllowed */
     protected function validateMimeType(): void
     {
         $allowed = $this->allowedMimeTypes ?? config('mediaman.allowed_mime_types', []);
@@ -825,11 +758,7 @@ class MediaUploader
         throw MimeTypeNotAllowed::forMimeType($mimeType);
     }
 
-    /**
-     * Validate the file size against the configured maximum.
-     *
-     * @throws FileSizeExceeded
-     */
+    /** @throws FileSizeExceeded */
     protected function validateFileSize(): void
     {
         $maxBytes = $this->maxFileSize ?? (int) config('mediaman.max_file_size', 0);
@@ -845,11 +774,7 @@ class MediaUploader
         }
     }
 
-    /**
-     * Validate the file extension against disallowed extensions.
-     *
-     * @throws DisallowedExtension
-     */
+    /** @throws DisallowedExtension */
     protected function validateExtension(): void
     {
         if (! config('mediaman.block_disallowed_extensions', true)) {

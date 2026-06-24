@@ -14,17 +14,11 @@ class FileSizeOptimizedWidthCalculator implements WidthCalculator
         $this->imageManager = $imageManager;
     }
 
-    /**
-     * Calculate optimal widths from an image file path.
-     */
     public function calculateWidthsFromFile(string $imagePath): Collection
     {
         return $this->calculateWidthsFromBinary((string) file_get_contents($imagePath));
     }
 
-    /**
-     * Calculate optimal widths from in-memory binary image data.
-     */
     public function calculateWidthsFromBinary(string $binary): Collection
     {
         $image = $this->imageManager->decode($binary);
@@ -32,9 +26,6 @@ class FileSizeOptimizedWidthCalculator implements WidthCalculator
         return $this->calculateWidths(strlen($binary), $image->width(), $image->height());
     }
 
-    /**
-     * Calculate optimal widths based on file size optimization.
-     */
     public function calculateWidths(int $fileSize, int $width, int $height): Collection
     {
         $targetWidths = collect();
@@ -68,9 +59,7 @@ class FileSizeOptimizedWidthCalculator implements WidthCalculator
         return $targetWidths->unique()->sort()->reverse()->values();
     }
 
-    /**
-     * Determine if we should stop calculating new widths.
-     */
+    /** Stops once a smaller width or a smaller predicted file size hits the floor. */
     protected function finishedCalculating(int $predictedFileSize, int $newWidth, int $minWidth, int $minFileSize): bool
     {
         if ($newWidth < $minWidth) {

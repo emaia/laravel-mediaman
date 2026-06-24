@@ -16,9 +16,6 @@ enum MediaFormat: string
     case HEIF = 'heif';
     case SVG = 'svg';
 
-    /**
-     * Get the MIME type for this format.
-     */
     public function mimeType(): string
     {
         return match ($this) {
@@ -35,41 +32,31 @@ enum MediaFormat: string
         };
     }
 
-    /**
-     * Get formats supported for responsive image generation.
-     */
+    /** Formats supported as responsive variant outputs. */
     public static function responsiveFormats(): array
     {
         return [self::AVIF, self::WEBP, self::HEIC, self::JPG, self::JPEG, self::PNG, self::GIF];
     }
 
-    /**
-     * Get formats in preferred order (modern first).
-     */
+    /** Modern-first ordering driving `<source>` precedence in `<picture>` output. */
     public static function preferredOrder(): array
     {
         return [self::AVIF, self::HEIC, self::WEBP, self::JPG, self::JPEG, self::PNG];
     }
 
-    /**
-     * Get all formats used in format detection.
-     */
+    /** Formats probed when reading existing variants from disk. */
     public static function detectableFormats(): array
     {
         return [self::WEBP, self::AVIF, self::PNG, self::JPG, self::GIF, self::BMP, self::TIFF, self::HEIC, self::HEIF];
     }
 
-    /**
-     * Try to create from string value, returning null on failure.
-     */
+    /** Case-insensitive variant of `tryFrom()`. */
     public static function tryFromValue(string $value): ?self
     {
         return self::tryFrom(strtolower($value));
     }
 
-    /**
-     * Get file extension from a MIME type.
-     */
+    /** Falls back to `jpg` for unknown MIME types. */
     public static function extensionFromMimeType(string $mimeType): string
     {
         static $map = [

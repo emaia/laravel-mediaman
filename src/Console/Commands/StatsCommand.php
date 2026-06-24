@@ -68,7 +68,7 @@ class StatsCommand extends Command
 
         foreach ($names as $name) {
             $format = $registry->getFormat($name) ?? 'auto-detect';
-            $this->statusLine("  {$name}", 'info', "<fg=gray>{$format}</>");
+            $this->statusLine("  $name", 'info', "<fg=gray>$format</>");
         }
     }
 
@@ -90,7 +90,7 @@ class StatsCommand extends Command
                 $this->statusLine(
                     'Coverage',
                     'info',
-                    number_format($withResponsive).' / '.number_format($totalImages)." ({$percentage}%)"
+                    number_format($withResponsive).' / '.number_format($totalImages)." ($percentage%)"
                 );
             } else {
                 $this->statusLine('Coverage', 'info', 'no image records');
@@ -108,7 +108,7 @@ class StatsCommand extends Command
             $this->statusLine(
                 'Coverage',
                 'info',
-                number_format($withResponsive).' / '.number_format($totalImages)." ({$percentage}%)"
+                number_format($withResponsive).' / '.number_format($totalImages)." ($percentage%)"
             );
         }
 

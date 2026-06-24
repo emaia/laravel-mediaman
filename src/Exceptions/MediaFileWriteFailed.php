@@ -10,7 +10,7 @@ class MediaFileWriteFailed extends Exception
         public readonly string $path,
         public readonly string $disk,
     ) {
-        parent::__construct("Failed to write media file to [{$path}] on disk [{$disk}].");
+        parent::__construct("Failed to write media file to [$path] on disk [$disk].");
     }
 
     public static function forPath(string $path, string $disk): self

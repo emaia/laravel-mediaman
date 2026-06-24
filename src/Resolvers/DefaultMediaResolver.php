@@ -65,7 +65,7 @@ class DefaultMediaResolver implements MediaResolver
     {
         $baseName = pathinfo($originalName, PATHINFO_FILENAME);
 
-        return "{$baseName}_{$width}w.{$format}";
+        return "{$baseName}_{$width}w.$format";
     }
 
     /** Mirrors `directory()`'s `{id}-{md5}` shape — override when you override `directory()`. */
@@ -137,6 +137,6 @@ class DefaultMediaResolver implements MediaResolver
             $name = 'unnamed';
         }
 
-        return $extension !== '' ? "{$name}.{$extension}" : $name;
+        return $extension !== '' ? "$name.$extension" : $name;
     }
 }

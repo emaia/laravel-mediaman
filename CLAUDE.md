@@ -92,6 +92,66 @@ src/
 - Spatie MediaLibrary source (for competitive analysis): `/home/dina/Projects/laravel-medialibrary/`
 - Spatie docs: https://spatie.be/docs/laravel-medialibrary/v11/introduction
 
+## Docblock conventions
+
+**Selective documentation** — docblocks must add information; if they don't, they're noise. Default to skipping; document deliberately.
+
+### Decision tree
+
+```
+1. Is this method part of the public API that app code calls?
+   (Facades, fluent builders, model accessors/scopes, trait methods exposed to consumers,
+    interface contracts, public methods on Resolver/Model/Collection classes)
+   → YES  → docblock required (single-line summary at minimum)
+   → NO   → step 2
+
+2. Is the purpose non-obvious from name + parameter types + return type?
+   (Cross-class interaction, hidden constraint, unusual side effect, surprising return semantics)
+   → YES  → docblock focused on WHY, not what
+   → NO   → skip — let the code speak
+```
+
+### Apply by category
+
+| Category | Convention |
+|---|---|
+| `Facades/*`, `MediaUploader` chain, `Models/*` public methods, `Traits/HasMedia` + `ResponsiveImages` public, `Resolvers/MediaResolver` interface, `Resolvers/DefaultMediaResolver` public | **Always docblock** (1-line summary minimum — it's the contract) |
+| `Events/*`, `Exceptions/*` | Class-level docblock when purpose isn't self-evident; constructor params auto-documented by type-hint |
+| `Console/Commands/*::handle`, `Jobs/*::handle` | Skip — invoked by Laravel/CLI, not app code |
+| Internal services (`ImageManipulator`, `ConversionRegistry`, `Support/*`) public methods | Docblock only when the contract isn't obvious from name + types |
+| Protected/private methods | Only when **WHY** is non-obvious (extracted-for-a-reason, workaround for X, ordering-sensitive) |
+| Trivial accessors (`getXxxAttribute` that returns a single property or simple cast) | Skip — name says it all |
+| Trivial forwarders (public alias `useX()` → `setX()`, or 1-line `return $this->getFirst()->method($args)`) | Skip — both name and return type already convey the contract; the underlying method carries the docblock |
+| Trivial helpers (`extensionFromMimeType`, single-line conversions) | Skip |
+| Test methods | Never docblock — the `it('does X when Y')` name is the documentation |
+
+### What to write
+
+- **Imperative mood**, single sentence ending in a period: `Persist the upload and return the new Media.`
+- **Multi-line only** when 2-3 sentences are required to capture a non-obvious constraint or rationale. If you need more, the docblock is masking a design smell — refactor or move the explanation to `docs/*.md`.
+- **WHY over what** when explaining: "Extracted so the per-iteration try/catch covers every step" — not "Encodes and persists a conversion" (that's the name).
+
+### Native types first
+
+Always declare native PHP types on properties, parameters, and return values when possible. Drop redundant `@var` / `@param` / `@return` once the native type carries the contract. Untyped signatures combined with a docblock that names the type are an anti-pattern (the type system can't enforce what the docblock says).
+
+Constructors don't need a return type. PHP's `resource` pseudo-type has no native equivalent — use `@param resource $stream` / `@return resource` there.
+
+### When to add `@param` / `@return` / `@throws`
+
+- **`@param` / `@return`**: only when they carry information **beyond** the native type (`array<string, callable>`, `string[]`, `Collection<int, Media>`, `array{conversion: string, exception: \Throwable}`, semantic constraint like "empty array returns all"). Never add when they merely repeat the type.
+- **`@throws`**: list exceptions that are part of the method's contract (caller is expected to handle them). Skip generic `RuntimeException` of the "if it breaks it broke" variety.
+- **Property `@var`**: only when the native type loses information (`array<int, array{conversion: string, exception: \Throwable}>`, `MediaChannel[]`, `array<string, Collection<int, Media>>`). Plain typed properties don't need it.
+
+### What to always remove
+
+- Auto-generated IDE docblocks: `/** Get the X. */` on `getX()` — pure noise
+- `@author`, `@version`, `@since`, `@package` — git/Composer resolve these
+- Multi-paragraph essays — move to `docs/*.md` and link
+- `@param` / `@return` that just repeat the type-hint
+- Comments inside method bodies explaining WHAT the next line does (rename a variable instead); keep only WHY when non-obvious
+- Stale TODO/FIXME — convert to an issue or delete
+
 ## Git Workflow
 
 ### Commits

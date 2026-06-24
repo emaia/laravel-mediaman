@@ -8,6 +8,6 @@ class InvalidConversion extends Exception
 {
     public static function doesNotExist(string $name): InvalidConversion
     {
-        return new InvalidConversion("Conversion `{$name}` does not exist");
+        return new InvalidConversion("Conversion `$name` does not exist");
     }
 }
