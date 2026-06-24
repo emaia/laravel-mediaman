@@ -4,6 +4,7 @@ namespace Emaia\MediaMan\Console\Commands;
 
 use Emaia\MediaMan\ConversionRegistry;
 use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\Resolvers\MediaResolver;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
 use InvalidArgumentException;
@@ -33,6 +34,8 @@ or responsive files within a valid media directory are not flagged.';
         $this->info($dryRun ? 'Dry run — no files will be deleted. Run with --force to apply.' : 'Force mode — orphaned files will be deleted.');
         $this->newLine();
 
+        $resolver = app(MediaResolver::class);
+
         // Build known directories from every Media record, regardless of disk.
         // A conversion-only disk carries files for media whose primary disk is
         // elsewhere — those directories are valid and must not be flagged.
@@ -60,14 +63,19 @@ or responsive files within a valid media directory are not flagged.';
                 continue;
             }
 
-            // 1. Find orphaned files — any top-level directory not present in
-            //    the full set of known media directories is orphaned.
+            // 1. Find orphaned files — directories the resolver claims it could
+            //    have produced but that match no known Media record. Foreign
+            //    files (.gitignore, other apps) are skipped entirely.
             $allFiles = $filesystem->allFiles();
             $orphanedFiles = [];
 
             foreach ($allFiles as $file) {
                 $parts = explode('/', $file);
                 $topDir = $parts[0];
+
+                if (! $resolver->isManagedDirectory($topDir)) {
+                    continue;
+                }
 
                 if (! isset($allKnownDirs[$topDir])) {
                     $orphanedFiles[] = $file;

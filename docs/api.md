@@ -353,6 +353,9 @@ interface MediaResolver
     public function baseName(string $originalName): string;
     public function conversionFileName(string $originalName, string $conversion, string $extension): string;
     public function responsiveFileName(string $originalName, int $width, string $format): string;
+
+    // Cleanup
+    public function isManagedDirectory(string $segment): bool;
 }
 ```
 
@@ -377,6 +380,13 @@ class TenantMediaResolver extends DefaultMediaResolver
     public function directory(Media $media): string
     {
         return 'tenants/'.tenant()->id.'/'.parent::directory($media);
+    }
+
+    // When `directory()` changes shape, override `isManagedDirectory()` so
+    // mediaman:clean recognizes the new shape as eligible for orphan cleanup.
+    public function isManagedDirectory(string $segment): bool
+    {
+        return $segment === 'tenants';
     }
 }
 ```

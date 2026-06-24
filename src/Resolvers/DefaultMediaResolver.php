@@ -7,8 +7,6 @@ use Emaia\MediaMan\Models\Media;
 
 class DefaultMediaResolver implements MediaResolver
 {
-    // ─── Paths ──────────────────────────────────────────────────────────
-
     public function directory(Media $media): string
     {
         return $media->getKey().'-'.md5($media->getKey().config('app.key'));
@@ -23,8 +21,6 @@ class DefaultMediaResolver implements MediaResolver
     {
         return $this->directory($media).'/'.Media::RESPONSIVE_DIR;
     }
-
-    // ─── URLs ──────────────────────────────────────────────────────────
 
     public function url(Media $media, ?string $conversion = null): string
     {
@@ -53,8 +49,6 @@ class DefaultMediaResolver implements MediaResolver
         );
     }
 
-    // ─── Filenames ─────────────────────────────────────────────────────
-
     public function baseName(string $originalName): string
     {
         return $this->sanitizeName($originalName);
@@ -74,7 +68,11 @@ class DefaultMediaResolver implements MediaResolver
         return "{$baseName}_{$width}w.{$format}";
     }
 
-    // ─── Internals ─────────────────────────────────────────────────────
+    /** Mirrors `directory()`'s `{id}-{md5}` shape — override when you override `directory()`. */
+    public function isManagedDirectory(string $segment): bool
+    {
+        return (bool) preg_match('/^\d+-[a-f0-9]{32}$/', $segment);
+    }
 
     /** Prepend `url.prefix`; strips scheme+host from absolute URLs first (S3+CDN case). */
     protected function applyPrefix(string $url): string

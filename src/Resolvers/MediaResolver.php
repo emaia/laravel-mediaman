@@ -12,8 +12,6 @@ use Emaia\MediaMan\Models\Media;
  */
 interface MediaResolver
 {
-    // ─── Paths ──────────────────────────────────────────────────────────
-
     /** Base directory for the original file, relative to the disk root. */
     public function directory(Media $media): string;
 
@@ -23,15 +21,11 @@ interface MediaResolver
     /** Directory holding the responsive image variants. */
     public function pathForResponsive(Media $media): string;
 
-    // ─── URLs ──────────────────────────────────────────────────────────
-
     /** Public URL for the original file, or for a conversion when given. */
     public function url(Media $media, ?string $conversion = null): string;
 
     /** Signed temporary URL (S3-style); must not apply `url.prefix` or `version_query`. */
     public function temporaryUrl(Media $media, DateTimeInterface $expiration, ?string $conversion = null): string;
-
-    // ─── Filenames ─────────────────────────────────────────────────────
 
     /** Sanitize and produce the on-disk base filename for an uploaded file. */
     public function baseName(string $originalName): string;
@@ -41,4 +35,7 @@ interface MediaResolver
 
     /** Filename for a responsive variant. */
     public function responsiveFileName(string $originalName, int $width, string $format): string;
+
+    /** Recognize a top-level directory as one this resolver could have produced. Used by `mediaman:clean` to skip foreign files; return `false` always to opt out of orphan cleanup. */
+    public function isManagedDirectory(string $segment): bool;
 }
