@@ -178,8 +178,9 @@ return [
     */
 
     'url' => [
-        // Append ?v={updated_at} for cache busting.
-        'version_query' => false,
+        // Cache-busting strategy on generated URLs.
+        // Supported: false | 'timestamp' (appends ?v={updated_at}).
+        'versioning' => env('MEDIAMAN_URL_VERSIONING', false),
 
         // Optional CDN/origin prefix (e.g. 'https://cdn.example.com').
         // Absolute storage URLs (S3-style) are stripped before prefixing.

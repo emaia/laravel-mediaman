@@ -173,16 +173,18 @@ Default expiration for `Media::getTemporaryUrl()` when no explicit expiration is
 
 ## URL generation
 
-Apply a CDN prefix and/or cache-busting query string to all generated URLs (see [API → MediaResolver](api.md#mediaresolver)):
+Apply a CDN prefix and/or cache-busting strategy to all generated URLs (see [API → MediaResolver](api.md#mediaresolver)):
 
 ```php
 'url' => [
-    'version_query' => false, // append ?v={updated_at} for cache busting
-    'prefix'        => null,  // e.g. 'https://cdn.example.com'
+    'versioning' => false,  // false | 'timestamp' (appends ?v={updated_at})
+    'prefix'     => null,   // e.g. 'https://cdn.example.com'
 ],
 ```
 
 For absolute storage URLs (S3-style), the prefix correctly strips scheme+host before reapplying. Temporary signed URLs are **not** prefixed or version-tagged.
+
+> **Upgrading from v2:** the boolean `version_query` was renamed to the string enum `versioning` in v3.0. The legacy key is no longer read — rename `'version_query' => true` to `'versioning' => 'timestamp'`.
 
 ## Placeholder
 

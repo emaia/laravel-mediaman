@@ -157,14 +157,34 @@ it('overriding responsiveFileName changes the resolved name', function () {
         ->toEqual('RESP-800.webp');
 });
 
-// ─── URL version query / prefix (DefaultMediaResolver internals) ────
+// ─── URL versioning / prefix (DefaultMediaResolver internals) ───────
 
-it('appends version query when version_query config is enabled', function () {
-    config(['mediaman.url.version_query' => true]);
+it('appends ?v= timestamp when url.versioning is "timestamp"', function () {
+    config(['mediaman.url.versioning' => 'timestamp']);
 
     $media = MediaUploader::source(UploadedFile::fake()->image('test.jpg'))->upload();
 
     expect($media->getUrl())->toContain('?v=');
+});
+
+it('omits versioning when url.versioning is false (default)', function () {
+    config(['mediaman.url.versioning' => false]);
+
+    $media = MediaUploader::source(UploadedFile::fake()->image('test.jpg'))->upload();
+
+    expect($media->getUrl())->not->toContain('?v=');
+});
+
+it('ignores the legacy version_query key — it must be migrated to versioning', function () {
+    // Old apps with `version_query: true` must rename — the legacy key has no effect.
+    config([
+        'mediaman.url.versioning' => null,
+        'mediaman.url.version_query' => true,
+    ]);
+
+    $media = MediaUploader::source(UploadedFile::fake()->image('test.jpg'))->upload();
+
+    expect($media->getUrl())->not->toContain('?v=');
 });
 
 it('prepends CDN prefix when configured', function () {

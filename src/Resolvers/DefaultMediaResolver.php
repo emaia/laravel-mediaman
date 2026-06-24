@@ -32,7 +32,7 @@ class DefaultMediaResolver implements MediaResolver
         $url = $filesystem->url($path);
 
         $url = $this->applyPrefix($url);
-        $url = $this->applyVersionQuery($url, $media);
+        $url = $this->applyVersioning($url, $media);
 
         return $url;
     }
@@ -95,12 +95,17 @@ class DefaultMediaResolver implements MediaResolver
         return rtrim($prefix, '/').'/'.ltrim($url, '/');
     }
 
-    protected function applyVersionQuery(string $url, Media $media): string
+    /** Apply the configured cache-busting strategy. */
+    protected function applyVersioning(string $url, Media $media): string
     {
-        if (! config('mediaman.url.version_query', false)) {
-            return $url;
-        }
+        return match (config('mediaman.url.versioning')) {
+            'timestamp' => $this->appendTimestamp($url, $media),
+            default => $url,
+        };
+    }
 
+    protected function appendTimestamp(string $url, Media $media): string
+    {
         $updatedAt = $media->getAttribute($media->getUpdatedAtColumn());
 
         if (! $updatedAt instanceof DateTimeInterface) {
