@@ -2,7 +2,6 @@
 
 namespace Emaia\MediaMan\Console\Commands;
 
-use Emaia\MediaMan\ConversionRegistry;
 use Emaia\MediaMan\Models\Media;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
@@ -146,21 +145,18 @@ class RotatePathsCommand extends Command
     }
 
     /**
-     * Resolve all disk names where this media has files (main disk + any
-     * conversion disks that differ).
+     * Resolve every disk this media has files on: the primary disk, every
+     * disk a conversion resolves to (explicit register or config default),
+     * and the responsive variant disk.
      *
      * @return string[]
      */
     protected function resolveMediaDisks(Media $media): array
     {
-        $disks = [$media->disk];
-
-        foreach (app(ConversionRegistry::class)->disks() as $conversionDisk) {
-            if ($conversionDisk !== $media->disk) {
-                $disks[] = $conversionDisk;
-            }
-        }
-
-        return array_unique($disks);
+        return array_values(array_unique([
+            $media->disk,
+            ...$media->getConversionDisks(),
+            $media->responsiveDisk(),
+        ]));
     }
 }

@@ -91,18 +91,35 @@ class DoctorCommand extends Command
 
         $this->probeDisk($effective, 'Probe (write/read/delete)');
 
-        $this->checkConversionDisks();
+        $this->checkVariantDisks();
     }
 
     /**
-     * Probe every distinct disk referenced by conversion registrations.
+     * Probe every distinct disk referenced by conversion registrations, the
+     * `mediaman.conversions.disk` default, and the `mediaman.responsive_images.disk`
+     * config (each only when it differs from the main disk to avoid a duplicate probe).
      */
-    protected function checkConversionDisks(): void
+    protected function checkVariantDisks(): void
     {
-        $registry = app(ConversionRegistry::class);
+        $main = config('mediaman.disk') ?? config('filesystems.default');
 
-        foreach ($registry->disks() as $diskName) {
+        $conversionDisks = array_filter([
+            ...app(ConversionRegistry::class)->disks(),
+            config('mediaman.conversions.disk'),
+        ]);
+
+        foreach (array_unique($conversionDisks) as $diskName) {
+            if ($diskName === $main) {
+                continue;
+            }
+
             $this->probeDisk($diskName, "Conversion disk '{$diskName}'");
+        }
+
+        $responsiveDisk = config('mediaman.responsive_images.disk');
+
+        if ($responsiveDisk !== null && $responsiveDisk !== $main) {
+            $this->probeDisk($responsiveDisk, "Responsive disk '{$responsiveDisk}'");
         }
     }
 

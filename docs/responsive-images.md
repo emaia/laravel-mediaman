@@ -10,6 +10,7 @@
 - [Placeholder integration](#placeholder-integration)
 - [Clearing variants](#clearing-variants)
 - [Width calculators](#width-calculators)
+- [Responsive disk](#responsive-disk)
 
 MediaMan generates multiple size and format variants of your images and exposes ready-to-use `srcset`/`<picture>` HTML so browsers can pick the most appropriate version. Variants live alongside the original file; metadata is persisted in `custom_properties`.
 
@@ -229,3 +230,19 @@ Two strategies ship out of the box:
 - **`file_size_optimized`** — iteratively reduces width until the predicted file size falls below a threshold
 
 Pick via `responsive_images.width_calculator`. See [Configuration → Responsive images](configuration.md#responsive-images) for the full set of knobs.
+
+## Responsive disk
+
+Responsive variants are typically served on every page view (the `<picture>` element fetches multiple per render), so keeping them on a hot local disk while the original sits on durable cloud storage is a common pattern:
+
+```php
+// config/mediaman.php
+'responsive_images' => [
+    'disk' => 'public',   // null (default) → variants live on $media->disk
+    // ...
+],
+```
+
+When set, every responsive variant is written to and served from this disk regardless of where the originating media lives. Switching the value does **not** migrate existing files — run `mediaman:clean --disk=old-disk` to find leftovers, or regenerate the variants on the new disk.
+
+`mediaman:doctor`, `mediaman:clean`, and `mediaman:rotate-paths` all probe/scan/rotate the responsive disk alongside the main and conversion disks.

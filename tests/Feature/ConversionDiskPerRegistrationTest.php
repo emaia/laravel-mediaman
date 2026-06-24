@@ -116,6 +116,28 @@ it('getConversionDisk falls back to media disk when none registered', function (
     expect($media->getConversionDisk('thumb'))->toBe('default');
 });
 
+it('getConversionDisk falls back to mediaman.conversions.disk before media disk', function () {
+    config(['mediaman.conversions.disk' => 'public']);
+
+    $registry = app(ConversionRegistry::class);
+    $registry->register('thumb', fn ($img) => $img->resize(200, 200));
+
+    $media = newMediaOnDisk('default');
+
+    expect($media->getConversionDisk('thumb'))->toBe('public');
+});
+
+it('explicit register disk overrides the conversions config default', function () {
+    config(['mediaman.conversions.disk' => 'public']);
+
+    $registry = app(ConversionRegistry::class);
+    $registry->register('thumb', fn ($img) => $img->resize(200, 200), disk: 's3');
+
+    $media = newMediaOnDisk('default');
+
+    expect($media->getConversionDisk('thumb'))->toBe('s3');
+});
+
 it('conversionFilesystem reads from the conversion disk', function () {
     $registry = app(ConversionRegistry::class);
     $registry->register('thumb', fn ($img) => $img->resize(200, 200), disk: 'public');

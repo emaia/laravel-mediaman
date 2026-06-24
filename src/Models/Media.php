@@ -81,13 +81,20 @@ class Media extends Model implements Attachable
             $mainDeleted = Storage::disk($media->disk)->deleteDirectory($media->getDirectory());
             ! $mainDeleted && Storage::disk($media->disk)->delete($media->getPath());
 
-            // clean conversion directories on any other disks they were stored on
-            foreach ($media->getConversionDisks() as $conversionDisk) {
-                if ($conversionDisk === $media->disk) {
+            // clean variant directories on any other disks they were stored on.
+            // Deduplicate against the main disk and against each other so we
+            // never touch the same disk twice.
+            $variantDisks = array_unique(array_merge(
+                $media->getConversionDisks(),
+                [$media->responsiveDisk()],
+            ));
+
+            foreach ($variantDisks as $variantDisk) {
+                if ($variantDisk === $media->disk) {
                     continue;
                 }
 
-                Storage::disk($conversionDisk)->deleteDirectory($media->getDirectory());
+                Storage::disk($variantDisk)->deleteDirectory($media->getDirectory());
             }
 
             event(new MediaDeleted($media));
@@ -301,19 +308,22 @@ class Media extends Model implements Attachable
     }
 
     /**
-     * Resolve the effective disk for a conversion, falling back to the media's
-     * own disk when the conversion was registered without an explicit disk.
+     * Resolve the effective disk for a conversion. Resolution chain (most
+     * specific wins): explicit `disk:` on the register call → the global
+     * `mediaman.conversions.disk` config default → the media's own disk →
+     * `mediaman.disk` → Laravel's `filesystems.default`.
      */
     public function getConversionDisk(string $conversion): string
     {
-        $disk = app(ConversionRegistry::class)->getDisk($conversion);
+        $disk = app(ConversionRegistry::class)->getDisk($conversion)
+            ?? config('mediaman.conversions.disk');
 
         return $disk ?? $this->disk ?? config('mediaman.disk') ?? config('filesystems.default');
     }
 
     /**
      * Get the filesystem for a specific conversion, respecting any per-conversion
-     * disk registered in the ConversionRegistry.
+     * disk registered in the ConversionRegistry or the config default.
      */
     public function conversionFilesystem(string $conversion): Filesystem
     {
@@ -321,8 +331,10 @@ class Media extends Model implements Attachable
     }
 
     /**
-     * All unique disks used by conversions registered for this media, including
-     * the media's own disk when at least one conversion omits an explicit disk.
+     * All unique disks used by conversions registered for this media. Each
+     * conversion is resolved through `getConversionDisk()` so the config
+     * default and the media's own disk are reflected when no explicit disk
+     * was registered.
      *
      * @return string[]
      */
@@ -332,11 +344,30 @@ class Media extends Model implements Attachable
         $disks = [];
 
         foreach (array_keys($registry->all()) as $conversion) {
-            $disk = $registry->getDisk($conversion) ?? $this->disk;
-            $disks[$disk] = true;
+            $disks[$this->getConversionDisk($conversion)] = true;
         }
 
         return array_keys($disks);
+    }
+
+    /**
+     * Resolve the effective disk for responsive variants of this media. Falls
+     * back from `mediaman.responsive_images.disk` to the media's own disk.
+     */
+    public function responsiveDisk(): string
+    {
+        return config('mediaman.responsive_images.disk')
+            ?? $this->disk
+            ?? config('mediaman.disk')
+            ?? config('filesystems.default');
+    }
+
+    /**
+     * Get the filesystem where responsive variants are stored.
+     */
+    public function responsiveFilesystem(): Filesystem
+    {
+        return Storage::disk($this->responsiveDisk());
     }
 
     /**
@@ -986,24 +1017,31 @@ class Media extends Model implements Attachable
 
     protected function copyResponsiveVariants(Media $target): void
     {
+        $sourceFs = $this->responsiveFilesystem();
         $responsiveDir = $this->getDirectory().'/'.self::RESPONSIVE_DIR;
 
-        if (! $this->filesystem()->exists($responsiveDir)) {
+        if (! $sourceFs->exists($responsiveDir)) {
             return;
         }
 
-        $allFiles = $this->filesystem()->allFiles($responsiveDir);
+        $targetFs = $target->responsiveFilesystem();
+        $sameDisk = $this->responsiveDisk() === $target->responsiveDisk();
 
-        foreach ($allFiles as $file) {
+        foreach ($sourceFs->allFiles($responsiveDir) as $file) {
             $relativePath = substr($file, strlen($responsiveDir) + 1);
             $targetPath = $target->getDirectory().'/'.self::RESPONSIVE_DIR.'/'.$relativePath;
 
-            if ($this->disk === $target->disk) {
-                $this->filesystem()->copy($file, $targetPath);
-            } else {
-                $stream = $this->filesystem()->readStream($file);
-                $target->filesystem()->writeStream($targetPath, $stream);
+            if ($sameDisk) {
+                $sourceFs->copy($file, $targetPath);
 
+                continue;
+            }
+
+            $stream = $sourceFs->readStream($file);
+
+            try {
+                $targetFs->writeStream($targetPath, $stream);
+            } finally {
                 if (is_resource($stream)) {
                     fclose($stream);
                 }

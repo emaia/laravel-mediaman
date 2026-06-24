@@ -153,8 +153,9 @@ or responsive files within a valid media directory are not flagged.';
 
     /**
      * Resolve which disks to scan: the `--disk` override when set, or the union
-     * of every disk referenced by a Media record plus every disk registered for
-     * a conversion. Returns an empty list when no media exists yet.
+     * of every disk referenced by a Media record, every disk explicitly registered
+     * for a conversion, and the config-level defaults for conversions and
+     * responsive variants. Returns an empty list when no media exists yet.
      *
      * @return string[]
      */
@@ -170,8 +171,12 @@ or responsive files within a valid media directory are not flagged.';
             return [];
         }
 
-        $conversionDisks = app(ConversionRegistry::class)->disks();
+        $extra = array_filter([
+            ...app(ConversionRegistry::class)->disks(),
+            config('mediaman.conversions.disk'),
+            config('mediaman.responsive_images.disk'),
+        ]);
 
-        return array_values(array_unique(array_merge($disks, $conversionDisks)));
+        return array_values(array_unique(array_merge($disks, $extra)));
     }
 }
