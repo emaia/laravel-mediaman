@@ -39,7 +39,7 @@ Public surface of the package, organized by class/trait. Each entry links back t
 
 | Signature                                                                                    | Description                                                                                                                                                                   |
 |----------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `getUrl(string $conversion = ''): string`                                                    | Public URL (with `url.prefix` and `url.version_query` if configured).                                                                                                         |
+| `getUrl(string $conversion = ''): string`                                                    | Public URL (with `url.prefix` and `url.versioning` if configured).                                                                                                            |
 | `getUrlWithFallback(string $conversion = ''): string`                                        | Conversion URL or the original if missing.                                                                                                                                    |
 | `getConversionUrl(string $conversion): ?string`                                              | Conversion URL or `null` if missing.                                                                                                                                          |
 | `getPlaceholder(): ?string`                                                                  | LQIP placeholder data URI (SVG wrapper with original `viewBox` and an embedded tiny blurred JPEG) generated at upload time, or `null` if none was generated.                  |
@@ -365,7 +365,7 @@ Default: `DefaultMediaResolver` — preserves v2 behavior bit-for-bit:
 
 - `{id}-{md5(id.app_key)}` obfuscated directory
 - Conversions under `{dir}/conversions/{conversion}`, responsive variants under `{dir}/responsive-images`
-- URL pipeline applies `url.prefix` and `url.version_query` config, stripping scheme+host from absolute storage URLs before prefixing (the S3+CDN case)
+- URL pipeline applies `url.prefix` and `url.versioning` config, stripping scheme+host from absolute storage URLs before prefixing (the S3+CDN case)
 - Temporary signed URLs are **not** prefixed or version-tagged
 - Filename sanitization (path traversal, control chars, double-extension defense), `{basename}.{ext}` for conversions, `{basename}_{width}w.{format}` for responsive variants
 

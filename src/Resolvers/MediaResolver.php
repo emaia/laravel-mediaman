@@ -24,7 +24,7 @@ interface MediaResolver
     /** Public URL for the original file, or for a conversion when given. */
     public function url(Media $media, ?string $conversion = null): string;
 
-    /** Signed temporary URL (S3-style); must not apply `url.prefix` or `version_query`. */
+    /** Signed temporary URL (S3-style); must not apply `url.prefix` or `url.versioning`. */
     public function temporaryUrl(Media $media, DateTimeInterface $expiration, ?string $conversion = null): string;
 
     /** Sanitize and produce the on-disk base filename for an uploaded file. */
