@@ -5,10 +5,13 @@ namespace Emaia\MediaMan\Console\Commands;
 use Emaia\MediaMan\Console\Concerns\CommandOutputStyle;
 use Emaia\MediaMan\Console\Concerns\ParsesMediaIds;
 use Emaia\MediaMan\ConversionRegistry;
+use Emaia\MediaMan\Events\ConversionCompleted;
+use Emaia\MediaMan\Events\ConversionFailed;
 use Emaia\MediaMan\ImageManipulator;
 use Emaia\MediaMan\Jobs\PerformConversions;
 use Emaia\MediaMan\Models\Media;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 
 class GenerateConversionsCommand extends Command
 {
@@ -111,7 +114,7 @@ class GenerateConversionsCommand extends Command
     protected function processInline($mediaItems, array $conversionNames, bool $force): void
     {
         $manipulator = app(ImageManipulator::class);
-        $processed = 0;
+        $completed = 0;
         $skipped = 0;
         $failures = [];
 
@@ -127,23 +130,38 @@ class GenerateConversionsCommand extends Command
                 }
             }
 
-            $skippedHere = count($existing);
-            $skipped += $skippedHere;
+            $skipped += count($existing);
 
             if (empty($needed)) {
                 continue;
             }
 
-            try {
-                $manipulator->manipulate($media, $needed, false);
-                $processed++;
-            } catch (\Exception $e) {
-                $failures[] = ['id' => $media->getKey(), 'name' => $media->name, 'error' => $e->getMessage()];
+            $report = $manipulator->manipulate($media, $needed, false);
+            $completed += count($report['completed']);
+
+            if (! empty($report['completed'])) {
+                event(new ConversionCompleted($media, $report['completed']));
+            }
+
+            foreach ($report['failed'] as $failure) {
+                Log::warning('MediaMan: Conversion failed', [
+                    'mediaId' => $media->getKey(),
+                    'conversion' => $failure['conversion'],
+                    'error' => $failure['exception']->getMessage(),
+                ]);
+
+                event(new ConversionFailed($media, $failure['conversion'], $failure['exception']));
+                $failures[] = [
+                    'id' => $media->getKey(),
+                    'name' => $media->name,
+                    'conversion' => $failure['conversion'],
+                    'error' => $failure['exception']->getMessage(),
+                ];
             }
         }
 
-        if ($processed > 0) {
-            $this->statusLine('Processed', 'ok', (string) $processed);
+        if ($completed > 0) {
+            $this->statusLine('Completed conversions', 'ok', (string) $completed);
         }
 
         if ($skipped > 0) {
@@ -151,17 +169,17 @@ class GenerateConversionsCommand extends Command
         }
 
         if (! empty($failures)) {
-            $this->statusLine('Failed', 'error', (string) count($failures));
+            $this->statusLine('Failed conversions', 'error', (string) count($failures));
 
             foreach ($failures as $f) {
                 $this->components->twoColumnDetail(
-                    "  #{$f['id']} {$f['name']}",
+                    "  #{$f['id']} {$f['name']} ({$f['conversion']})",
                     "<fg=red>✗</> {$f['error']}"
                 );
             }
         }
 
-        if ($processed === 0 && $skipped === 0 && empty($failures)) {
+        if ($completed === 0 && $skipped === 0 && empty($failures)) {
             $this->statusLine('Result', 'info', 'nothing to do');
         }
     }

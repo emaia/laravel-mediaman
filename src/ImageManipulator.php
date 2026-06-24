@@ -24,47 +24,74 @@ class ImageManipulator
     }
 
     /**
-     * Perform the specified conversions on the given media item.
+     * Run each requested conversion in isolation — a failure on one no longer
+     * cancels the remaining items in the batch. The returned report carries
+     * the names of successful conversions and any per-conversion exceptions.
+     *
+     * @param  string[]  $conversions
+     * @return array{completed: array<int, string>, failed: array<int, array{conversion: string, exception: \Throwable}>}
      */
-    public function manipulate(Media $media, array $conversions, bool $onlyIfMissing = true): void
+    public function manipulate(Media $media, array $conversions, bool $onlyIfMissing = true): array
     {
+        $report = ['completed' => [], 'failed' => []];
+
         if (! $media->isOfType(MediaType::IMAGE)) {
-            return;
+            return $report;
         }
 
         foreach ($conversions as $conversion) {
-            $converter = $this->conversionRegistry->get($conversion);
+            try {
+                $this->runConversion($media, $conversion, $onlyIfMissing);
+                $report['completed'][] = $conversion;
+            } catch (\Throwable $e) {
+                $report['failed'][] = [
+                    'conversion' => $conversion,
+                    'exception' => $e,
+                ];
+            }
+        }
 
-            $image = $converter($this->imageManager->decode(
-                $media->filesystem()->readStream($media->getOriginalPath())
-            ));
+        return $report;
+    }
 
-            $filesystem = $media->conversionFilesystem($conversion);
+    /**
+     * Encode and persist a single conversion. Extracted so the per-iteration
+     * try/catch in `manipulate()` covers every step (registry lookup, decode,
+     * encode, write).
+     */
+    protected function runConversion(Media $media, string $conversion, bool $onlyIfMissing): void
+    {
+        $converter = $this->conversionRegistry->get($conversion);
 
-            if ($image instanceof EncodedImage) {
-                $extension = $this->getExtensionFromMimeType($image->mediaType());
-                $path = $this->getConversionPathWithExtension($media, $conversion, $extension);
+        $image = $converter($this->imageManager->decode(
+            $media->filesystem()->readStream($media->getOriginalPath())
+        ));
 
-                if ($onlyIfMissing && $filesystem->exists($path)) {
-                    continue;
-                }
+        $filesystem = $media->conversionFilesystem($conversion);
 
-                $filesystem->put($path, $image->toStream());
+        if ($image instanceof EncodedImage) {
+            $extension = $this->getExtensionFromMimeType($image->mediaType());
+            $path = $this->getConversionPathWithExtension($media, $conversion, $extension);
 
-                continue;
+            if ($onlyIfMissing && $filesystem->exists($path)) {
+                return;
             }
 
-            if ($image instanceof Image) {
-                $encoded = $image->encode();
-                $extension = $this->getExtensionFromMimeType($encoded->mediaType());
-                $path = $this->getConversionPathWithExtension($media, $conversion, $extension);
+            $filesystem->put($path, $image->toStream());
 
-                if ($onlyIfMissing && $filesystem->exists($path)) {
-                    continue;
-                }
+            return;
+        }
 
-                $filesystem->put($path, $encoded->toStream());
+        if ($image instanceof Image) {
+            $encoded = $image->encode();
+            $extension = $this->getExtensionFromMimeType($encoded->mediaType());
+            $path = $this->getConversionPathWithExtension($media, $conversion, $extension);
+
+            if ($onlyIfMissing && $filesystem->exists($path)) {
+                return;
             }
+
+            $filesystem->put($path, $encoded->toStream());
         }
     }
 
