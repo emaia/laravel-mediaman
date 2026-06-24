@@ -9,6 +9,7 @@ use Emaia\MediaMan\Events\MediaUploaded;
 use Emaia\MediaMan\Exceptions\DisallowedExtension;
 use Emaia\MediaMan\Exceptions\FileSizeExceeded;
 use Emaia\MediaMan\Exceptions\InvalidBase64Data;
+use Emaia\MediaMan\Exceptions\MediaFileWriteFailed;
 use Emaia\MediaMan\Exceptions\MimeTypeNotAllowed;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Placeholders\PlaceholderGenerator;
@@ -17,6 +18,8 @@ use Emaia\MediaMan\Support\UrlGuard;
 use Emaia\MediaMan\Traits\ResolvesModels;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Intervention\Image\ImageManager;
 
@@ -523,6 +526,16 @@ class MediaUploader
 
     /**
      * Upload the file to the specified disk.
+     *
+     * The media row, the physical file write, and the collection attachment
+     * run inside a single transaction: if the write fails (throws, or the
+     * driver returns `false`) or the attachment is rejected, the row is rolled
+     * back and any partially written file is cleaned up — a failed upload never
+     * leaves an orphan row or an orphan file.
+     *
+     * Responsive image generation and the `MediaUploaded` event run *after* the
+     * transaction commits: they may dispatch queued jobs (which must not race
+     * an uncommitted row) and are best-effort relative to a durable upload.
      */
     public function upload(): Media
     {
@@ -530,6 +543,33 @@ class MediaUploader
         $this->validateMimeType();
         $this->validateFileSize();
 
+        $media = DB::transaction(function () {
+            $media = $this->persistMediaModel();
+
+            try {
+                $this->writeMediaFile($media);
+                $this->attachToCollections($media);
+            } catch (\Throwable $e) {
+                $this->cleanupFailedUpload($media);
+
+                throw $e;
+            }
+
+            return $media;
+        });
+
+        $this->generateResponsiveImagesIfRequested($media);
+
+        event(new MediaUploaded($media));
+
+        return $media;
+    }
+
+    /**
+     * Build and persist the media row. Does not touch storage.
+     */
+    protected function persistMediaModel(): Media
+    {
         $model = $this->mediaModel();
 
         $media = new $model;
@@ -578,12 +618,34 @@ class MediaUploader
 
         $media->save();
 
-        $media->filesystem()->putFileAs(
+        return $media;
+    }
+
+    /**
+     * Write the uploaded file to the media's storage directory. Treats a
+     * `false` return from the filesystem driver as a hard failure.
+     *
+     * @throws MediaFileWriteFailed
+     */
+    protected function writeMediaFile(Media $media): void
+    {
+        $result = $media->filesystem()->putFileAs(
             $media->getDirectory(),
             $this->file,
             $this->fileName
         );
 
+        if ($result === false) {
+            throw MediaFileWriteFailed::forPath($media->getPath(), $media->disk);
+        }
+    }
+
+    /**
+     * Attach the media to the requested collection, or to the configured
+     * default collection when none was requested.
+     */
+    protected function attachToCollections(Media $media): void
+    {
         if (count($this->collections) > 0) {
             // todo: support multiple collections
             $collectionModel = $this->collectionModel();
@@ -594,28 +656,67 @@ class MediaUploader
             $collection->validateMedia($media);
             $media->collections()->attach($collection->getKey());
             $collection->enforceMaxItems();
-        } else {
-            // add to the default collection
-            // todo: allow not to add in the default collection
-            $collectionModel = $this->collectionModel();
-            $collection = $collectionModel::findByName(config('mediaman.collection'));
-            if ($collection) {
-                $collection->validateMedia($media);
-                $media->collections()->attach($collection->getKey());
-                $collection->enforceMaxItems();
-            }
+
+            return;
         }
 
-        // Generate responsive images if requested or auto-enabled
-        if ($this->generateResponsive || config('mediaman.responsive_images.auto_generate', false)) {
-            if (config('mediaman.responsive_images.enabled', true) && $media->isOfType(MediaType::IMAGE)) {
-                $media->generateResponsiveImages($this->responsiveOptions);
+        // add to the default collection
+        // todo: allow not to add in the default collection
+        $collectionModel = $this->collectionModel();
+        $collection = $collectionModel::findByName(config('mediaman.collection'));
+
+        if ($collection) {
+            $collection->validateMedia($media);
+            $media->collections()->attach($collection->getKey());
+            $collection->enforceMaxItems();
+        }
+    }
+
+    /**
+     * Best-effort removal of anything written for a media whose upload failed
+     * mid-flight. Each media owns an obfuscated directory, so deleting it is
+     * safe and never touches another media's files. Swallows its own errors —
+     * the original failure is what the caller should see.
+     */
+    protected function cleanupFailedUpload(Media $media): void
+    {
+        try {
+            $filesystem = $media->filesystem();
+
+            if (! $filesystem->deleteDirectory($media->getDirectory())) {
+                $filesystem->delete($media->getPath());
             }
+        } catch (\Throwable) {
+            // best-effort cleanup only
+        }
+    }
+
+    /**
+     * Generate responsive images when enabled. Runs after the upload commits;
+     * a failure here is logged but never rolls back the upload — responsive
+     * variants are a derived artifact that can be regenerated later.
+     */
+    protected function generateResponsiveImagesIfRequested(Media $media): void
+    {
+        $requested = $this->generateResponsive
+            || config('mediaman.responsive_images.auto_generate', false);
+
+        if (! $requested) {
+            return;
         }
 
-        event(new MediaUploaded($media));
+        if (! config('mediaman.responsive_images.enabled', true) || ! $media->isOfType(MediaType::IMAGE)) {
+            return;
+        }
 
-        return $media;
+        try {
+            $media->generateResponsiveImages($this->responsiveOptions);
+        } catch (\Throwable $e) {
+            Log::warning('MediaMan: responsive image generation failed after upload', [
+                'media_id' => $media->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**

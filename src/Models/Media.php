@@ -471,18 +471,25 @@ class Media extends Model implements Attachable
 
     /**
      * Get the original media url.
+     *
+     * Routes through getUrl() so the configured `url.prefix` and
+     * `url.versioning` strategies apply consistently with getUrl(); asset()
+     * absolutizes a relative disk URL while leaving a full URL untouched.
      */
     public function getMediaUrlAttribute(): string
     {
-        return asset($this->filesystem()->url($this->getPath()));
+        return asset($this->getUrl());
     }
 
     /**
      * Get the original media uri.
+     *
+     * Alias of getUrl() for the original file — kept for backwards
+     * compatibility with the appended attribute.
      */
     public function getMediaUriAttribute(): string
     {
-        return $this->filesystem()->url($this->getPath());
+        return $this->getUrl();
     }
 
     /**

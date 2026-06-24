@@ -39,6 +39,18 @@ it('exposes media_url and media_uri attributes', function () {
         ->and($media->media_url)->toContain($media->media_uri);
 });
 
+it('applies url prefix and versioning to media_url and media_uri', function () {
+    config()->set('mediaman.url.prefix', 'https://cdn.example.com');
+    config()->set('mediaman.url.versioning', 'timestamp');
+
+    $media = MediaUploader::source(UploadedFile::fake()->image('test.jpg', 100, 100))->upload();
+
+    expect($media->media_uri)->toBe($media->getUrl())
+        ->and($media->media_uri)->toStartWith('https://cdn.example.com/')
+        ->and($media->media_uri)->toContain('?v=')
+        ->and($media->media_url)->toBe(asset($media->getUrl()));
+});
+
 // -- Conversion paths ------------------------------------------------------
 
 it('returns null from getConversionUrl when the conversion file does not exist', function () {

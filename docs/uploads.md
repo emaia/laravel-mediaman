@@ -23,6 +23,8 @@ $media = MediaUploader::source($request->file('file'))->upload();
 
 The file goes to the default disk and is bundled in the default collection (both configurable in `config/mediaman.php`). The filename is sanitized automatically.
 
+`upload()` is atomic: the database row, the file write, and the collection attachment run in a single transaction. If the write fails (it throws, or the disk driver returns `false`, which raises `MediaFileWriteFailed`) or the collection rejects the media, the row is rolled back and any partially written file is removed — no orphan row, no orphan file. Responsive variant generation and the `MediaUploaded` event run *after* the transaction commits; a responsive-generation failure is logged but does not undo the upload.
+
 ## From an HTTP request
 
 A thin convenience wrapper for the most common case — pulling a single file off the current request:
