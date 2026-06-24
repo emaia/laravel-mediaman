@@ -230,6 +230,106 @@ class MediaUploader
     }
 
     /**
+     * Create an uploader from raw bytes. MIME sniffed from content — useful
+     * for in-memory payloads (generated PDFs, headless screenshots, webhook bodies).
+     */
+    public static function fromString(string $content, string $fileName, ?string $name = null): MediaUploader
+    {
+        $tmpPath = tempnam(sys_get_temp_dir(), 'mediaman_');
+
+        try {
+            file_put_contents($tmpPath, $content);
+
+            $uploadedFile = new UploadedFile(
+                $tmpPath,
+                $fileName,
+                self::detectMimeFromFile($tmpPath),
+                null,
+                true
+            );
+
+            $instance = new self($uploadedFile);
+
+            if ($name !== null) {
+                $instance->setName($name);
+            }
+
+            return $instance;
+        } catch (\Throwable $e) {
+            @unlink($tmpPath);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Create an uploader from a readable PHP stream resource. Caller owns the
+     * stream — `fromStream` consumes the cursor but does not call `fclose()`.
+     *
+     * @param  resource  $stream
+     *
+     * @throws \InvalidArgumentException when `$stream` is not a resource.
+     * @throws \RuntimeException when the temp file cannot be opened for writing.
+     */
+    public static function fromStream($stream, string $fileName, ?string $name = null): MediaUploader
+    {
+        if (! is_resource($stream)) {
+            throw new \InvalidArgumentException('MediaUploader::fromStream() expects a PHP stream resource.');
+        }
+
+        $tmpPath = tempnam(sys_get_temp_dir(), 'mediaman_');
+
+        try {
+            $target = fopen($tmpPath, 'wb');
+
+            if ($target === false) {
+                throw new \RuntimeException("Failed to open temp file [{$tmpPath}] for writing.");
+            }
+
+            try {
+                stream_copy_to_stream($stream, $target);
+            } finally {
+                fclose($target);
+            }
+
+            $uploadedFile = new UploadedFile(
+                $tmpPath,
+                $fileName,
+                self::detectMimeFromFile($tmpPath),
+                null,
+                true
+            );
+
+            $instance = new self($uploadedFile);
+
+            if ($name !== null) {
+                $instance->setName($name);
+            }
+
+            return $instance;
+        } catch (\Throwable $e) {
+            @unlink($tmpPath);
+
+            throw $e;
+        }
+    }
+
+    /** Sniff MIME via finfo; falls back to `application/octet-stream`. */
+    private static function detectMimeFromFile(string $path): string
+    {
+        $fileInfo = finfo_open(FILEINFO_MIME_TYPE);
+
+        if ($fileInfo === false) {
+            return 'application/octet-stream';
+        }
+
+        $mimeType = finfo_file($fileInfo, $path);
+        finfo_close($fileInfo);
+
+        return is_string($mimeType) ? $mimeType : 'application/octet-stream';
+    }
+
+    /**
      * Pick a file extension for a MIME type. Uses the format map for images
      * (authoritative) and falls back to the MIME subtype for other types.
      */
