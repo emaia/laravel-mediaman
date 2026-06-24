@@ -1,10 +1,18 @@
 <?php
 
+use Emaia\MediaMan\Events\MediaUploaded;
+use Emaia\MediaMan\Exceptions\MediaFileWriteFailed;
+use Emaia\MediaMan\Exceptions\MediaNotAcceptedByCollection;
 use Emaia\MediaMan\Exceptions\MimeTypeNotAllowed;
 use Emaia\MediaMan\MediaUploader;
 use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\Models\MediaCollection;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
+use Illuminate\Contracts\Filesystem\Filesystem;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Storage;
 
 it('can upload a file to the default disk', function () {
@@ -216,4 +224,100 @@ it('does not store file to disk when mime type validation fails', function () {
     }
 
     expect(Storage::disk(self::DEFAULT_DISK)->allFiles())->toBeEmpty();
+});
+
+// --- Atomic upload (transaction + cleanup) ---
+
+afterEach(function () {
+    Mockery::close();
+});
+
+it('rolls back the media row when the file write throws', function () {
+    $filesystem = Mockery::mock(Filesystem::class);
+    $filesystem->shouldReceive('putFileAs')->andThrow(new RuntimeException('write boom'));
+    $filesystem->shouldReceive('deleteDirectory')->andReturn(true);
+    $filesystem->shouldNotReceive('delete');
+
+    Storage::shouldReceive('disk')->andReturn($filesystem);
+
+    expect(fn () => MediaUploader::source(UploadedFile::fake()->create('file.txt', 10))->upload())
+        ->toThrow(RuntimeException::class, 'write boom');
+
+    expect(Media::count())->toBe(0);
+});
+
+it('treats a false return from the file write as a failure and rolls back', function () {
+    $filesystem = Mockery::mock(Filesystem::class);
+    $filesystem->shouldReceive('putFileAs')->andReturn(false);
+    $filesystem->shouldReceive('deleteDirectory')->andReturn(true);
+
+    Storage::shouldReceive('disk')->andReturn($filesystem);
+
+    expect(fn () => MediaUploader::source(UploadedFile::fake()->create('file.txt', 10))->upload())
+        ->toThrow(MediaFileWriteFailed::class);
+
+    expect(Media::count())->toBe(0);
+});
+
+it('rolls back and cleans the written file when collection validation rejects the media', function () {
+    MediaCollection::create([
+        'name' => 'pdf-only',
+        'allowed_mime_types' => ['application/pdf'],
+    ]);
+
+    $file = UploadedFile::fake()->image('photo.jpg');
+
+    expect(fn () => MediaUploader::source($file)->useCollection('pdf-only')->upload())
+        ->toThrow(MediaNotAcceptedByCollection::class);
+
+    expect(Media::count())->toBe(0)
+        ->and(Storage::disk(self::DEFAULT_DISK)->allFiles())->toBeEmpty();
+});
+
+it('rolls back and cleans the written file when the collection attach fails', function () {
+    Config::set('mediaman.tables.collection_media', 'missing_pivot_table');
+
+    $file = UploadedFile::fake()->image('photo.jpg');
+
+    expect(fn () => MediaUploader::source($file)->useCollection('gallery')->upload())
+        ->toThrow(QueryException::class);
+
+    expect(Media::count())->toBe(0)
+        ->and(Storage::disk(self::DEFAULT_DISK)->allFiles())->toBeEmpty();
+});
+
+it('persists the row, file, and collection on a successful upload', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+
+    expect(Media::count())->toBe(1)
+        ->and(Storage::disk(self::DEFAULT_DISK)->exists($media->getPath()))->toBeTrue()
+        ->and($media->collections->pluck('name'))->toContain(config('mediaman.collection'));
+});
+
+it('fires MediaUploaded only after the media row is persisted', function () {
+    $persistedAtDispatch = null;
+
+    Event::listen(MediaUploaded::class, function (MediaUploaded $event) use (&$persistedAtDispatch) {
+        $persistedAtDispatch = Media::find($event->media->getKey()) !== null;
+    });
+
+    MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+
+    expect($persistedAtDispatch)->toBeTrue();
+});
+
+it('does not roll back a committed upload when inline responsive generation fails', function () {
+    Config::set('mediaman.responsive_images.queue', false);
+
+    $generator = Mockery::mock(ResponsiveImageGenerator::class);
+    $generator->shouldReceive('generateResponsiveImages')->andThrow(new RuntimeException('responsive boom'));
+    app()->instance(ResponsiveImageGenerator::class, $generator);
+
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))
+        ->generateResponsive()
+        ->upload();
+
+    expect($media)->toBeInstanceOf(Media::class)
+        ->and(Media::count())->toBe(1)
+        ->and(Storage::disk(self::DEFAULT_DISK)->exists($media->getPath()))->toBeTrue();
 });

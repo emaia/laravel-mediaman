@@ -215,7 +215,7 @@ Public surface of the package, organized by class/trait. Each entry links back t
 
 | Signature         | Description                                                             |
 |-------------------|-------------------------------------------------------------------------|
-| `upload(): Media` | Persist record, write file, attach to collection, emit `MediaUploaded`. |
+| `upload(): Media` | Atomically persist record + write file + attach to collection (rolls back and cleans up on failure; throws `MediaFileWriteFailed` on a failed write), then emit `MediaUploaded` and generate responsive variants after commit. |
 
 ---
 
