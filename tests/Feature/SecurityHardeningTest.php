@@ -186,3 +186,43 @@ it('does not treat plain XML as SVG (content marker discriminates <svg>)', funct
 
     expect($media)->toBeInstanceOf(Media::class);
 });
+
+// --- PHP-level upload error handling ---
+
+use Emaia\MediaMan\Exceptions\UploadFailed;
+
+it('surfaces UPLOAD_ERR_INI_SIZE with the actual cause instead of masking as size violation', function () {
+    $tmp = tempnam(sys_get_temp_dir(), 'mm_php_err_');
+    // Symfony's `test=true` (5th arg) bypasses is_uploaded_file() so the error
+    // code propagates through isValid().
+    $file = new UploadedFile(
+        $tmp,
+        'too-big.bin',
+        'application/octet-stream',
+        \UPLOAD_ERR_INI_SIZE,
+        true,
+    );
+
+    expect(fn () => MediaUploader::source($file)->upload())
+        ->toThrow(UploadFailed::class, 'upload_max_filesize');
+});
+
+it('surfaces UPLOAD_ERR_PARTIAL with the actual cause instead of masking', function () {
+    $tmp = tempnam(sys_get_temp_dir(), 'mm_partial_');
+    $file = new UploadedFile($tmp, 'partial.bin', 'application/octet-stream', \UPLOAD_ERR_PARTIAL, true);
+
+    expect(fn () => MediaUploader::source($file)->upload())
+        ->toThrow(UploadFailed::class, 'partially');
+});
+
+it('exposes the PHP upload error code on the exception for programmatic handling', function () {
+    $tmp = tempnam(sys_get_temp_dir(), 'mm_no_tmp_');
+    $file = new UploadedFile($tmp, 'whatever.bin', 'application/octet-stream', \UPLOAD_ERR_NO_TMP_DIR, true);
+
+    try {
+        MediaUploader::source($file)->upload();
+        $this->fail('Expected UploadFailed to be thrown.');
+    } catch (UploadFailed $e) {
+        expect($e->phpUploadErrorCode)->toBe(\UPLOAD_ERR_NO_TMP_DIR);
+    }
+});

@@ -11,6 +11,7 @@ use Emaia\MediaMan\Exceptions\InvalidBase64Data;
 use Emaia\MediaMan\Exceptions\MediaFileWriteFailed;
 use Emaia\MediaMan\Exceptions\MimeTypeNotAllowed;
 use Emaia\MediaMan\Exceptions\SvgNotAllowed;
+use Emaia\MediaMan\Exceptions\UploadFailed;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Placeholders\PlaceholderGenerator;
 use Emaia\MediaMan\Resolvers\MediaResolver;
@@ -529,6 +530,7 @@ class MediaUploader
      */
     public function upload(): Media
     {
+        $this->validateUploadIntegrity();
         $this->validateExtension();
         $this->validateMimeType();
         $this->validateFileSize();
@@ -896,6 +898,26 @@ class MediaUploader
 
         if ($actualBytes > $maxBytes) {
             throw FileSizeExceeded::forSize($actualBytes, $maxBytes);
+        }
+    }
+
+    /**
+     * Surface PHP-level upload errors with the actual cause instead of
+     * letting downstream size/MIME checks mask them with misleading
+     * diagnostics. A file that hit `upload_max_filesize` arrives as a
+     * 0-byte `UploadedFile` with `isValid() === false` and `getError()`
+     * set to `UPLOAD_ERR_INI_SIZE` — reporting "below min file size"
+     * for that case blames the symptom (0 bytes), not the cause.
+     *
+     * @throws UploadFailed
+     */
+    protected function validateUploadIntegrity(): void
+    {
+        if (! $this->file->isValid()) {
+            throw UploadFailed::fromPhpUpload(
+                $this->file->getError(),
+                $this->file->getErrorMessage(),
+            );
         }
     }
 
