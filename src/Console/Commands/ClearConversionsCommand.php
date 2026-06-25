@@ -72,7 +72,7 @@ class ClearConversionsCommand extends Command
         $total = $mediaItems->count();
         $convCount = count($conversionNames);
 
-        if ($total * $convCount > 100 && ! $this->option('force') && ! $this->confirm("Will clear {$convCount} conversion(s) on {$total} media item(s). Continue?")) {
+        if ($total * $convCount > 100 && ! $this->option('force') && ! $this->confirm("Will clear $convCount conversion(s) on $total media item(s). Continue?")) {
             $this->info('Cancelled.');
 
             return self::SUCCESS;
@@ -104,7 +104,7 @@ class ClearConversionsCommand extends Command
                     if ($filesystem->deleteDirectory($conversionDir)) {
                         $cleared++;
                     } else {
-                        $failures[] = ['id' => $media->getKey(), 'name' => $media->name, 'error' => "failed to delete '{$conv}' directory"];
+                        $failures[] = ['id' => $media->getKey(), 'name' => $media->name, 'error' => "failed to delete '$conv' directory"];
                     }
                 } catch (\Exception $e) {
                     $failures[] = ['id' => $media->getKey(), 'name' => $media->name, 'error' => $e->getMessage()];

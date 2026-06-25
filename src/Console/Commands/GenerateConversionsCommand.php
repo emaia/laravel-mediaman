@@ -11,6 +11,7 @@ use Emaia\MediaMan\ImageManipulator;
 use Emaia\MediaMan\Jobs\PerformConversions;
 use Emaia\MediaMan\Models\Media;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Log;
 
 class GenerateConversionsCommand extends Command
@@ -77,7 +78,7 @@ class GenerateConversionsCommand extends Command
         $total = $mediaItems->count();
         $convCount = count($conversionNames);
 
-        if ($total * $convCount > 100 && ! $this->confirm("Will process {$total} media item(s) × {$convCount} conversion(s) = ".($total * $convCount).' operations. Continue?')) {
+        if ($total * $convCount > 100 && ! $this->confirm("Will process $total media item(s) × $convCount conversion(s) = ".($total * $convCount).' operations. Continue?')) {
             $this->info('Cancelled.');
 
             return self::SUCCESS;
@@ -100,7 +101,8 @@ class GenerateConversionsCommand extends Command
         return self::SUCCESS;
     }
 
-    protected function processQueued($mediaItems, array $conversionNames): void
+    /** @param  Collection<int, Media>  $mediaItems */
+    protected function processQueued(Collection $mediaItems, array $conversionNames): void
     {
         $count = $mediaItems->count();
 
@@ -108,10 +110,11 @@ class GenerateConversionsCommand extends Command
             PerformConversions::dispatch($media, $conversionNames);
         }
 
-        $this->statusLine('Dispatched', 'ok', "{$count} (queued)");
+        $this->statusLine('Dispatched', 'ok', "$count (queued)");
     }
 
-    protected function processInline($mediaItems, array $conversionNames, bool $force): void
+    /** @param  Collection<int, Media>  $mediaItems */
+    protected function processInline(Collection $mediaItems, array $conversionNames, bool $force): void
     {
         $manipulator = app(ImageManipulator::class);
         $completed = 0;

@@ -17,13 +17,13 @@ class MediaNotAcceptedByChannel extends Exception
 
     public static function ruleFailed(string $channel, int|string $mediaId, ?string $rule = null): self
     {
-        $which = $rule !== null ? "rule `{$rule}`" : 'a file rule';
+        $which = $rule !== null ? "rule `$rule`" : 'a file rule';
 
         return new self(
             $channel,
             $rule,
             $mediaId,
-            "Media #{$mediaId} rejected by channel `{$channel}`: {$which} failed.",
+            "Media #$mediaId rejected by channel `$channel`: $which failed.",
         );
     }
 }

@@ -72,7 +72,7 @@ class RotatePathsCommand extends Command
                 try {
                     $filesystem = Storage::disk($diskName);
                 } catch (\InvalidArgumentException $e) {
-                    $this->warn("  Media {$media->getKey()}: disk [{$diskName}] not configured, skipping.");
+                    $this->warn("  Media {$media->getKey()}: disk [$diskName] not configured, skipping.");
 
                     continue;
                 }
@@ -82,10 +82,10 @@ class RotatePathsCommand extends Command
 
                 if (! $oldExists) {
                     if ($newExists) {
-                        $this->line("  <fg=blue>Media {$media->getKey()}</> disk [$diskName]: already at {$newDir}, skipping.");
+                        $this->line("  <fg=blue>Media {$media->getKey()}</> disk [$diskName]: already at $newDir, skipping.");
                         $skippedAlreadyMigrated++;
                     } else {
-                        $this->warn("  Media {$media->getKey()}: neither {$oldDir} nor {$newDir} exists on disk [{$diskName}].");
+                        $this->warn("  Media {$media->getKey()}: neither $oldDir nor $newDir exists on disk [$diskName].");
                         $skippedMissing++;
                     }
 
@@ -93,14 +93,14 @@ class RotatePathsCommand extends Command
                 }
 
                 if ($newExists) {
-                    $this->warn("  Media {$media->getKey()}: both {$oldDir} and {$newDir} exist on disk [{$diskName}]. Manual review required.");
+                    $this->warn("  Media {$media->getKey()}: both $oldDir and $newDir exist on disk [$diskName]. Manual review required.");
                     $skippedConflict++;
 
                     continue;
                 }
 
                 if ($dryRun) {
-                    $this->line("  <fg=yellow>Media {$media->getKey()}</> disk [$diskName]: would move {$oldDir} → {$newDir}");
+                    $this->line("  <fg=yellow>Media {$media->getKey()}</> disk [$diskName]: would move $oldDir → $newDir");
                     $renamed++;
 
                     continue;
@@ -116,24 +116,24 @@ class RotatePathsCommand extends Command
                 $filesystem->deleteDirectory($oldDir);
 
                 $fileCount = count($files);
-                $this->line("  <fg=green>Media {$media->getKey()}</> disk [$diskName]: moved {$oldDir} → {$newDir} ({$fileCount} file(s))");
+                $this->line("  <fg=green>Media {$media->getKey()}</> disk [$diskName]: moved $oldDir → $newDir ($fileCount file(s))");
                 $renamed++;
             }
         });
 
         $this->newLine();
-        $this->info(($dryRun ? 'Would rename' : 'Renamed').": {$renamed}");
+        $this->info(($dryRun ? 'Would rename' : 'Renamed').": $renamed");
 
         if ($skippedAlreadyMigrated > 0) {
-            $this->line("Already migrated: {$skippedAlreadyMigrated}");
+            $this->line("Already migrated: $skippedAlreadyMigrated");
         }
 
         if ($skippedMissing > 0) {
-            $this->line("Missing on disk:  {$skippedMissing}");
+            $this->line("Missing on disk:  $skippedMissing");
         }
 
         if ($skippedConflict > 0) {
-            $this->warn("Conflicts (both old + new exist): {$skippedConflict}");
+            $this->warn("Conflicts (both old + new exist): $skippedConflict");
         }
 
         if ($dryRun && $renamed > 0) {

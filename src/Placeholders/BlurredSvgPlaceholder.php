@@ -38,12 +38,6 @@ class BlurredSvgPlaceholder implements PlaceholderGenerator
                 $jpegDataUri
             );
 
-            // url-encode the SVG wrapper instead of base64. The wrapper is
-            // ASCII XML, so percent-encoding is ~16% smaller than base64 and
-            // leaves the structure readable in DevTools. rawurlencode escapes
-            // whitespace and commas, so the resulting data URI is safe inside
-            // srcset (whose parser terminates the URL at the first ASCII
-            // whitespace).
             return 'data:image/svg+xml,'.rawurlencode($svg);
         } catch (Throwable) {
             return null;

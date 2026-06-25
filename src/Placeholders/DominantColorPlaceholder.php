@@ -16,8 +16,6 @@ class DominantColorPlaceholder implements PlaceholderGenerator
         }
 
         try {
-            // resize() forces 1×1 (no aspect ratio preservation), so the
-            // single pixel is the area-weighted average of the source image.
             $color = $this->images
                 ->decode(file_get_contents($sourcePath))
                 ->resize(width: 1, height: 1)

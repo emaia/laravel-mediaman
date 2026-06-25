@@ -8,57 +8,41 @@ use Emaia\MediaMan\Resolvers\DefaultMediaResolver;
 return [
 
     /*
-    |--------------------------------------------------------------------------
-    | === Essentials ===
-    |--------------------------------------------------------------------------
-    |
-    | Most apps only need to look at this section.
-    |
-    */
-
-    /*
-    | The default disk where files should be uploaded. When null, falls
-    | back to Laravel's default filesystem disk (config/filesystems.php).
+    | Default disk for new uploads. When null, falls back to Laravel's
+    | own default filesystem disk (see config/filesystems.php).
     */
 
     'disk' => env('MEDIAMAN_DISK'),
 
     /*
-    | Image processing driver for intervention/image.
-    | Supported: "vips" (libvips, fastest), "imagick" (ImageMagick), "gd" (GD Library).
-    | When null, auto-detected in this order: vips (requires ext-vips AND the
-    | intervention/image-driver-vips package), then imagick (requires ext-imagick),
-    | then gd as the universal fallback. Set explicitly when you need a guarantee.
+    | Image processing driver for intervention/image. Supported values:
+    |
+    |   "vips"    — libvips, fastest (requires ext-vips + intervention/image-driver-vips)
+    |   "imagick" — ImageMagick (requires ext-imagick)
+    |   "gd"      — GD library, universal fallback
+    |
+    | When null, the driver is auto-detected in the order above. Pin to a
+    | specific value when you need a guarantee (CI, multi-host deployments).
     */
 
     'driver' => env('MEDIAMAN_DRIVER'),
 
     /*
-    | The queue used for image conversions and responsive image generation.
-    | Leave null to use the default queue driver.
+    | Queue connection used for image conversions and responsive image
+    | generation jobs. Leave null to use the application's default connection.
     */
 
-    'queue' => null,
+    'queue' => env('MEDIAMAN_QUEUE'),
 
     /*
-    | The default collection name where files should reside when uploads
-    | do not specify a collection.
+    | Default collection assigned to uploads that don't call useCollection().
     */
 
     'collection' => 'Default',
 
     /*
-    |--------------------------------------------------------------------------
-    | === Validation & security defaults ===
-    |--------------------------------------------------------------------------
-    |
-    | Tighten or loosen what uploads are allowed in.
-    |
-    */
-
-    /*
-    | Allowed MIME types for uploads. An empty array means all MIME types
-    | are accepted. You may use wildcards like 'image/*'.
+    | Global MIME allow-list for uploads. Empty array = accept everything.
+    | Wildcards like `image/*` are supported.
     |
     | Examples:
     |   ['image/jpeg', 'image/png', 'application/pdf']
@@ -68,9 +52,9 @@ return [
     'allowed_mime_types' => [],
 
     /*
-    | Maximum allowed file size for uploads, in bytes. Set to 0 (default)
-    | to disable the check. Enforced before the file touches disk,
-    | complementing PHP's `upload_max_filesize` / `post_max_size`.
+    | Maximum upload size in bytes. Set to 0 (default) to disable the check.
+    | Enforced inside the package before the file is written to disk,
+    | complementing PHP's own `upload_max_filesize` / `post_max_size`.
     |
     | Examples:
     |   5 * 1024 * 1024   // 5 MB
@@ -80,8 +64,9 @@ return [
     'max_file_size' => env('MEDIAMAN_MAX_FILE_SIZE', 0),
 
     /*
-    | Block executable/server-side file extensions on upload.
-    | Set `block_disallowed_extensions` to false to opt out.
+    | When true, the extensions in `disallowed_extensions` below are rejected
+    | at upload time. Defaults to true — flip off only when you have a very
+    | specific reason to accept server-executable file types.
     */
 
     'block_disallowed_extensions' => true,
@@ -92,50 +77,42 @@ return [
     ],
 
     /*
-    |--------------------------------------------------------------------------
-    | === Per-feature configuration ===
-    |--------------------------------------------------------------------------
-    |
-    | Knobs that only matter when you opt into a specific feature.
-    |
-    */
-
-    /*
-    | Settings for downloading files from remote URLs (MediaUploader::fromUrl).
+    | Settings for `MediaUploader::fromUrl()` — downloading from remote URLs.
     */
 
     'url_sources' => [
 
         /*
-        | Allow URLs that resolve to private or reserved IP addresses
-        | (localhost, 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16,
-        | 169.254.0.0/16). Leave false to keep SSRF protection on.
+        | SSRF guard. Leave false to reject URLs resolving to private or
+        | reserved ranges (localhost, 127/8, 10/8, 172.16/12, 192.168/16,
+        | 169.254/16). Flip to true only when you actually need to fetch
+        | from an internal network and trust every URL passed in.
         */
 
-        'allow_private_hosts' => false,
+        'allow_private_hosts' => env('MEDIAMAN_ALLOW_PRIVATE_HOSTS', false),
 
         /*
-        | Maximum time (seconds) to wait for a response when downloading.
+        | Maximum time (seconds) to wait for the remote response.
         */
 
         'timeout_seconds' => 30,
 
         /*
-        | Maximum download size in bytes. Downloads exceeding this are
-        | aborted mid-stream. Default is 100 MB.
+        | Maximum bytes downloaded before the request is aborted mid-stream.
+        | Default is 100 MB.
         */
 
         'max_size_bytes' => 100 * 1024 * 1024,
 
         /*
-        | When true, SSL certificates are verified. Set to false only for
-        | development or internal APIs with self-signed certificates.
+        | Verify the remote's SSL certificate. Disable only for local dev or
+        | internal APIs with self-signed certs — never in production.
         */
 
-        'verify_ssl' => true,
+        'verify_ssl' => env('MEDIAMAN_VERIFY_SSL', true),
 
         /*
-        | The User-Agent header sent with remote download requests.
+        | User-Agent header sent with the download request.
         */
 
         'user_agent' => 'MediaMan/2.x',
@@ -143,15 +120,14 @@ return [
     ],
 
     /*
-    | Settings for uploading files from base64-encoded data
-    | (MediaUploader::fromBase64).
+    | Settings for `MediaUploader::fromBase64()` — uploads from base64-encoded data.
     */
 
     'base64' => [
 
         /*
-        | Maximum size of the raw base64 string before decoding. The check
-        | runs before any memory-intensive decode operation. Default is 50 MB.
+        | Maximum size of the raw base64 string (before decoding). The check
+        | runs before any memory-intensive decode happens. Default is 50 MB.
         */
 
         'max_size_bytes' => 50 * 1024 * 1024,
@@ -159,14 +135,15 @@ return [
     ],
 
     /*
-    | Settings for generating temporary signed URLs on cloud disks.
+    | Settings for `Media::getTemporaryUrl()` — short-lived signed URLs on
+    | cloud disks that support them (S3, GCS, etc.).
     */
 
     'temporary_url' => [
 
         /*
-        | Default expiration time (minutes) used when no explicit expiration
-        | is passed to Media::getTemporaryUrl().
+        | Default expiration (minutes) used when `getTemporaryUrl()` is called
+        | without an explicit expiration argument.
         */
 
         'default_lifetime_minutes' => 5,
@@ -178,25 +155,46 @@ return [
     */
 
     'url' => [
-        // Cache-busting strategy on generated URLs.
-        // Supported: false | 'timestamp' (appends ?v={updated_at}).
+
+        /*
+        | Cache-busting strategy appended to generated URLs.
+        | Supported: false | 'timestamp' (appends `?v={updated_at}`).
+        */
+
         'versioning' => env('MEDIAMAN_URL_VERSIONING', false),
 
-        // Optional CDN/origin prefix (e.g. 'https://cdn.example.com').
-        // Absolute storage URLs (S3-style) are stripped before prefixing.
-        'prefix' => null,
+        /*
+        | Optional CDN / origin prefix (e.g. 'https://cdn.example.com').
+        | Absolute storage URLs (S3-style) are stripped down to the path
+        | before the prefix is applied, so the same setting works for both
+        | local and cloud disks.
+        */
+
+        'prefix' => env('MEDIAMAN_URL_PREFIX'),
+
     ],
 
     /*
-    | Low-quality image placeholder (LQIP). Generated synchronously on
-    | upload for images and stored as a data URI in custom_properties.
-    | The default generator wraps a tiny blurred JPEG in an SVG with the
-    | original viewBox, producing a placeholder that pins aspect ratio
-    | (zero CLS) and is injected into the responsive `srcset`.
-    | The `generator` key accepts any class implementing PlaceholderGenerator.
+    | Low-quality image placeholder (LQIP) — a tiny visual stand-in that
+    | slots into the responsive `srcset` as the lowest-width entry. Pins
+    | layout (zero CLS) and paints first, then swaps to the full-resolution
+    | image once it loads. Generated synchronously on upload for image media
+    | and stored as a data URI in `custom_properties`.
     |
-    | Per-generator tuning lives under its own sub-block (`blurred_svg`,
-    | etc.) so swapping `generator` ignores knobs that don't apply.
+    | Available generators (under `Emaia\MediaMan\Placeholders\`):
+    |
+    |   BlurredSvgPlaceholder     default. Tiny blurred JPEG wrapped in an SVG
+    |                             carrying the original `viewBox`. Best preview
+    |                             quality. Tuning: `blurred_svg` block below.
+    |   DominantColorPlaceholder  solid SVG of the source's average color.
+    |                             ~10 bytes over the wire; ideal for email or
+    |                             SSR contexts where SVG blur is overkill. No
+    |                             tuning.
+    |   GeometricBlurPlaceholder  N×N color grid blurred via SVG `feGaussianBlur`.
+    |                             Cheaper than the JPEG-in-SVG default but
+    |                             coarser. Tuning: `geometric_blur` block below.
+    |
+    | Or set `generator` to your own class implementing `PlaceholderGenerator`.
     */
 
     'placeholder' => [
@@ -216,12 +214,17 @@ return [
     ],
 
     /*
-    | Conversion storage. Resolution chain for a conversion's effective disk
-    | (most specific wins): explicit `disk:` arg on Conversion::register() →
-    | this config default → the media's own disk. Set to keep originals on a
-    | durable cloud disk (S3, GCS) while serving frequently-accessed variants
-    | from a hotter local disk, without having to repeat `disk: 'X'` on every
-    | register call.
+    | Default disk for conversion variants. When set, every conversion
+    | registered via `Conversion::register()` writes its output here unless
+    | the registration overrides it with its own `disk:` argument.
+    |
+    | Resolution order, most specific wins:
+    |
+    |   per-conversion `disk:` argument  →  this config default  →  media's own disk
+    |
+    | Typical use case: keep originals on a durable cloud disk (S3, GCS)
+    | while serving the hot, read-heavy variants from a faster local disk —
+    | without having to repeat `disk: 'X'` on every register call.
     */
 
     'conversions' => [
@@ -239,76 +242,81 @@ return [
     'responsive_images' => [
 
         /*
-        | Disk for generated responsive variants. When null, variants live
-        | on the same disk as the original media. Set to keep originals on
-        | a durable cloud disk (S3, GCS) while serving high-traffic variants
-        | from a hotter local disk.
-        */
-
-        'disk' => env('MEDIAMAN_RESPONSIVE_DISK'),
-
-        /*
-        | Kill-switch for the whole responsive pipeline. When false, even
-        | explicit generateResponsive() calls no-op.
+        | Master kill-switch. When false, the pipeline no-ops entirely, even
+        | for explicit `generateResponsive()` calls.
         */
 
         'enabled' => env('MEDIAMAN_RESPONSIVE_ENABLED', true),
 
         /*
-        | When true, responsive images are generated automatically on
-        | every image upload.
+        | When true, every image upload generates responsive variants
+        | automatically. Leave false to opt in per upload via
+        | `MediaUploader::source(...)->generateResponsive()->upload()`.
         */
 
         'auto_generate' => env('MEDIAMAN_RESPONSIVE_AUTO_GENERATE', false),
 
         /*
-        | Whether to queue generation or run synchronously.
+        | Run generation as a queued job (true) or inline during the request
+        | (false). Inline is convenient for local dev but blocks the response.
         */
 
         'queue' => env('MEDIAMAN_RESPONSIVE_QUEUE', true),
 
         /*
-        | Default breakpoint widths in pixels.
+        | Disk for generated responsive variants. When null, variants share
+        | the media's own disk.
+        |
+        | Same hot/cold tiering pattern as `conversions.disk` above —
+        | originals on a durable cloud disk (S3, GCS), variants on a faster
+        | local disk that the `<picture>` element hits on every page view.
         */
 
-        'breakpoints' => [320, 640, 1024, 1366, 1920],
+        'disk' => env('MEDIAMAN_RESPONSIVE_DISK'),
 
         /*
-        | Output formats. Supported: webp, avif, jpg, png, heic.
+        | Output formats. Supported: webp, avif, jpg, png, heic. Order in
+        | this array determines `<source>` precedence in the rendered `<picture>`.
         */
 
         'formats' => ['webp'],
 
         /*
-        | JPEG/WebP quality (1–100). Higher means larger files.
+        | Encoder quality (1–100) for the lossy formats. Higher = larger files
+        | with better fidelity. 85 is a good sweet spot for WebP/JPEG/AVIF.
         */
 
         'quality' => 85,
 
         /*
-        | Width-selection strategy. Available: breakpoint, file_size_optimized.
+        | Width-selection strategy. Available:
+        |   "breakpoint"           — generate one variant per width in `breakpoints`.
+        |   "file_size_optimized"  — iteratively shrink until the predicted
+        |                            file size hits the floor in `file_size_optimized`.
         */
 
         'width_calculator' => 'breakpoint',
 
         /*
-        | Hard floor for generated widths.
+        | Default breakpoint widths (px) used by the `breakpoint` calculator.
+        */
+
+        'breakpoints' => [320, 640, 1024, 1366, 1920],
+
+        /*
+        | Hard clamp applied to every generated width regardless of strategy.
+        | Variants narrower than `min_width` or wider than `max_width` are dropped.
         */
 
         'min_width' => 320,
-
-        /*
-        | Hard ceiling for generated widths.
-        */
-
         'max_width' => 2560,
 
         /*
-        | Parameters for the file_size_optimized width calculator.
+        | Knobs for the `file_size_optimized` width calculator.
         |
-        | reduction_factor: file size reduction per iteration (0–1).
-        | min_width: stop when calculated width falls below this value (px).
-        | min_file_size_bytes: stop when predicted file size falls below this.
+        |   reduction_factor      — multiplier applied each iteration (0–1).
+        |   min_width             — stop generating widths below this (px).
+        |   min_file_size_bytes   — stop when predicted file size hits this floor.
         */
 
         'file_size_optimized' => [
@@ -318,15 +326,6 @@ return [
         ],
 
     ],
-
-    /*
-    |--------------------------------------------------------------------------
-    | === Customization ===
-    |--------------------------------------------------------------------------
-    |
-    | Advanced knobs. Most apps never touch this section.
-    |
-    */
 
     /*
     | Swap the default Media / MediaCollection models with your own.
@@ -339,7 +338,8 @@ return [
     ],
 
     /*
-    | The table names used by MediaMan.
+    | Table names used by MediaMan. Override here to coexist with naming
+    | conventions that differ from the published migration.
     */
 
     'tables' => [
@@ -350,7 +350,7 @@ return [
     ],
 
     /*
-    | Pluggable MediaResolver — the single surface for every path, URL, and
+    | Pluggable MediaResolver — single surface for every path, URL, and
     | filename produced by MediaMan. Extend `DefaultMediaResolver` and
     | override only the methods you need: tenant-prefixed paths, CDN URL
     | strategies, custom filename formats, anything else.
@@ -359,9 +359,9 @@ return [
     'resolver' => DefaultMediaResolver::class,
 
     /*
-    | When true, the package performs a write/delete probe before mutating
-    | disk-backed Media attributes (file_name, disk). Catches misconfigured
-    | disks early at the cost of an extra round-trip per mutation.
+    | Probe the target disk with a write+delete round-trip before mutating
+    | disk-backed Media attributes (`file_name`, `disk`). Catches a
+    | misconfigured disk early, at the cost of an extra request per mutation.
     */
 
     'check_disk_accessibility' => env('MEDIAMAN_CHECK_DISK_ACCESSIBILITY', false),

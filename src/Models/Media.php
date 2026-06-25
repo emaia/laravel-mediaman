@@ -77,13 +77,11 @@ class Media extends Model implements Attachable
                 return;
             }
 
-            // delete the media directory on the main disk
             $mainDeleted = Storage::disk($media->disk)->deleteDirectory($media->getDirectory());
             ! $mainDeleted && Storage::disk($media->disk)->delete($media->getPath());
 
-            // clean variant directories on any other disks they were stored on.
-            // Deduplicate against the main disk and against each other so we
-            // never touch the same disk twice.
+            // Deduplicate variant disks against the main disk and against each
+            // other — same disk must not be wiped twice.
             $variantDisks = array_unique(array_merge(
                 $media->getConversionDisks(),
                 [$media->responsiveDisk()],
@@ -101,10 +99,8 @@ class Media extends Model implements Attachable
         });
 
         static::updating(function ($media) {
-            // If the disk attribute is changed, validate the new disk usability
             if ($media->isDirty('disk')) {
-                $newDisk = $media->disk; // updated disk
-                self::ensureDiskUsability($newDisk);
+                self::ensureDiskUsability($media->disk);
             }
         });
 
@@ -117,45 +113,32 @@ class Media extends Model implements Attachable
 
             $path = $media->getDirectory();
 
-            // If the disk has changed, move the file to the new disk first
             if ($media->isDirty('disk')) {
                 $filePathOnOriginalDisk = $path.'/'.$originalFileName;
                 $fileContent = Storage::disk($originalDisk)->get($filePathOnOriginalDisk);
 
-                // Store the file to the new disk
                 Storage::disk($newDisk)->put($filePathOnOriginalDisk, $fileContent);
-
-                // Delete the original file
                 Storage::disk($originalDisk)->delete($filePathOnOriginalDisk);
             }
 
-            // If the filename has changed, rename the file on the disk it currently resides
             if ($media->isDirty('file_name')) {
-                // Rename the file in the storage
                 Storage::disk($newDisk)->move($path.'/'.$originalFileName, $path.'/'.$newFileName);
             }
         });
     }
 
-    /**
-     * Get the directory for files on disk.
-     */
+    /** Obfuscated directory the media's files live in (per the configured resolver). */
     public function getDirectory(): string
     {
         return app(MediaResolver::class)->directory($this);
     }
 
-    /**
-     * Get the path to the file on disk with the correct extension for conversions.
-     */
+    /** Full storage path including the conversion's resolved extension. */
     public function getPath(string $conversion = ''): string
     {
         return $this->getPathWithCorrectExtension($conversion);
     }
 
-    /**
-     * Get the path with the correct extension based on conversion format detection.
-     */
     protected function getPathWithCorrectExtension(string $conversion = ''): string
     {
         if ($conversion) {
@@ -176,12 +159,8 @@ class Media extends Model implements Attachable
         return $directory.'/'.$fileName;
     }
 
-    /**
-     * Detect the output format of a conversion.
-     */
     protected function detectConversionFormat(string $conversion): ?string
     {
-        // check for cached conversion
         if (isset($this->conversionFormatCache[$conversion])) {
             return $this->conversionFormatCache[$conversion];
         }
@@ -193,12 +172,11 @@ class Media extends Model implements Attachable
                 return null;
             }
 
-            // Only detect a format for image files
             if (! $this->isOfType(MediaType::IMAGE)) {
                 return null;
             }
 
-            // Attempt 1: pre-computed format from the registry
+            // Three-stage fallback: registry → conversion name → existing file.
             $detectedFormat = $conversionRegistry->getFormat($conversion);
 
             if ($detectedFormat) {
@@ -207,7 +185,6 @@ class Media extends Model implements Attachable
                 return $detectedFormat;
             }
 
-            // Attempt 2: try to detect a format from conversion name
             $formatFromName = $this->detectFormatFromConversionName($conversion);
 
             if ($formatFromName) {
@@ -216,7 +193,6 @@ class Media extends Model implements Attachable
                 return $formatFromName;
             }
 
-            // Attempt 3: infers the format based on an existing file
             $existingFormat = $this->detectFormatFromExistingFile($conversion);
 
             if ($existingFormat) {
@@ -235,15 +211,12 @@ class Media extends Model implements Attachable
             return null;
         }
 
-        // Cache null result to avoid repeated processing
+        // Cache the null result so the three-stage probe doesn't re-run.
         $this->conversionFormatCache[$conversion] = null;
 
         return null;
     }
 
-    /**
-     * Determine if the file is of the specified type.
-     */
     public function isOfType(string|MediaType $type): bool
     {
         $typeValue = $type instanceof MediaType ? $type->value : $type;
@@ -251,9 +224,6 @@ class Media extends Model implements Attachable
         return $this->type === $typeValue;
     }
 
-    /**
-     * Detect the format based on the conversion name.
-     */
     protected function detectFormatFromConversionName(string $conversion): ?string
     {
         $conversion = strtolower($conversion);
@@ -279,9 +249,7 @@ class Media extends Model implements Attachable
         return null;
     }
 
-    /**
-     * Detects the format by checking if the file already exists with different extensions.
-     */
+    /** Probe disk for a matching extension when registry/name detection both miss. */
     protected function detectFormatFromExistingFile(string $conversion): ?string
     {
         $formats = array_map(fn (MediaFormat $f) => $f->value, MediaFormat::detectableFormats());
@@ -299,19 +267,15 @@ class Media extends Model implements Attachable
         return null;
     }
 
-    /**
-     * Get the filesystem where the associated file is stored.
-     */
     public function filesystem(): Filesystem
     {
         return Storage::disk($this->disk);
     }
 
     /**
-     * Resolve the effective disk for a conversion. Resolution chain (most
-     * specific wins): explicit `disk:` on the register call → the global
-     * `mediaman.conversions.disk` config default → the media's own disk →
-     * `mediaman.disk` → Laravel's `filesystems.default`.
+     * Resolution chain (most specific wins): per-register `disk:` →
+     * `mediaman.conversions.disk` → media's own disk → `mediaman.disk` →
+     * Laravel's `filesystems.default`.
      */
     public function getConversionDisk(string $conversion): string
     {
@@ -321,10 +285,6 @@ class Media extends Model implements Attachable
         return $disk ?? $this->disk ?? config('mediaman.disk') ?? config('filesystems.default');
     }
 
-    /**
-     * Get the filesystem for a specific conversion, respecting any per-conversion
-     * disk registered in the ConversionRegistry or the config default.
-     */
     public function conversionFilesystem(string $conversion): Filesystem
     {
         return Storage::disk($this->getConversionDisk($conversion));
@@ -350,10 +310,7 @@ class Media extends Model implements Attachable
         return array_keys($disks);
     }
 
-    /**
-     * Resolve the effective disk for responsive variants of this media. Falls
-     * back from `mediaman.responsive_images.disk` to the media's own disk.
-     */
+    /** Falls back from `mediaman.responsive_images.disk` to the media's own disk. */
     public function responsiveDisk(): string
     {
         return config('mediaman.responsive_images.disk')
@@ -362,17 +319,11 @@ class Media extends Model implements Attachable
             ?? config('filesystems.default');
     }
 
-    /**
-     * Get the filesystem where responsive variants are stored.
-     */
     public function responsiveFilesystem(): Filesystem
     {
         return Storage::disk($this->responsiveDisk());
     }
 
-    /**
-     * Replace the extension of a filename.
-     */
     public function replaceFileExtension(string $fileName, string $newExtension): string
     {
         $pathInfo = pathinfo($fileName);
@@ -380,9 +331,7 @@ class Media extends Model implements Attachable
         return $pathInfo['filename'].'.'.$newExtension;
     }
 
-    /**
-     * Ensure the specified disk exists and is writable.
-     */
+    /** Probes the disk with a temp write/delete cycle when `check_disk_accessibility` is on. */
     protected static function ensureDiskUsability(string $diskName): void
     {
         $allDisks = config('filesystems.disks');
@@ -396,64 +345,43 @@ class Media extends Model implements Attachable
             return;
         }
 
-        // Accessibility checks for read-write operations
         $disk = Storage::disk($diskName);
         $tempFileName = 'temp_check_file_'.uniqid();
 
         try {
-            // Attempt to write to the disk
             $disk->put($tempFileName, 'check');
-
-            // Now, attempt to delete the temporary file
             $disk->delete($tempFileName);
         } catch (Exception $e) {
             throw new Exception("Failed to write or delete on the disk [$diskName]. Error: ".$e->getMessage(), 0, $e);
         }
     }
 
-    /**
-     * Create a new factory instance for the model.
-     */
-    protected static function newFactory()
+    protected static function newFactory(): MediaFactory
     {
         return MediaFactory::new();
     }
 
-    /**
-     * Get file extension from a mime type with extended support.
-     */
     public function getExtensionFromMimeType(string $mimeType): string
     {
         return MediaFormat::extensionFromMimeType($mimeType);
     }
 
-    /**
-     * The table associated with the model.
-     */
     public function getTable(): string
     {
         return config('mediaman.tables.media', 'mediaman_media');
     }
 
-    /**
-     * Get the file extension.
-     */
     public function getExtensionAttribute(): string
     {
         return pathinfo($this->file_name, PATHINFO_EXTENSION);
     }
 
-    /**
-     * Get the file type.
-     */
     public function getTypeAttribute(): string
     {
         return Str::before($this->mime_type, '/');
     }
 
-    /**
-     * Get the file size in human-readable format.
-     */
+    /** Format the file size as a human-readable string with binary units. */
     public function getFriendlySizeAttribute(): ?string
     {
         $units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -469,32 +397,19 @@ class Media extends Model implements Attachable
         return round($this->size, 2).' '.$units[$i];
     }
 
-    /**
-     * Get the original media url.
-     *
-     * Routes through getUrl() so the configured `url.prefix` and
-     * `url.versioning` strategies apply consistently with getUrl(); asset()
-     * absolutizes a relative disk URL while leaving a full URL untouched.
-     */
+    /** Absolutized resolver URL — routes through getUrl() so url.prefix and url.versioning apply. */
     public function getMediaUrlAttribute(): string
     {
         return asset($this->getUrl());
     }
 
-    /**
-     * Get the original media uri.
-     *
-     * Alias of getUrl() for the original file — kept for backwards
-     * compatibility with the appended attribute.
-     */
+    /** Alias of getUrl() preserved as an appended attribute for serialization. */
     public function getMediaUriAttribute(): string
     {
         return $this->getUrl();
     }
 
-    /**
-     * Get the full path to the file with automatic format detection for conversions.
-     */
+    /** Absolute on-disk path with the conversion's resolved extension. */
     public function getFullPath(string $conversion = ''): string
     {
         return $this->filesystem()->path(
@@ -502,9 +417,7 @@ class Media extends Model implements Attachable
         );
     }
 
-    /**
-     * Get the original path (without format detection) - useful for internal operations.
-     */
+    /** Relative path keyed by `$this->file_name` (no format-detection extension swap). */
     public function getOriginalPath(string $conversion = ''): string
     {
         if ($conversion) {
@@ -516,9 +429,7 @@ class Media extends Model implements Attachable
         return $directory.'/'.$this->file_name;
     }
 
-    /**
-     * Get conversion URL only if the conversion exists.
-     */
+    /** Returns null when the conversion file isn't on disk (yet). */
     public function getConversionUrl(string $conversion): ?string
     {
         if (! $this->hasConversion($conversion)) {
@@ -528,9 +439,6 @@ class Media extends Model implements Attachable
         return $this->getUrl($conversion);
     }
 
-    /**
-     * Check if a conversion file exists with automatic format detection.
-     */
     public function hasConversion(string $conversion): bool
     {
         $path = $this->getPathWithCorrectExtension($conversion);
@@ -538,9 +446,7 @@ class Media extends Model implements Attachable
         return $this->conversionFilesystem($conversion)->exists($path);
     }
 
-    /**
-     * Get the url to the file with automatic format detection for conversions.
-     */
+    /** URL to the original (no `$conversion`) or to a specific conversion variant. */
     public function getUrl(string $conversion = ''): string
     {
         return app(MediaResolver::class)->url(
@@ -549,10 +455,7 @@ class Media extends Model implements Attachable
         );
     }
 
-    /**
-     * Return the LQIP placeholder data URI generated at upload time, or null
-     * if none was generated (non-image, disabled in config, or failure).
-     */
+    /** LQIP placeholder data URI captured at upload, or null when none was generated. */
     public function getPlaceholder(): ?string
     {
         $value = $this->getCustomProperty('placeholder');
@@ -561,10 +464,9 @@ class Media extends Model implements Attachable
     }
 
     /**
-     * Hex CSS color (`#rrggbb`) sampled at upload time as the average of the
-     * source image. Useful as a CSS `background-color` skeleton — paints
-     * instantly, costs ~10 bytes, works in email/SSR/anywhere the SVG LQIP
-     * isn't viable. Returns null on non-image media or pre-v2.13 records.
+     * Hex CSS color (`#rrggbb`) of the source image average — useful as a
+     * `background-color` skeleton for email/SSR where SVG LQIP isn't viable.
+     * Null on non-image media or pre-v2.13 records.
      */
     public function getPlaceholderColor(): ?string
     {
@@ -578,15 +480,9 @@ class Media extends Model implements Attachable
     }
 
     /**
-     * Single-URL helper for contexts that can't use srcset: email HTML, JSON
-     * payloads, OG/Twitter meta tags, CSS `background-image`. Returns the
-     * conversion URL when the variant exists on disk, falls back to the LQIP
-     * placeholder data URI when it doesn't (e.g. right after upload while the
-     * conversion job is queued), and finally to the original URL.
-     *
-     * For rendering an actual `<img>` / `<picture>`, use getPictureHtml() or
-     * getSimpleImgHtml() — those carry the placeholder inside srcset and
-     * progressively swap to the real image without any caller-side fallback.
+     * Single-URL helper for srcset-incompatible contexts (email, OG tags,
+     * `background-image`): conversion URL → LQIP placeholder → original URL.
+     * For real `<img>`/`<picture>`, prefer `getPictureHtml()` / `getSimpleImgHtml()`.
      */
     public function getUrlOrPlaceholder(string $conversion = ''): string
     {
@@ -601,9 +497,7 @@ class Media extends Model implements Attachable
         return $this->getUrl($conversion);
     }
 
-    /**
-     * Get URL with fallback - returns conversion URL if exists, otherwise original.
-     */
+    /** Conversion URL when the variant exists on disk, original URL otherwise. */
     public function getUrlWithFallback(string $conversion = ''): string
     {
         if (empty($conversion)) {
@@ -617,17 +511,12 @@ class Media extends Model implements Attachable
         return $this->getUrl();
     }
 
-    /**
-     * Clear the conversion format cache.
-     */
     public function clearConversionFormatCache(): void
     {
         $this->conversionFormatCache = [];
     }
 
-    /**
-     * Sync collections of a media
-     */
+    /** Replace the media's collection associations (set `$detaching=false` to add only). */
     public function syncCollections(Collection|BaseCollection|array|int|string|bool|Model|null $collections, $detaching = true): array
     {
         if ($this->shouldDetachAll($collections)) {
@@ -647,9 +536,7 @@ class Media extends Model implements Attachable
 
     }
 
-    /**
-     * Check if all collections should be detached
-     */
+    /** Empty / null / false / `[]` are all signals to detach everything. */
     private function shouldDetachAll(mixed $collections): bool
     {
         if (is_bool($collections) || empty($collections)) {
@@ -675,15 +562,12 @@ class Media extends Model implements Attachable
             'collection_id');
     }
 
-    /**
-     * Fetch collections
-     */
+    /** Coerce any of the accepted shapes (id, name, array, instance, collection) into models. */
     private function fetchCollections(mixed $collections): Collection|BaseCollection|Model|null
     {
         $model = $this->collectionModel();
 
-        // an eloquent collection doesn't need to be fetched again;
-        // it's treated as a valid source of MediaCollection resource
+        // Eloquent collection already carries hydrated models — no refetch.
         if ($collections instanceof Collection) {
             return $collections;
         }
@@ -710,8 +594,8 @@ class Media extends Model implements Attachable
             return $model::findByName($collections);
         }
 
-        // all array items should be of the same type
-        // find by id or name based on the type of the first item in the array
+        // Array branch dispatches by the first element's type — assumes a
+        // homogeneous list (all ints OR all strings, not mixed).
         if (is_array($collections) && isset($collections[0])) {
             if (is_numeric($collections[0])) {
                 return $model::find($collections);
@@ -725,9 +609,7 @@ class Media extends Model implements Attachable
         return null;
     }
 
-    /**
-     * Find one or many media by name.
-     */
+    /** Find one (string `$names`) or many (array) records by the `name` column. */
     public static function findByName(string|array $names, array $columns = ['*']): Collection|static|null
     {
         $query = static::query()->select($columns);
@@ -739,9 +621,7 @@ class Media extends Model implements Attachable
         return $query->where('name', $names)->first();
     }
 
-    /**
-     * Attach media to collections
-     */
+    /** Returns the count of newly attached collections, or null when nothing changed. */
     public function attachCollections(Collection|BaseCollection|array|int|string|Model $collections): ?int
     {
         $fetch = $this->fetchCollections($collections);
@@ -764,9 +644,7 @@ class Media extends Model implements Attachable
         return null;
     }
 
-    /**
-     * Detach media from collections
-     */
+    /** Returns the count of detached collections, or null when nothing changed. */
     public function detachCollections(Collection|BaseCollection|int|bool|array|string|Model|null $collections): ?int
     {
         if ($this->shouldDetachAll($collections)) {
@@ -880,10 +758,7 @@ class Media extends Model implements Attachable
         );
     }
 
-    /**
-     * Build a Mail Attachment for use in Laravel Mailables.
-     * Pass an optional conversion name to attach a specific variant.
-     */
+    /** Build a Mail Attachment for the original or a specific conversion variant. */
     public function mailAttachment(?string $conversion = null): Attachment
     {
         $disk = $conversion !== null && $conversion !== ''
@@ -895,10 +770,7 @@ class Media extends Model implements Attachable
             ->withMime($this->mime_type);
     }
 
-    /**
-     * Attachable contract method — Laravel calls this when $mailable->attach($media)
-     * is used. Returns the attachment for the original file (no conversion).
-     */
+    /** Laravel's Attachable contract — invoked by `$mailable->attach($media)`. */
     public function toMailAttachment(): Attachment
     {
         return $this->mailAttachment();
@@ -916,11 +788,8 @@ class Media extends Model implements Attachable
     }
 
     /**
-     * Copy this media to another model.
-     *
-     * Creates a new Media record, copies the physical file (and conversions
-     * and responsive variants), and attaches it to the target model. If any
-     * file copy fails, the new Media record is rolled back.
+     * Replicate row + physical files (original + conversions + responsive variants)
+     * and attach to `$target`. Rolls back the new record on any file-copy failure.
      */
     public function copy(object $target, string $channel = self::DEFAULT_CHANNEL): Media
     {
@@ -946,12 +815,7 @@ class Media extends Model implements Attachable
         return $copy;
     }
 
-    /**
-     * Attach this media to another model without duplicating the file.
-     *
-     * This is a purely relational operation — it does not touch the file on disk.
-     * To move between disks, change the `disk` attribute instead.
-     */
+    /** Purely relational: attaches the existing row to `$target`, never touches the file. */
     public function attachTo(object $target, string $channel = self::DEFAULT_CHANNEL): self
     {
         if (! method_exists($target, 'attachMedia')) {

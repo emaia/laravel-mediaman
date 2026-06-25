@@ -7,16 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class Json implements CastsAttributes
 {
-    /**
-     * Cast the given value.
-     *
-     * @param  Model  $model
-     * @param  string  $key
-     * @param  string|null  $value
-     * @param  array  $attributes
-     * @return array|null
-     */
-    public function get($model, $key, $value, $attributes): mixed
+    public function get(Model $model, string $key, mixed $value, array $attributes): mixed
     {
         if ($value === null) {
             return null;
@@ -25,16 +16,7 @@ class Json implements CastsAttributes
         return json_decode($value, true);
     }
 
-    /**
-     * Prepare the given value for storage.
-     *
-     * @param  Model  $model
-     * @param  string  $key
-     * @param  array|null  $value
-     * @param  array  $attributes
-     * @return string|null
-     */
-    public function set($model, $key, $value, $attributes): mixed
+    public function set(Model $model, string $key, mixed $value, array $attributes): mixed
     {
         if ($value === null) {
             return null;

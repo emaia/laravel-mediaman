@@ -96,7 +96,6 @@ or responsive files within a valid media directory are not flagged.';
 
             $this->info('  Media records whose primary disk is here: '.$mediaOnThisDisk->count());
 
-            // Report orphaned files
             $orphanedCount = count($orphanedFiles);
             $totalOrphaned += $orphanedCount;
 
@@ -124,7 +123,6 @@ or responsive files within a valid media directory are not flagged.';
                 }
             }
 
-            // Report reverse orphans
             $reverseCount = count($reverseOrphans);
             $totalReverse += $reverseCount;
 
@@ -144,7 +142,6 @@ or responsive files within a valid media directory are not flagged.';
             $this->newLine();
         }
 
-        // Summary
         $this->info(sprintf(
             'Summary: %d orphaned file(s) across %d disk(s), %d reverse orphan(s).',
             $totalOrphaned,

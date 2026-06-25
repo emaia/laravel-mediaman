@@ -74,7 +74,7 @@ class DoctorCommand extends Command
             $relative = str_starts_with($path, base_path().'/')
                 ? substr($path, strlen(base_path()) + 1)
                 : $path;
-            $this->statusLine('Published', 'ok', "at {$relative}");
+            $this->statusLine('Published', 'ok', "at $relative");
         } else {
             $this->statusLine('Published', 'info', 'no (using package defaults — run `php artisan mediaman:publish-config` to customize)');
         }
@@ -87,7 +87,7 @@ class DoctorCommand extends Command
         $configured = config('mediaman.disk');
         $effective = $configured ?? config('filesystems.default');
 
-        $this->statusLine('Configured', 'info', $configured === null ? "null (fallback to filesystems.default = '{$effective}')" : "'{$effective}'");
+        $this->statusLine('Configured', 'info', $configured === null ? "null (fallback to filesystems.default = '$effective')" : "'$effective'");
 
         $this->probeDisk($effective, 'Probe (write/read/delete)');
 
@@ -113,13 +113,13 @@ class DoctorCommand extends Command
                 continue;
             }
 
-            $this->probeDisk($diskName, "Conversion disk '{$diskName}'");
+            $this->probeDisk($diskName, "Conversion disk '$diskName'");
         }
 
         $responsiveDisk = config('mediaman.responsive_images.disk');
 
         if ($responsiveDisk !== null && $responsiveDisk !== $main) {
-            $this->probeDisk($responsiveDisk, "Responsive disk '{$responsiveDisk}'");
+            $this->probeDisk($responsiveDisk, "Responsive disk '$responsiveDisk'");
         }
     }
 
@@ -131,7 +131,7 @@ class DoctorCommand extends Command
         try {
             $disk = Storage::disk($diskName);
         } catch (Throwable $e) {
-            $this->statusLine($label, 'error', "disk '{$diskName}' is not defined in filesystems.php");
+            $this->statusLine($label, 'error', "disk '$diskName' is not defined in filesystems.php");
 
             return;
         }
@@ -173,7 +173,7 @@ class DoctorCommand extends Command
         $this->section('Public symlink');
 
         $diskName = config('mediaman.disk') ?? config('filesystems.default');
-        $diskConfig = config("filesystems.disks.{$diskName}");
+        $diskConfig = config("filesystems.disks.$diskName");
 
         if (! is_array($diskConfig)) {
             // Disk not defined — checkDisk() already reported this.
@@ -211,7 +211,7 @@ class DoctorCommand extends Command
             $this->statusLine(
                 'Status',
                 'info',
-                "no entry in filesystems.links targets '{$root}' — disk may be private, or run `artisan storage:link` after adding one"
+                "no entry in filesystems.links targets '$root' — disk may be private, or run `artisan storage:link` after adding one"
             );
 
             return;
@@ -221,14 +221,14 @@ class DoctorCommand extends Command
             if (is_link($linkPath)) {
                 $actual = readlink($linkPath) ?: '';
                 if ($this->normalizePath($actual) === $rootNorm) {
-                    $this->statusLine('Symlink', 'ok', "{$linkPath} → {$root}");
+                    $this->statusLine('Symlink', 'ok', "$linkPath → $root");
                 } else {
-                    $this->statusLine('Symlink', 'warn', "{$linkPath} exists but points to '{$actual}' (expected '{$root}')");
+                    $this->statusLine('Symlink', 'warn', "$linkPath exists but points to '$actual' (expected '$root')");
                 }
             } elseif (file_exists($linkPath)) {
-                $this->statusLine('Symlink', 'error', "{$linkPath} exists but is not a symlink (something is squatting on the path)");
+                $this->statusLine('Symlink', 'error', "$linkPath exists but is not a symlink (something is squatting on the path)");
             } else {
-                $this->statusLine('Symlink', 'warn', "{$linkPath} missing — run `php artisan storage:link`");
+                $this->statusLine('Symlink', 'warn', "$linkPath missing — run `php artisan storage:link`");
             }
         }
     }
@@ -264,7 +264,7 @@ class DoctorCommand extends Command
         $this->section('Queue');
 
         $connection = config('mediaman.queue') ?? config('queue.default');
-        $this->statusLine('Connection', 'info', "'{$connection}'");
+        $this->statusLine('Connection', 'info', "'$connection'");
 
         $autoGenerate = (bool) config('mediaman.responsive_images.auto_generate', false);
         $queued = (bool) config('mediaman.responsive_images.queue', true);
@@ -320,7 +320,7 @@ class DoctorCommand extends Command
             $this->statusLine(
                 'Responsive coverage',
                 'info',
-                number_format($withResponsive).' / '.number_format($total)." ({$pct}%)"
+                number_format($withResponsive).' / '.number_format($total)." ($pct%)"
             );
         } catch (Throwable $e) {
             $this->statusLine('Responsive coverage', 'warn', 'coverage query failed: '.$e->getMessage());

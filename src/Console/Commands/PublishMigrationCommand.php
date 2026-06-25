@@ -16,7 +16,7 @@ class PublishMigrationCommand extends Command
         $this->publishMigration();
     }
 
-    protected function publishMigration()
+    protected function publishMigration(): void
     {
         $existingMigration = $this->getExistingMigration();
         if ($existingMigration) {
