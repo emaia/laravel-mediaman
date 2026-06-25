@@ -84,8 +84,9 @@ class MediaUploader
     /**
      * Create an uploader from a file on an existing filesystem disk.
      *
-     * TODO: use readStream/writeStream to avoid loading the entire file
-     * into memory at once (relevant for very large files on cloud disks).
+     * Streams the source through `readStream()` → `stream_copy_to_stream()`
+     * so memory stays constant regardless of file size (matters for video,
+     * datasets, large archives on cloud disks).
      */
     public static function fromDisk(string $path, string $disk): MediaUploader
     {
@@ -98,7 +99,28 @@ class MediaUploader
         $tmpPath = tempnam(sys_get_temp_dir(), 'mediaman_');
 
         try {
-            file_put_contents($tmpPath, $filesystem->get($path));
+            $source = $filesystem->readStream($path);
+
+            if (! is_resource($source)) {
+                throw new \RuntimeException("Failed to open read stream for [$path] on disk [$disk].");
+            }
+
+            $target = fopen($tmpPath, 'wb');
+
+            if ($target === false) {
+                fclose($source);
+
+                throw new \RuntimeException("Failed to open temp file [$tmpPath] for writing.");
+            }
+
+            try {
+                if (stream_copy_to_stream($source, $target) === false) {
+                    throw new \RuntimeException("Failed to copy [$path] from disk [$disk] to temp.");
+                }
+            } finally {
+                fclose($target);
+                fclose($source);
+            }
 
             $uploadedFile = new UploadedFile(
                 $tmpPath,

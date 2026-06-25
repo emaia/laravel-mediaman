@@ -110,6 +110,21 @@ it('fromDisk throws when the file does not exist on the source disk', function (
     MediaUploader::fromDisk('missing/file.jpg', 'source-disk');
 })->throws(RuntimeException::class, 'not found');
 
+it('fromDisk preserves binary content through the streamed copy', function () {
+    Storage::fake('source-disk');
+
+    // Random-ish binary payload — verifies stream_copy_to_stream preserves bytes
+    // 1:1 and doesn't do any string-conversion side effect.
+    $binary = random_bytes(8 * 1024);
+    Storage::disk('source-disk')->put('photos/binary.bin', $binary);
+
+    $media = MediaUploader::fromDisk('photos/binary.bin', 'source-disk')->upload();
+
+    $stored = Storage::disk(self::DEFAULT_DISK)->get($media->getPath());
+
+    expect($stored)->toBe($binary);
+});
+
 // --- fromBase64 ---
 
 it('can upload from a base64 string', function () {
