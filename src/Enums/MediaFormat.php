@@ -2,6 +2,8 @@
 
 namespace Emaia\MediaMan\Enums;
 
+use Symfony\Component\Mime\MimeTypes;
+
 enum MediaFormat: string
 {
     case WEBP = 'webp';
@@ -56,35 +58,13 @@ enum MediaFormat: string
         return self::tryFrom(strtolower($value));
     }
 
-    /** Falls back to `jpg` for unknown MIME types. */
-    public static function extensionFromMimeType(string $mimeType): string
+    /**
+     * Canonical extension for a MIME type via Symfony's MimeTypes registry.
+     * Returns null for unknown MIMEs so callers can fail loudly instead of
+     * writing files with a wrong-but-plausible extension (PR #31 family).
+     */
+    public static function extensionFromMimeType(string $mimeType): ?string
     {
-        static $map = [
-            // Standard formats
-            'image/jpeg' => 'jpg',
-            'image/png' => 'png',
-            'image/gif' => 'gif',
-            'image/webp' => 'webp',
-            'image/bmp' => 'bmp',
-            'image/svg+xml' => 'svg',
-
-            // Extended formats supported by Intervention Image
-            'image/avif' => 'avif',
-            'image/tiff' => 'tiff',
-            'image/tif' => 'tif',
-            'image/jp2' => 'jp2',
-            'image/jpx' => 'jpx',
-            'image/jpm' => 'jpm',
-            'image/heic' => 'heic',
-            'image/heif' => 'heif',
-
-            // Alternative MIME types
-            'image/x-ms-bmp' => 'bmp',
-            'image/x-windows-bmp' => 'bmp',
-            'image/vnd.adobe.photoshop' => 'psd',
-            'image/x-photoshop' => 'psd',
-        ];
-
-        return $map[$mimeType] ?? 'jpg';
+        return MimeTypes::getDefault()->getExtensions($mimeType)[0] ?? null;
     }
 }

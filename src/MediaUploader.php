@@ -3,7 +3,6 @@
 namespace Emaia\MediaMan;
 
 use Emaia\MediaMan\Downloaders\Downloader;
-use Emaia\MediaMan\Enums\MediaFormat;
 use Emaia\MediaMan\Enums\MediaType;
 use Emaia\MediaMan\Events\MediaUploaded;
 use Emaia\MediaMan\Exceptions\DisallowedExtension;
@@ -22,6 +21,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Intervention\Image\ImageManager;
+use Symfony\Component\Mime\MimeTypes;
 
 class MediaUploader
 {
@@ -321,19 +321,10 @@ class MediaUploader
         return is_string($mimeType) ? $mimeType : 'application/octet-stream';
     }
 
-    /**
-     * Pick a file extension for a MIME type. Uses the format map for images
-     * (authoritative) and falls back to the MIME subtype for other types.
-     */
+    /** Canonical extension for a MIME type via Symfony's MimeTypes registry. */
     private static function extensionForMime(string $mimeType): string
     {
-        if (str_starts_with($mimeType, 'image/')) {
-            return MediaFormat::extensionFromMimeType($mimeType);
-        }
-
-        $slash = strrpos($mimeType, '/');
-
-        return $slash !== false ? substr($mimeType, $slash + 1) : '';
+        return MimeTypes::getDefault()->getExtensions($mimeType)[0] ?? '';
     }
 
     /**

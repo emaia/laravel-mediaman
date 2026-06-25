@@ -109,8 +109,21 @@ class ImageManipulator
         return $directory.'/'.$fileName;
     }
 
+    /**
+     * Throws on unknown MIME types so the per-conversion try/catch in `manipulate()`
+     * captures it as a per-conversion failure rather than writing the encoded
+     * bytes with a wrong-but-plausible extension (PR #31 family).
+     */
     protected function getExtensionFromMimeType(string $mimeType): string
     {
-        return MediaFormat::extensionFromMimeType($mimeType);
+        $extension = MediaFormat::extensionFromMimeType($mimeType);
+
+        if ($extension === null) {
+            throw new \RuntimeException(
+                "Cannot resolve a file extension for MIME type [$mimeType] — refusing to write the conversion."
+            );
+        }
+
+        return $extension;
     }
 }

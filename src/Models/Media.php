@@ -361,7 +361,7 @@ class Media extends Model implements Attachable
         return MediaFactory::new();
     }
 
-    public function getExtensionFromMimeType(string $mimeType): string
+    public function getExtensionFromMimeType(string $mimeType): ?string
     {
         return MediaFormat::extensionFromMimeType($mimeType);
     }
