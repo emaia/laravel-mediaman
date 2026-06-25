@@ -117,9 +117,21 @@ class StatsCommand extends Command
         $this->statusLine('Enabled', 'info', config('mediaman.responsive_images.enabled', true) ? 'Yes' : 'No');
         $this->statusLine('Auto generate', 'info', config('mediaman.responsive_images.auto_generate', false) ? 'Yes' : 'No');
         $this->statusLine('Queue', 'info', config('mediaman.responsive_images.queue', true) ? 'Yes' : 'No');
-        $this->statusLine('Quality', 'info', (string) config('mediaman.responsive_images.quality', 85));
+        $this->statusLine('Quality', 'info', $this->formatQuality(config('mediaman.responsive_images.quality', 85)));
         $this->statusLine('Formats', 'info', implode(', ', config('mediaman.responsive_images.formats', ['webp'])));
         $this->statusLine('Breakpoints', 'info', implode(', ', config('mediaman.responsive_images.breakpoints', [])));
         $this->statusLine('Width calculator', 'info', config('mediaman.responsive_images.width_calculator', 'breakpoint'));
+    }
+
+    /** Stringify a scalar or per-format quality config for the stats line. */
+    protected function formatQuality(int|array $quality): string
+    {
+        if (is_int($quality)) {
+            return (string) $quality;
+        }
+
+        return collect($quality)
+            ->map(fn ($value, $format) => "$format=$value")
+            ->implode(', ');
     }
 }

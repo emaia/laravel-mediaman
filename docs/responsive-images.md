@@ -62,6 +62,31 @@ $media = MediaUploader::source($request->file('file'))
     ->upload();
 ```
 
+### Per-format quality
+
+`quality` accepts a scalar (same value for every lossy format) or an array keyed by format. The array form must declare every lossy format in `formats`; PNG/GIF entries are accepted but ignored because their encoders don't take a quality parameter.
+
+```php
+$media = MediaUploader::source($request->file('file'))
+    ->generateResponsive()
+    ->withFormats(['avif', 'webp', 'jpg'])
+    ->withQuality([
+        'avif' => 50,  // AVIF can go aggressive — modern encoder, high efficiency
+        'webp' => 85,
+        'jpg'  => 80,
+    ])
+    ->upload();
+```
+
+Same shape works at the config level:
+
+```php
+'formats' => ['avif', 'webp', 'jpg'],
+'quality' => ['avif' => 50, 'webp' => 85, 'jpg' => 80],
+```
+
+Missing entries fail loud at generation time (`InvalidArgumentException`) so a typo can't silently fall back to a default.
+
 Config defaults live under `config('mediaman.responsive_images')` — see [Configuration → Responsive images](configuration.md#responsive-images).
 
 ## Generating for existing media

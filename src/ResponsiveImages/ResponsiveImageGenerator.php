@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Log;
 use Intervention\Image\Format;
 use Intervention\Image\ImageManager;
 use Intervention\Image\Interfaces\ImageInterface;
+use InvalidArgumentException;
 
 class ResponsiveImageGenerator
 {
@@ -40,6 +41,8 @@ class ResponsiveImageGenerator
         $quality = $options['quality'] ?? config('mediaman.responsive_images.quality', 85);
         $formats = $options['formats'] ?? config('mediaman.responsive_images.formats', ['webp', 'jpg']);
         $widths = $options['widths'] ?? null;
+
+        $this->assertQualityShape($quality, $formats);
 
         // Read the original bytes once and reuse for width calculation + decoding
         $originalBytes = $filesystem->get($originalPath);
@@ -83,7 +86,7 @@ class ResponsiveImageGenerator
                         clone $originalImage,
                         $targetWidth,
                         $format,
-                        $quality
+                        $this->resolveQuality($format, $quality)
                     );
                 } catch (\Throwable $e) {
                     Log::warning('MediaMan: Skipping responsive format — driver does not support encoding', [
@@ -113,7 +116,7 @@ class ResponsiveImageGenerator
             MediaFormat::JPG->value, MediaFormat::JPEG->value => $image->encodeUsingFormat(Format::JPEG, quality: $quality),
             MediaFormat::PNG->value => $image->encodeUsingFormat(Format::PNG),
             MediaFormat::GIF->value => $image->encodeUsingFormat(Format::GIF),
-            default => throw new \InvalidArgumentException("Unsupported responsive format [$format]."),
+            default => throw new InvalidArgumentException("Unsupported responsive format [$format]."),
         };
 
         $size = strlen((string) $encodedImage);
@@ -162,5 +165,43 @@ class ResponsiveImageGenerator
         $this->widthCalculator = $calculator;
 
         return $this;
+    }
+
+    /**
+     * Pick the quality for a single format. Scalar config applies uniformly;
+     * an array carries one entry per lossy format (already validated).
+     */
+    protected function resolveQuality(string $format, int|array $quality): int
+    {
+        if (is_int($quality)) {
+            return $quality;
+        }
+
+        return (int) ($quality[strtolower($format)] ?? 85);
+    }
+
+    /**
+     * Fail-loud when `quality` is an array but doesn't cover every lossy
+     * format in the resolved `formats` list — mirrors the strict pattern
+     * used for `width_calculator` (PR #38). PNG/GIF are exempt because
+     * their encoders don't take a quality parameter.
+     */
+    protected function assertQualityShape(int|array $quality, array $formats): void
+    {
+        if (is_int($quality)) {
+            return;
+        }
+
+        $lossy = array_map(fn (MediaFormat $f) => $f->value, MediaFormat::lossyResponsiveFormats());
+        $required = array_intersect(array_map('strtolower', $formats), $lossy);
+        $missing = array_diff($required, array_keys($quality));
+
+        if (! empty($missing)) {
+            throw new InvalidArgumentException(sprintf(
+                'Per-format quality is missing entries for [%s]. When `responsive_images.quality` is an array, every lossy format in `formats` must be declared (lossy: %s).',
+                implode(', ', $missing),
+                implode(', ', $lossy),
+            ));
+        }
     }
 }

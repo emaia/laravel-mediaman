@@ -40,6 +40,12 @@ enum MediaFormat: string
         return [self::AVIF, self::WEBP, self::HEIC, self::JPG, self::JPEG, self::PNG, self::GIF];
     }
 
+    /** Responsive formats whose encoder takes a quality parameter (lossy). */
+    public static function lossyResponsiveFormats(): array
+    {
+        return [self::AVIF, self::WEBP, self::HEIC, self::JPG, self::JPEG];
+    }
+
     /** Modern-first ordering driving `<source>` precedence in `<picture>` output. */
     public static function preferredOrder(): array
     {
