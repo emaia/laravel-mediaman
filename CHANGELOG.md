@@ -4,35 +4,163 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ## [Unreleased]
 
-### Added
+## [3.0.0] — 2026-06-25
 
-- HEIC as a responsive output format. `MediaFormat::HEIC` joins `responsiveFormats()` and `preferredOrder()`, the responsive generator wires `Format::HEIC` into its encoder match, and `config('mediaman.responsive_images.formats')` now lists `heic` as a supported value. The format is opt-in (apps add `'heic'` to the `formats` array) and only encodes on drivers with libheif support — see the per-format isolation note below for what happens on drivers without it.
-- Per-format encode isolation in the responsive generator. Each variant encode now runs inside its own `try`/`catch`, so a driver that cannot produce a given format (typical case: GD with `'avif'` or `'heic'` in the format list) **skips that variant with a `Log::warning` carrying `mediaId`/`format`/`width`/`error`** instead of aborting the whole responsive batch. Other widths and other formats continue uninterrupted. The benefit is transversal — apps mixing AVIF + WebP + JPG on a host with partial driver support now degrade gracefully per variant instead of losing the whole set on the first incompatible encode.
-- `MediaChannel::acceptsFile()` — channel-level validation rules that run at attach time, not at upload. Rules stack with implicit AND, can be named for error reporting, and receive the `Media` instance plus optionally the owning model (detected once via reflection at registration). When every rule reads only media properties the trait stays on the legacy single-INSERT fast path; when any rule declares a `$model` parameter the trait switches to an aggregate path inside a `DB::transaction` with `lockForUpdate()` on the owning row, so concurrent batches and `count() < N` constraints behave correctly. Failed batches roll back atomically — nothing from the lot lands in the pivot, the in-memory channel cache is invalidated, and `PerformConversions` is not dispatched for rejected items. The Media record itself stays in the library so callers can re-attach it elsewhere or retry without re-uploading. See [Models → Channel validation rules](docs/models.md#channel-validation-rules).
-- `MediaNotAcceptedByChannel` exception — carries `channel`, `rule` (`null` for anonymous rules), and `mediaId` (`int|string` to support UUID custom models) as public readonly props so controllers can `match ($e->rule)` directly instead of parsing the exception message.
-- `ConversionFailed` event — dispatched once per failed conversion as a **final** signal (the queue won't retry this conversion again). Carries `$event->media`, `$event->conversion` (the specific name), and `$event->exception`. For partial-batch failures the event fires immediately from `PerformConversions::handle()`; for the all-failed case the event is deferred to the `failed()` hook so it only fires after Laravel exhausts retries — listeners can act decisively (mark broken, notify the user, reschedule) without racing the queue's own retry. Also ships `ConversionFailed::reschedule(int $delaySeconds = 60): PendingDispatch` — a tiny helper that queues a new single-conversion `PerformConversions` job; the retry policy (which exceptions, what delay, hard caps) stays in the listener. Replaces the previous "watch `failed_jobs` to detect a conversion failure" pattern with explicit, per-conversion handling.
-- Per-conversion disk support via `Conversion::register('thumb', fn, disk: 'public')`. Variants for a registered conversion are stored on a different filesystem than the original — useful for hot/cold storage tiering (S3 originals, locally served conversions). Resolution chain (most specific wins): per-registration `disk:` arg → `mediaman.conversions.disk` config default → the media's own disk. URL, temporary URL, HTTP/inline response, mail attachment, `hasConversion`, format detection, and `Media::copy()` route through `Media::conversionFilesystem($conversion)` automatically. Delete observer cleans every disk a media's conversions live on (with same-disk dedup); `mediaman:clean` / `mediaman:doctor` / `mediaman:rotate-paths` cover the union of disks. Documented in [Conversions → Conversion disk](docs/conversions.md#conversion-disk). Fixes a latent bug along the way: `mediaman:clean` was filtering known-media directories by the disk currently being scanned, which flagged every conversion file on a conversion-only disk as orphan.
-- Responsive image disk via `config('mediaman.responsive_images.disk')`. When set, responsive variants are written to and served from this disk regardless of where the originating media lives — symmetric with conversion disk and aimed at the same hot/cold storage pattern (variants are fetched on every page view by the `<picture>` element, so they're prime candidates for a hotter disk than the durable original). Falls back to the media's own disk when null (current behavior). Resolver is global rather than per-variant because responsive variants have no naming — they're defined by breakpoint and format. Documented in [Responsive Images → Responsive disk](docs/responsive-images.md#responsive-disk).
-- `MediaUploader::fromString(string $content, string $fileName, ?string $name = null)` — upload from raw bytes already in memory. Useful for programmatic content (generated PDFs, headless screenshots, webhook payloads) that previously required a `tempnam()` dance at the call site. MIME type is sniffed from content via `finfo`, so the file name extension does not need to be accurate.
-- `MediaUploader::fromStream($stream, string $fileName, ?string $name = null)` — upload from a readable PHP stream resource (`fopen`, PSR-7 `StreamInterface::detach()`, sftp/php wrappers, content piped from another process). The stream is buffered to a temp file; MIME type is sniffed from the buffered bytes. The caller remains responsible for closing the stream — `fromStream()` consumes the cursor but does not call `fclose()`.
-- `MediaFileWriteFailed` exception — thrown by `MediaUploader::upload()` when the storage write fails, either by throwing or by the filesystem driver returning `false` (a silent failure that previously left an orphan media row pointing at a file that was never written). Carries the attempted `path` and `disk` as public readonly props.
+Consolidates the API surface accumulated since v2, lands the audit findings from a full security pass, and adds operational tooling so adopters can verify their stack before the first upload.
 
-### Fixed
+### MediaResolver consolidation
 
-- `mediaman:clean` no longer flags files outside MediaMan's directory pattern as orphans. Previously, scanning a disk shared with anything else (Laravel's own `storage/app/public/.gitignore`, README files at the disk root, directories from other apps that coexist on the same disk) treated every foreign file as an orphan candidate and, with `--force`, would delete it. Orphan recognition now delegates to the configured `MediaResolver` via the new `isManagedDirectory(string $segment): bool` method, so custom resolvers with non-default directory shapes (UUIDs, tenant prefixes, hash-based layouts) continue to recognize their own orphans. `DefaultMediaResolver` ships an implementation matching its `{id}-{md5}` shape. **BC:** custom `MediaResolver` implementations that did not extend `DefaultMediaResolver` must add the new method — return `true` for any directory shape the resolver could produce, or `false` always to opt out of orphan cleanup entirely.
-- The responsive image encoder match no longer silently falls back to `Format::JPEG` for unrecognized format values. Previously, `formats: ['webp', 'heic']` on a driver without HEIC support — or any typo like `'jpg2'` — would silently emit JPEG bytes saved with the requested extension (`original-1024.heic` containing a JPEG payload, breaking the `<source type="image/heic">` it backed). The match now lists every supported format explicitly (`webp`, `avif`, `heic`, `jpg`/`jpeg`, `png`, `gif`) and throws `InvalidArgumentException` on anything else, where the per-format `try`/`catch` (above) catches it and skips that variant with a warning instead of writing garbage.
-- Zero-byte encoder output is now treated as a failure. Some driver/format combinations succeed silently with an empty payload — most notably **imagick without the libheif delegate** when asked to encode HEIC, which returns an empty `EncodedImage` rather than throwing. The generator now checks the encoded length and raises `RuntimeException` when it is zero, which the per-format `try`/`catch` catches and surfaces as a `Skipping responsive format` warning. No more empty `.heic`/`.avif`/etc. files written to disk.
+The v2 trio `PathGenerator` + `UrlGenerator` + `FileNamer` collapsed into a single `MediaResolver` interface. Most customizations touched all three together (changing the directory implies changing the URL), so the indirection added cost without giving you anything back.
 
-### Changed
+```diff
+- 'generators' => [
+-     'path'       => CustomPathGenerator::class,
+-     'url'        => CustomUrlGenerator::class,
+-     'file_namer' => CustomFileNamer::class,
+- ],
++ 'resolver' => CustomMediaResolver::class,
+```
 
-- **`PathGenerator`, `UrlGenerator`, and `FileNamer` interfaces are consolidated into a single `MediaResolver`** under `Emaia\MediaMan\Resolvers`. Three binds, three config keys, and three classes worth of indirection collapse into one — most customizations touched all three together (changing the path implies changing the URL) so splitting them was indirection without flexibility. `DefaultMediaResolver` preserves v2 behavior bit-for-bit: same obfuscated `{id}-{md5(id.app_key)}` directory, same URL pipeline (prefix + version_query + S3 absolute-URL strip), same filename sanitization. Custom implementations now extend `DefaultMediaResolver` and override only the methods they touch. Method names also drop the `get` prefix (`getDirectory` → `directory`, `getUrl` → `url`, `getBaseName` → `baseName`, etc.) for parity with the Laravel idiomatic style. **BC:** apps that bound any of the old three interfaces — or set them via `mediaman.generators.{path,url,file_namer}` — must migrate to a `MediaResolver` implementation and update `mediaman.resolver`. See [Configuration → Pluggable MediaResolver](docs/configuration.md#pluggable-mediaresolver) and [API → MediaResolver](docs/api.md#mediaresolver).
-- `HasMedia::attachMedia` / `syncMedia` now throw `InvalidArgumentException` when any requested media id does not exist, before any DB write happens. Previously the legacy and fast paths relied on a foreign key violation to surface this (`QueryException` when FKs were enforced, **silent orphan pivot rows** when they were not), and the aggregate path silently skipped missing ids. All three paths now share the same explicit pre-flight check and the same exception type — independent of the connection's FK configuration. **BC:** callers that catch `QueryException` for this case must switch to `InvalidArgumentException`.
-- `PerformConversions` dispatch moves to after the attach pipeline has committed. Previously it dispatched up-front in the legacy path, which would orphan queued jobs if the attach itself later failed; and was caught by `syncMedia`'s `catch (Throwable)` in the rule paths, masking a successful attach as a silent `null` return when a queue connection error fired during dispatch. Now both paths dispatch after the transaction window for the requested set of ids (`attached + updated`), so a dispatch failure propagates as an exception rather than swallowing a committed attach.
-- `mediaman.url.version_query` (boolean) renamed to `mediaman.url.versioning` (string enum). Supported values: `false` (default) and `'timestamp'`. The legacy `version_query` key is no longer read — apps that set it must migrate. The protected `DefaultMediaResolver::applyVersionQuery()` is also renamed to `applyVersioning()` and gains an enum `match`. **BC:** apps that set `'version_query' => true` must rename to `'versioning' => 'timestamp'`; subclasses overriding `applyVersionQuery()` must rename the method.
-- `ImageManipulator::manipulate()` now isolates each conversion: a failure on one no longer cancels the remaining items in the batch (previously the whole job went to `failed_jobs` and any conversions queued after the failure were never attempted). The method returns a report — `['completed' => string[], 'failed' => array<{conversion, exception}>]` — that callers can inspect. The `PerformConversions` job uses the report to emit `ConversionCompleted` (carrying the names that succeeded, omitted when none did) plus one `ConversionFailed` event per failure (carrying the specific conversion name + exception), and writes a `Log::warning` per failure with `mediaId`/`conversion`/`error` context for parity with the per-format isolation in PR #31. When **every** conversion fails (zero succeeded), the job re-throws so the queue retries — transient errors (S3 blip, decoder memory pressure) recover; permanent failures end up in `failed_jobs` after the configured retries. Partial-batch failures (some succeeded) stay isolated as designed. Same architectural family as PR #31, applied to conversions instead of responsive variants. **BC:** the return type changed from `void` to `array`; subclasses overriding `manipulate()` must update the signature. Apps that monitored `failed_jobs` as a proxy for "a single conversion failed in a multi-conversion batch" must migrate to a `ConversionFailed` listener — `failed_jobs` now only catches the catastrophic all-failed case.
-- `ConversionCompleted` event now carries only the **successful** conversions (previously it carried the requested list verbatim, which was misleading whenever a failure pruned the batch mid-flight). The event is omitted entirely when no conversion completes.
-- `MediaUploader::upload()` is now atomic. The media row, the file write, and the collection attachment run inside a single `DB::transaction`; if the write fails (throws, or the driver returns `false` → `MediaFileWriteFailed`) or the collection rejects/the attach errors, the row is rolled back and any partially written file is removed (best-effort `deleteDirectory` on the media's own obfuscated directory). A failed upload no longer leaves an orphan row or an orphan file. Responsive image generation and the `MediaUploaded` event now run **after** the transaction commits — they may dispatch queued jobs that must not race an uncommitted row, and a responsive-generation failure is logged (best-effort) rather than rolling back an otherwise-durable upload. **BC:** a storage write that returned `false` was previously swallowed (leaving an orphan row); it now throws `MediaFileWriteFailed`.
-- `media_url` / `media_uri` model accessors now route through `getUrl()` (the configured `MediaResolver`) instead of calling the raw filesystem URL, so they pick up `url.prefix` and `url.versioning` consistently with `getUrl()`. `media_uri` equals `getUrl()`; `media_url` is `asset(getUrl())` (absolutizes a relative disk URL, leaves a full URL untouched). **BC:** serialized models / JSON payloads that surfaced these appended attributes now include the prefix and the version query when those features are configured.
+Method names dropped the `get` prefix to match Laravel idiom: `getDirectory` → `directory`, `getUrl` → `url`, etc. `DefaultMediaResolver` preserves v2 behavior bit-for-bit — extend it and override only the methods you actually need.
+
+### Channel-level validation rules
+
+`MediaChannel::acceptsFile()` registers per-channel validators that run at attach time, not upload time. Rules stack with implicit AND, can be named for error reporting, and have access to the owning model when they need it.
+
+```php
+$post->addMediaChannel('gallery')
+    ->acceptsFile(fn (Media $m) => $m->isOfType(MediaType::IMAGE), 'must-be-image')
+    ->acceptsFile(fn (Media $m, Post $p) => $p->getMedia('gallery')->count() < 5, 'max-5');
+```
+
+Failure throws `MediaNotAcceptedByChannel` with `$e->channel`, `$e->rule`, and `$e->mediaId` for programmatic handling.
+
+### Per-variant disk for conversions and responsive images
+
+Originals stay on durable cloud storage (S3/GCS); variants land on a hot local disk that the `<picture>` element hits every page view. Real savings for VPS-hosted apps with substantial traffic — S3 egress + GET-request fees disappear from the per-page-view path.
+
+```php
+Conversion::register('thumb',   fn ($img) => $img->cover(64, 64));                       // → media's disk
+Conversion::register('archive', fn ($img) => $img->scaleDown(4096), disk: 's3-glacier'); // override
+
+// Or globally:
+'conversions'       => ['disk' => 'public'],
+'responsive_images' => ['disk' => 'public'],
+```
+
+Resolution chain for conversions: per-registration override → `mediaman.conversions.disk` → media's own disk. `mediaman:clean` and `mediaman:doctor` probe every disk in use; `MediaResolver::isManagedDirectory()` lets custom resolvers participate in orphan cleanup with their own directory shape.
+
+### HEIC as a responsive format + per-format encode isolation
+
+`MediaFormat::HEIC` joins `responsiveFormats()` and `preferredOrder()`. Each variant encode runs in its own `try`/`catch`, so a driver without HEIC support skips that variant with a `Log::warning` instead of aborting the whole batch.
+
+```php
+'formats' => ['avif', 'heic', 'webp', 'jpg'],  // graceful degradation per format per driver
+```
+
+Zero-byte encodes (imagick without the libheif HEVC plugin) throw and are isolated by the same mechanism — no more `.heic` files of size 0 landing on disk.
+
+### Per-format responsive quality
+
+`responsive_images.quality` now accepts an array keyed by format. AVIF can run aggressively low (modern encoder, high efficiency); JPG/WebP want the comfortable 80–85 zone.
+
+```php
+'quality' => ['avif' => 50, 'webp' => 85, 'jpg' => 80],
+```
+
+Missing entries for a lossy format declared in `formats` throw `InvalidArgumentException` at generation time — typos can't silently fall back. Lossless formats (PNG/GIF) don't need an entry. Per-upload override via `withQuality(int|array)`.
+
+### fromStream + fromString
+
+Two new entry points for cases without a `UploadedFile`:
+
+```php
+$media = MediaUploader::fromString($pdfBytes, 'invoice.pdf')->upload();
+$media = MediaUploader::fromStream($resource, 'video.mp4')->upload();
+```
+
+`fromStream` is caller-owns-the-stream — reads through to a temp file but doesn't `fclose()`. Suits PSR-7 detached streams, SFTP wrappers, and content piped from another process.
+
+### URL versioning enum
+
+`mediaman.url.version_query` (bool) replaced by `mediaman.url.versioning` (enum):
+
+```php
+'url' => [
+    'versioning' => 'timestamp',  // appends ?v={updated_at} to all URLs
+    'prefix'     => 'https://cdn.example.com',
+],
+```
+
+Supports `false` (default) and `'timestamp'`. The legacy key is no longer read — rename is mandatory.
+
+### ConversionFailed event + isolated conversion runs
+
+`ImageManipulator::manipulate()` isolates each conversion in its own `try`/`catch`. Partial-batch failures emit `ConversionCompleted` (successful set) + one `ConversionFailed` per failure. All-failed defers `ConversionFailed` to the queue's `failed()` hook so listeners only act after Laravel exhausts retries — no racing the queue's own retry logic.
+
+```php
+Event::listen(function (ConversionFailed $event) {
+    // Reached here = queue gave up. Act decisively.
+    AuditLog::create([
+        'media_id'   => $event->media->id,
+        'conversion' => $event->conversion,
+        'error'      => $event->exception->getMessage(),
+    ]);
+});
+```
+
+Helper: `$event->reschedule(60)` queues a one-shot retry of just the failed conversion.
+
+### Atomic upload + MediaFileWriteFailed
+
+`MediaUploader::upload()` runs the database row, the file write, and the collection attach in a single `DB::transaction`. If the disk write returns `false` or throws (S3 permission denied, full disk), the row rolls back and any partial file is removed — no orphan row, no orphan file.
+
+```php
+try {
+    $media = MediaUploader::source($file)->upload();
+} catch (MediaFileWriteFailed $e) {
+    // $e->disk and $e->path are public readonly
+    return back()->withError("Could not write to {$e->disk}.");
+}
+```
+
+The `media_url` / `media_uri` accessors also route through `getUrl()` now, picking up `url.prefix` and `url.versioning` consistently with everything else.
+
+### Security pass
+
+A 15-commit pass landing the audit findings. Highlights — full list in [UPGRADING.md](UPGRADING.md):
+
+- **SVG uploads disabled by default**. Opt in with `svg.enabled = true` + a sanitizer (`enshrined/svg-sanitize` recommended).
+- **`min_file_size` = 1** by default rejects zero-byte uploads (ghost records pointing at empty files).
+- **Extension blocklist expanded** from 12 to 24 entries — shell-script + Windows-executable defense-in-depth.
+- **`fromUrl` trusts content, not headers** — extension and MIME are sniffed from the downloaded bytes, not the remote `Content-Type`. Closes a path where a malicious server lied about Content-Type to bypass the extension blocklist.
+- **`UploadFailed` exception** surfaces PHP-level upload errors (`upload_max_filesize` exceeded, `partial`, `no_tmp_dir`) with the actual cause + the original `UPLOAD_ERR_*` code on `$e->phpUploadErrorCode`. Previously masked as `FileSizeExceeded::belowMinimum(0, 1)` — technically true (0 < 1) but completely wrong about the cause.
+- **Pipeline-level safety**: `PerformConversions` and responsive image generation silently skip non-raster media (SVG, PSD, ICO) instead of dispatching guaranteed-to-fail jobs that retry until exhaustion. Includes `Media::scopeRaster()` for upfront filtering.
+- **`fromDisk` streamed** via `readStream()` — a 2 GB video on S3 ingests in O(1) memory instead of needing > 2 GB of PHP RAM.
+- **`MediaFormat::extensionFromMimeType()`** drops the silent `'jpg'` fallback for unknown MIMEs (returns `?string`). Exotic encoder outputs no longer write garbage bytes with a wrong-but-plausible extension.
+
+### mediaman:doctor: format probe + FFI/SAPI hints
+
+The `Image driver` section now probes every format in `responsive_images.formats` (10×10 encode), runs a real 1×1 PNG encode to catch the Vips-FFI-not-loaded false-positive, and shows the current SAPI + `ffi.enable` when Vips is the driver — with hints that name the actual SAPI and remind operators to verify it under whichever runtime production serves.
+
+Catches the libheif HEVC plugin gap (the #1 onboarding pain after HEIC landed), Vips FFI misconfiguration (CLI works / browser fails), and codec gaps before they hit a real upload.
+
+```bash
+php artisan mediaman:doctor
+# ...
+#   Image driver ............................................
+#   Effective ............ ✓ Intervention\Image\Drivers\Vips\Driver
+#   Probe ........... ✓ driver encodes a 1×1 test image
+#   Probe SAPI .................. · cli (ffi.enable=true)
+#   Format probe (avif) ............... ✓ encodes ✓
+#   Format probe (heic) ⚠ encoder returned zero bytes — install libheif HEVC encoder plugin
+```
+
+### Migrating from v2.18
+
+20 BCs total. Most apps need 1–2 config lines plus an exception catch. See [UPGRADING.md](UPGRADING.md) for the section-by-section migration guide and rationale per change.
+
+**Full Changelog**: https://github.com/emaia/laravel-mediaman/compare/v2.18.0...v3.0.0
 
 ## [2.18.0] — 2026-06-20
 
