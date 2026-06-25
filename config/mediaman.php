@@ -304,8 +304,10 @@ return [
         'breakpoints' => [320, 640, 1024, 1366, 1920],
 
         /*
-        | Hard clamp applied to every generated width regardless of strategy.
-        | Variants narrower than `min_width` or wider than `max_width` are dropped.
+        | Hard clamp applied to every generated width regardless of which
+        | calculator produced it. Variants narrower than `min_width` or wider
+        | than `max_width` are dropped before encoding. Set either to 0 to
+        | disable that side of the clamp.
         */
 
         'min_width' => 320,

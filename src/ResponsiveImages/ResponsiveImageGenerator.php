@@ -51,6 +51,23 @@ class ResponsiveImageGenerator
             $widths = collect($widths);
         }
 
+        // Global clamps applied regardless of which calculator produced the widths.
+        // `min_width` / `max_width` of 0 are treated as "no clamp on that side".
+        $minWidth = (int) config('mediaman.responsive_images.min_width', 0);
+        $maxWidth = (int) config('mediaman.responsive_images.max_width', 0);
+
+        $widths = $widths->filter(function ($w) use ($minWidth, $maxWidth) {
+            if ($minWidth > 0 && $w < $minWidth) {
+                return false;
+            }
+
+            if ($maxWidth > 0 && $w > $maxWidth) {
+                return false;
+            }
+
+            return true;
+        });
+
         $responsiveData = [];
         $originalImage = $this->imageManager->decode($originalBytes);
 

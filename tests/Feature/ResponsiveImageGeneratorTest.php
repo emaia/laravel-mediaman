@@ -13,6 +13,11 @@ use Intervention\Image\Interfaces\ImageInterface;
 
 beforeEach(function () {
     $this->generator = app(ResponsiveImageGenerator::class);
+
+    // Disable global width clamps by default — individual tests opt-in
+    // when they're specifically validating clamp behavior.
+    config()->set('mediaman.responsive_images.min_width', 0);
+    config()->set('mediaman.responsive_images.max_width', 0);
 });
 
 it('does nothing for non-image media', function () {
@@ -225,4 +230,72 @@ it('skips unknown formats with a warning instead of falling back to JPEG bytes',
         ->withArgs(fn ($message, $context) => str_contains($message, 'Skipping responsive format')
             && ($context['format'] ?? null) === 'bogus'
             && str_contains($context['error'] ?? '', 'Unsupported responsive format'));
+});
+
+// --- Global min_width / max_width clamps ---
+
+it('drops widths below the global min_width clamp', function () {
+    config()->set('mediaman.responsive_images.min_width', 500);
+
+    $file = UploadedFile::fake()->image('photo.jpg', 1920, 1080);
+    $media = MediaUploader::source($file)->upload();
+
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [200, 400, 600, 1000],
+        'formats' => ['jpg'],
+    ]);
+
+    $widths = $media->fresh()->getResponsiveImages()->pluck('width')->sort()->values()->toArray();
+
+    expect($widths)->toEqual([600, 1000]);
+});
+
+it('drops widths above the global max_width clamp', function () {
+    config()->set('mediaman.responsive_images.max_width', 800);
+
+    $file = UploadedFile::fake()->image('photo.jpg', 1920, 1080);
+    $media = MediaUploader::source($file)->upload();
+
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [320, 640, 1024, 1920],
+        'formats' => ['jpg'],
+    ]);
+
+    $widths = $media->fresh()->getResponsiveImages()->pluck('width')->sort()->values()->toArray();
+
+    expect($widths)->toEqual([320, 640]);
+});
+
+it('applies both min and max clamps simultaneously', function () {
+    config()->set('mediaman.responsive_images.min_width', 400);
+    config()->set('mediaman.responsive_images.max_width', 1000);
+
+    $file = UploadedFile::fake()->image('photo.jpg', 1920, 1080);
+    $media = MediaUploader::source($file)->upload();
+
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [200, 500, 800, 1200, 1920],
+        'formats' => ['jpg'],
+    ]);
+
+    $widths = $media->fresh()->getResponsiveImages()->pluck('width')->sort()->values()->toArray();
+
+    expect($widths)->toEqual([500, 800]);
+});
+
+it('zero clamps mean no clamping', function () {
+    config()->set('mediaman.responsive_images.min_width', 0);
+    config()->set('mediaman.responsive_images.max_width', 0);
+
+    $file = UploadedFile::fake()->image('photo.jpg', 1920, 1080);
+    $media = MediaUploader::source($file)->upload();
+
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [320, 640, 1024, 1920],
+        'formats' => ['jpg'],
+    ]);
+
+    $widths = $media->fresh()->getResponsiveImages()->pluck('width')->sort()->values()->toArray();
+
+    expect($widths)->toEqual([320, 640, 1024, 1920]);
 });
