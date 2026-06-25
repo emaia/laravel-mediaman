@@ -27,24 +27,24 @@ $post->attachMedia($media, 'featured-image-channel');
 - **MediaCollection** — a virtual group of media; many-to-many with Media. Great for asset libraries.
 - **Channel** — a per-model tag (`avatar`, `gallery`, …) stored in the polymorphic `mediaman_mediables` pivot. Channels also drive conversions.
 - **Conversion** — a transformation registered globally (resize, watermark, format change) and run when media is attached to a channel.
-- **Responsive Images** — multi-size, multi-format variants (AVIF/WebP/JPG/PNG) with ready-made `<picture>`/`srcset` HTML.
+- **Responsive Images** — multi-size, multi-format variants (AVIF/HEIC/WebP/JPG/PNG) with ready-made `<picture>`/`srcset` HTML.
 
 ## Documentation
 
 |                                                    |                                                                                   |
 |----------------------------------------------------|-----------------------------------------------------------------------------------|
 | [**Installation**](docs/installation.md)           | Requirements, composer, publishing assets, upgrade paths                          |
-| [**Configuration**](docs/configuration.md)         | Disk, queue, image driver, custom models, URL prefix                              |
+| [**Configuration**](docs/configuration.md)         | Disk, queue, image driver, validation, security, MediaResolver, per-variant disk, responsive images, placeholder |
 | [**Media**](docs/media.md)                         | The `Media` entity: retrieve, update, delete, HTTP responses, mail, copy/attachTo |
-| [**Uploads**](docs/uploads.md)                     | `MediaUploader`: `source`, `fromRequest`, `fromDisk`, `fromBase64`, `fromUrl`     |
-| [**Models & associations**](docs/models.md)        | `HasMedia` trait, channels, ordering, fallbacks                                   |
+| [**Uploads**](docs/uploads.md)                     | `MediaUploader`: `source`, `fromRequest`, `fromDisk`, `fromBase64`, `fromUrl`, `fromStream`, `fromString` |
+| [**Models & associations**](docs/models.md)        | `HasMedia` trait, channels, channel-level validation rules, ordering, fallbacks   |
 | [**Collections**](docs/collections.md)             | `MediaCollection`: CRUD, validation, auto-prune                                   |
-| [**Conversions**](docs/conversions.md)             | Global registration, per-channel execution, format detection                      |
-| [**Responsive images**](docs/responsive-images.md) | Generation, `<picture>` / `srcset`, width calculators                             |
-| [**Security**](docs/security.md)                   | Disallowed extensions, SSRF guard, orphan cleanup                                 |
-| [**Events**](docs/events.md)                       | The four package events                                                           |
-| [**Artisan commands**](docs/commands.md)           | Publish assets, orphan cleanup, responsive image generation and stats             |
-| [**Recipes**](docs/recipes.md)                     | PDF/video thumbnails, image optimization, ZIP downloads, multi-file uploads       |
+| [**Conversions**](docs/conversions.md)             | Global registration, per-channel execution, per-conversion disk, format detection, failure isolation |
+| [**Responsive images**](docs/responsive-images.md) | Generation, per-format quality, HEIC/AVIF/WebP support, `<picture>` / `srcset`, width calculators |
+| [**Security**](docs/security.md)                   | SVG sanitizer, disallowed extensions, file-size bounds, SSRF guard, orphan cleanup |
+| [**Events**](docs/events.md)                       | The six package events                                                            |
+| [**Artisan commands**](docs/commands.md)           | Doctor health check, publish assets, orphan cleanup, conversion/responsive generation and stats |
+| [**Recipes**](docs/recipes.md)                     | PDF/video thumbnails, image optimization, ZIP downloads, multi-file uploads, partial attach |
 | [**API reference**](docs/api.md)                   | Public surface by class/trait                                                     |
 
 Release history: [CHANGELOG.md](CHANGELOG.md). Upgrade notes: [UPGRADING.md](UPGRADING.md).
