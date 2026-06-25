@@ -76,6 +76,7 @@ The LQIP placeholder stored in `custom_properties.placeholder` changed from a ti
 
 ## Next steps
 
+- Run `php artisan mediaman:doctor` to verify the install — schema, disk, image driver, codecs, queue and security defaults all probed in one shot. See [Commands → Doctor](commands.md#doctor-health-check).
 - [Configuration](configuration.md) — disk, queue, image driver, custom models, responsive images
 - [Uploads](uploads.md) — `MediaUploader` and its source variants
 - [Models & associations](models.md) — `HasMedia` trait, channels, ordering, fallbacks

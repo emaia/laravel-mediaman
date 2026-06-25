@@ -30,60 +30,27 @@ php artisan mediaman:publish-migration
 
 ## Doctor (health check)
 
-Read-only end-to-end diagnostic of the MediaMan pipeline. Useful as a smoke test after deployment, after `APP_KEY`
-rotation, or while debugging "the URL returns 404 but the record exists" issues.
+Read-only end-to-end diagnostic of the MediaMan pipeline. Useful as a smoke test after deployment, after `APP_KEY` rotation, when adopting `vips`, when adding a new responsive format, or while debugging "the URL returns 404 but the record exists" issues. The command never mutates state — disk probes write a unique scratch file (`mediaman-doctor-probe-{rand}.txt`) and delete it on the same call; image-driver probes are memory-only.
 
 ```bash
 php artisan mediaman:doctor
 ```
 
-Output (truncated):
+Sections run in order and each is independent — a failure in one doesn't block the others. Every `warn` and `error` line carries an actionable hint in the output, so the table below describes only the surface each section covers (not the hint text, which lives at runtime).
 
-```
-  Schema migrations ........................................................
-  Tables present ............................. ✓ all 4 expected tables found
+| Section | What it surfaces |
+|---|---|
+| **Schema migrations** | All 4 expected tables exist (respects `mediaman.tables.*` overrides). |
+| **Config file** | Whether `config/mediaman.php` was published, or whether the pipeline is running on the package defaults. |
+| **Disk** | Write/read/delete probe on the main disk **and** on every distinct variant disk in use (per-conversion `register(..., disk: 'X')` registrations + the `mediaman.conversions.disk` and `mediaman.responsive_images.disk` defaults), dedup'd against the main disk. See [Conversions → Conversion disk](conversions.md#conversion-disk). |
+| **Public symlink** | For each `filesystems.links` entry pointing at the effective disk's `root`: the symlink exists, points where expected, and isn't squatted by a regular file. Local-driver only — S3/SFTP/etc. are skipped. Disks with no matching link entry print an informational note (the disk may be intentionally private). |
+| **Image driver** | The effective driver class, a real 1×1 PNG encode (Vips loads FFI bindings only on the first encode — without this, doctor would report "ok" for a class that can't actually do work), the SAPI + `ffi.enable` value when Vips is the driver (with a per-SAPI verification hint), and a 10×10 encode probe for **each** format in `responsive_images.formats` to surface codec gaps before they hit a real upload. See [Responsive images → Verifying driver/codec support](responsive-images.md#verifying-driver-codec-support). |
+| **Queue** | The configured queue connection, plus a warning when `auto_generate=true` **and** `queue=true` (a worker must be running for uploads to materialize responsive variants). |
+| **Conversions** | Number of conversions registered via `Conversion::register()`. |
+| **Security** | Hardening drift — flags empty `allowed_mime_types`, `svg.enabled=true`, and `block_disallowed_extensions=false` against the defaults in [Security → Hardening](security.md#hardening-recommendations). |
+| **Media inventory** | Total records, sum of `size` (human-formatted), and responsive coverage `X / Y (Z%)` when records exist. |
 
-  Config file ..............................................................
-  Published .................................... ✓ at config/mediaman.php
-
-  Disk .....................................................................
-  Configured .................................................... · 'media'
-  Probe (write/read/delete) ............................................ ✓ OK
-
-  Public symlink ...........................................................
-  Symlink ............... ✓ /var/www/public/media → /var/www/storage/app/media
-
-  Image driver .............................................................
-  Configured ........................................... · null (auto-detect)
-  Effective ..................... ✓ Intervention\Image\Drivers\Imagick\Driver
-
-  Queue ....................................................................
-  Connection ..................................................... · 'database'
-  Auto-generate responsive ⚠ enabled — ensure a queue worker is running
-
-  Conversions ..............................................................
-  Registered ....................................................... · 5
-
-  Media inventory ..........................................................
-  Records .......................................................... · 1,247
-  Total size ........................................................ · 3.2 GB
-  Responsive coverage ................................... · 1,022 / 1,247 (82%)
-```
-
-The layout mirrors Laravel's `php artisan about` style — section headers + label/value rows separated by dots. Status
-icons are embedded in the value column: `✓` (green, OK), `⚠` (yellow, warning), `✗` (red, error), `·` (dim gray,
-informational).
-
-The command never mutates state — disk probe writes a unique scratch file (`mediaman-doctor-probe-{rand}.txt`), reads it
-back, and deletes it. Failures (disk not configured, libvips broken at the driver constructor probe, schema missing,
-link path squatted by a real file) print `✗` and the process exits with code `1`. Warnings (e.g. `auto_generate=true` +
-`queue=true`, missing symlink that should exist) print `⚠` and keep the exit code at `0`.
-
-The **public symlink** check looks at `config('filesystems.links')` for entries whose target equals the effective disk's
-`root`. For each match it verifies the symlink exists and points where expected. Remote drivers (S3, etc.) are skipped
-automatically. Local disks without any matching link entry print an informational note — the disk may be intentionally
-private, or the user simply hasn't added the link to `filesystems.links` yet (and therefore `php artisan storage:link`
-wouldn't create anything for it).
+Exit code is `1` whenever any section emits an error; warnings and info don't affect the exit code. Use the exit code for CI integration; rely on the hints in the output for triage.
 
 ## Clean orphaned files
 
