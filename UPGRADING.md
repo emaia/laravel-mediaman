@@ -188,6 +188,157 @@ try {
 
 Inline responsive-image generation failures (`responsive_images.queue = false`) used to propagate; they now log via `Log::warning` and the upload returns the durable media. Apps that wrapped the upload in `try/catch` to handle responsive failures should switch to listening on the upload outcome (`MediaUploaded` event + check `$media->hasResponsiveImages()` later) or use the queued path so failures surface via `failed_jobs`.
 
+### 10. `min_file_size` — 0-byte uploads rejected by default
+
+A new `min_file_size` config rejects zero-byte uploads as `FileSizeExceeded`. Default `1` blocks empties — previously they created ghost media records pointing at empty files where downstream generators (placeholder, conversions, responsive) failed silently with nothing useful to recover.
+
+```diff
+  'allowed_mime_types' => [...],
+  'max_file_size' => 10 * 1024 * 1024,
++ 'min_file_size' => 0,  // opt back into empty-file uploads (placeholder records, late binding, etc.)
+```
+
+### 11. SVG uploads disabled by default
+
+`mediaman.svg.enabled` now defaults to `false`. SVG uploads throw `Emaia\MediaMan\Exceptions\SvgNotAllowed`. Apps that accept SVG must opt in **and** provide a sanitizer (no default — the choice is yours):
+
+```diff
++ 'svg' => [
++     'enabled'   => true,
++     'sanitizer' => App\Security\EnshrinedSvgSanitizer::class,  // your impl of Emaia\MediaMan\Security\SvgSanitizer
++ ],
+```
+
+When `enabled = true` without a sanitizer configured, uploads still throw `SvgNotAllowed` (failsafe — silent passthrough of unsanitized SVG is not an option). See [Security → SVG uploads](docs/security.md#svg-uploads) for the recommended `enshrined/svg-sanitize` adapter.
+
+Detection also tightened: SVG is caught via MIME OR `.svg` extension OR content marker (`<svg>` in the first 1KB) — covers the outdated-`finfo`-database bypass where SVGs starting with `<?xml ?>` get sniffed as `text/xml` while the webserver still serves them as `image/svg+xml`.
+
+### 12. `disallowed_extensions` blocklist expanded
+
+Defaults grew from 12 server-side entries to 24 — added shell-script + Windows-executable extensions (`sh`, `bash`, `zsh`, `py`, `rb`, `exe`, `com`, `msi`, `scr`, `bat`, `cmd`, `vbs`, `ps1`) for defense-in-depth. Not a server-execution risk on Unix Apache/Nginx but closes the surface against host-config drift.
+
+Apps that **intentionally** accept any of the new entries must remove them from their published `disallowed_extensions`:
+
+```diff
+  'disallowed_extensions' => [
+      'php', 'phtml', 'phar', ...
+-     'py',  // remove if your app stores user-uploaded Python scripts
+  ],
+```
+
+### 13. `MediaFormat::extensionFromMimeType()` return type widened to `?string`
+
+Previously returned `'jpg'` as a silent fallback for unknown MIMEs, which let `ImageManipulator` write garbage bytes with a wrong-but-plausible extension. Now returns `null` — callers must handle it:
+
+```diff
+  $ext = MediaFormat::extensionFromMimeType($mime);
+- $path = $base.'.'.$ext;  // silently 'jpg' on unknown MIME
++ if ($ext === null) {
++     throw new RuntimeException("Unsupported MIME for path derivation: $mime");
++ }
++ $path = $base.'.'.$ext;
+```
+
+`ImageManipulator` already handles the null internally (throws, caught by per-conversion isolation → `ConversionFailed`). Only app code that called the helper directly needs an edit.
+
+### 14. `HttpDownloader` progress callback throws `FileSizeExceeded`
+
+The size-overrun check during streamed downloads now throws `FileSizeExceeded` instead of `RuntimeException`. Matches the HEAD pre-check and the post-download check — single exception type for any size-related abort:
+
+```diff
+  try {
+      $media = MediaUploader::fromUrl($url)->upload();
+- } catch (RuntimeException $e) {
++ } catch (FileSizeExceeded $e) {
+      // handle "remote file too large mid-download"
+  }
+```
+
+### 15. `responsive_images.min_width` / `max_width` now actually clamp
+
+The two keys were documented as global clamps but never read by the generator. Now filtered in `ResponsiveImageGenerator::generateResponsiveImages()` before encoding, regardless of which calculator produced the widths. Defaults (`320` / `2560`) match the previously-documented intent — most apps won't notice.
+
+Apps with breakpoints outside the default range will see fewer variants generated. Either widen the clamps or set to `0` to disable on that side:
+
+```diff
+  'responsive_images' => [
++     'min_width'   => 200,
++     'max_width'   => 3840,
+      'breakpoints' => [200, 320, 640, 1024, 1920, 3840],
+  ],
+```
+
+### 16. `width_calculator` typos throw at boot
+
+Unknown values now throw `InvalidArgumentException` instead of silently defaulting to `breakpoint`. Catches `file_size_optmized` and similar typos. No migration needed if your config is correct.
+
+### 17. `fromUrl` records the sniffed MIME (not the remote Content-Type)
+
+`MediaUploader::fromUrl()` previously derived the filename extension and the `UploadedFile`'s recorded MIME from the remote `Content-Type` header. A malicious server could lie about Content-Type to bypass the extension-based blocklist (return `image/jpeg` for actual PHP bytes — file lands as `download.jpeg`, blocklist misses it). Now derived from a `finfo` sniff of the downloaded bytes.
+
+```php
+// Before: $media->mime_type === 'image/jpeg' (remote claimed)
+// After:  $media->mime_type === 'application/x-php' (sniffed from actual bytes)
+```
+
+`Log::warning` fires when the remote header disagrees with the sniff (carries `url`, `remote_mime`, `sniffed_mime`) — auditable trail for legitimate mismatches. Upload proceeds with the sniffed value (no throw).
+
+### 18. `ImageManipulator` preserves source format on implicit encode
+
+When a conversion closure returns `Image` (not `EncodedImage`), the output now uses the source MIME via `encodeUsingMediaType()`. Previously the driver picked a default — notable case: vips + AVIF source + `cover()` closure wrote `.heic` files because libheif chose HEVC as the default HEIF container codec.
+
+```php
+Conversion::register('square', fn (Image $i) => $i->cover(300, 300));
+// vips + AVIF source:
+// before: variant landed as .heic (wrong extension, broken downstream)
+// after:  variant lands as .avif (source format preserved)
+```
+
+If the source MIME isn't encodable by the current driver (e.g. TIFF on a GD-only environment), the conversion fails via the existing per-conversion isolation (`ConversionFailed` event) — same handling as any other per-conversion failure.
+
+### 19. PHP upload errors throw `UploadFailed` (was masked as `FileSizeExceeded`)
+
+A file exceeding `upload_max_filesize` arrives at the framework as a 0-byte `UploadedFile` with `getError()` set to `UPLOAD_ERR_INI_SIZE`. Previously this masked as `FileSizeExceeded::belowMinimum(0, 1)` — technically true (0 < 1) but completely wrong about the cause. Same masking happened for any PHP-level error (`UPLOAD_ERR_PARTIAL`, `UPLOAD_ERR_NO_TMP_DIR`, etc.).
+
+A new `validateUploadIntegrity()` runs first in the pipeline and throws `Emaia\MediaMan\Exceptions\UploadFailed` with the actual cause. The exception exposes `$e->phpUploadErrorCode` (one of `UPLOAD_ERR_*`) so apps can drive different UX per category:
+
+```diff
+  try {
+      $media = MediaUploader::source($request->file('file'))->upload();
++ } catch (UploadFailed $e) {
++     // PHP-level error — apps may want different UX per code
++     return match ($e->phpUploadErrorCode) {
++         UPLOAD_ERR_INI_SIZE   => back()->withError('File too big (server limit).'),
++         UPLOAD_ERR_NO_TMP_DIR => /* ops alert — infrastructure broken */,
++         default               => back()->withError('Upload failed, try again.'),
++     };
+  } catch (FileSizeExceeded $e) {
+-     // could be "file too big" or "PHP upload broke" — no way to tell
++     // MediaMan size-policy rejection only (min_file_size / max_file_size)
+  }
+```
+
+Apps that catch `FileSizeExceeded` for both cases must add the `UploadFailed` catch (or switch on `$e->phpUploadErrorCode === UPLOAD_ERR_INI_SIZE` to get the same "file too big" UX).
+
+### 20. Non-raster media silently skipped by conversion + responsive pipelines
+
+`PerformConversions::handle()`, `ResponsiveImageGenerator::generateResponsiveImages()`, and the four `mediaman:*` batch commands (`generate-conversions`, `clear-conversions`, `generate-responsive-images`, `clear-responsive`) now gate on `Media::isRasterImage()` and skip non-raster media (SVG, PSD, ICO, vector formats outside `MediaFormat::detectableFormats()`). Previously the queue dispatched anyway, Intervention threw, and the failure noised up `failed_jobs` after exhausting retries.
+
+The gate also covers pre-existing SVG media uploaded before BC #11 (SVG disabled by default) — a legacy SVG attached to a channel with conversions no longer churns the queue.
+
+Apps that monitored `failed_jobs` or listened to `ConversionFailed` to detect "this format isn't supported" must switch to:
+
+```diff
+  // Filter upfront via the new query scope
+- Media::whereHas('mediable', ...)->get()
++ Media::raster()->whereHas('mediable', ...)->get();
+
+  // Or check per-instance before dispatching custom logic
++ if ($media->isRasterImage()) {
++     // pipeline-eligible
++ }
+```
+
 ---
 
 ## v2.13 – v2.17 catch-up (skip if already on v2.18)
