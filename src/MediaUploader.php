@@ -764,8 +764,15 @@ class MediaUploader
         return $this;
     }
 
-    /** Override responsive encoder quality (0-100) for this upload. */
-    public function withQuality(int $quality): MediaUploader
+    /**
+     * Override responsive encoder quality for this upload. Pass an int to apply
+     * uniformly to every lossy format, or an array keyed by format (e.g.
+     * `['avif' => 50, 'webp' => 85]`) — the array form must cover every lossy
+     * format in the resolved `formats` list or generation throws.
+     *
+     * @param  int|array<string, int>  $quality
+     */
+    public function withQuality(int|array $quality): MediaUploader
     {
         $this->responsiveOptions['quality'] = $quality;
 

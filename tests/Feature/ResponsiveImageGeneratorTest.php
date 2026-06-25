@@ -299,3 +299,117 @@ it('zero clamps mean no clamping', function () {
 
     expect($widths)->toEqual([320, 640, 1024, 1920]);
 });
+
+// --- Per-format quality ---
+
+it('accepts a scalar quality and applies it across every lossy format', function () {
+    $file = UploadedFile::fake()->image('photo.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [400],
+        'formats' => ['jpg', 'webp'],
+        'quality' => 80,
+    ]);
+
+    $formats = $media->fresh()->getResponsiveImages()->pluck('format')->sort()->values()->toArray();
+
+    expect($formats)->toEqual(['jpg', 'webp']);
+});
+
+it('accepts a per-format quality array', function () {
+    $file = UploadedFile::fake()->image('photo.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [400],
+        'formats' => ['jpg', 'webp'],
+        'quality' => ['jpg' => 70, 'webp' => 50],
+    ]);
+
+    $formats = $media->fresh()->getResponsiveImages()->pluck('format')->sort()->values()->toArray();
+
+    expect($formats)->toEqual(['jpg', 'webp']);
+});
+
+it('throws when per-format quality array misses a lossy format from formats', function () {
+    $file = UploadedFile::fake()->image('photo.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    expect(fn () => $this->generator->generateResponsiveImages($media, [
+        'widths' => [400],
+        'formats' => ['jpg', 'webp'],
+        'quality' => ['jpg' => 80], // missing webp
+    ]))
+        ->toThrow(InvalidArgumentException::class, 'missing entries for [webp]');
+});
+
+it('does not require entries for lossless formats (png/gif) in the quality array', function () {
+    $file = UploadedFile::fake()->image('photo.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [400],
+        'formats' => ['jpg', 'png'],
+        'quality' => ['jpg' => 80], // png intentionally omitted — encoder ignores quality
+    ]);
+
+    $formats = $media->fresh()->getResponsiveImages()->pluck('format')->sort()->values()->toArray();
+
+    expect($formats)->toEqual(['jpg', 'png']);
+});
+
+it('accepts extra quality keys for formats not in the formats list', function () {
+    $file = UploadedFile::fake()->image('photo.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [400],
+        'formats' => ['jpg'],
+        'quality' => ['jpg' => 80, 'webp' => 60, 'avif' => 50], // webp/avif unused
+    ]);
+
+    $formats = $media->fresh()->getResponsiveImages()->pluck('format')->toArray();
+
+    expect($formats)->toEqual(['jpg']);
+});
+
+it('uses the array form when configured at the config level (no per-call override)', function () {
+    config()->set('mediaman.responsive_images.formats', ['jpg', 'webp']);
+    config()->set('mediaman.responsive_images.quality', ['jpg' => 80, 'webp' => 60]);
+
+    $file = UploadedFile::fake()->image('photo.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    $this->generator->generateResponsiveImages($media, ['widths' => [400]]);
+
+    $formats = $media->fresh()->getResponsiveImages()->pluck('format')->sort()->values()->toArray();
+
+    expect($formats)->toEqual(['jpg', 'webp']);
+});
+
+it('throws when config-level quality array misses a lossy format from configured formats', function () {
+    config()->set('mediaman.responsive_images.formats', ['jpg', 'webp']);
+    config()->set('mediaman.responsive_images.quality', ['jpg' => 80]); // missing webp
+
+    $file = UploadedFile::fake()->image('photo.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    expect(fn () => $this->generator->generateResponsiveImages($media, ['widths' => [400]]))
+        ->toThrow(InvalidArgumentException::class, 'missing entries for [webp]');
+});
+
+it('MediaUploader::withQuality accepts both scalar and array shapes', function () {
+    $file = UploadedFile::fake()->image('photo.jpg', 800, 600);
+
+    $media = MediaUploader::source($file)
+        ->generateResponsive()
+        ->withFormats(['jpg', 'webp'])
+        ->withBreakpoints([400])
+        ->withQuality(['jpg' => 75, 'webp' => 55])
+        ->upload();
+
+    $formats = $media->fresh()->getResponsiveImages()->pluck('format')->sort()->values()->toArray();
+
+    expect($formats)->toEqual(['jpg', 'webp']);
+});

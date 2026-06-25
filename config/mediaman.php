@@ -313,7 +313,17 @@ return [
 
         /*
         | Encoder quality (1–100) for the lossy formats. Higher = larger files
-        | with better fidelity. 85 is a good sweet spot for WebP/JPEG/AVIF.
+        | with better fidelity.
+        |
+        | Accepts two shapes:
+        |   int   — same value across every lossy format (webp/avif/heic/jpg).
+        |           85 is a good sweet spot for WebP/JPEG/AVIF.
+        |   array — per-format, e.g. `['avif' => 50, 'webp' => 85, 'jpg' => 80]`.
+        |           Every lossy format listed in `formats` must be declared;
+        |           generation throws InvalidArgumentException otherwise so a
+        |           silent fallback can't ship to production.
+        |
+        | PNG/GIF ignore this key (encoders are lossless/palette-based).
         */
 
         'quality' => 85,
