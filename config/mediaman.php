@@ -72,8 +72,13 @@ return [
     'block_disallowed_extensions' => true,
 
     'disallowed_extensions' => [
+        // Server-side execution (Apache/Nginx interpret these when configured)
         'php', 'phtml', 'phar', 'shtml', 'htaccess',
         'cgi', 'pl', 'asp', 'aspx', 'jsp', 'jspx',
+        // Defense in depth: interpreter scripts + Windows-side executables
+        // (not a server-execution risk, but harmless to deny by default)
+        'sh', 'bash', 'zsh', 'py', 'rb',
+        'exe', 'com', 'msi', 'scr', 'bat', 'cmd', 'vbs', 'ps1',
     ],
 
     /*

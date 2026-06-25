@@ -37,3 +37,15 @@ it('rejects uploads below a configured min_file_size threshold', function () {
     expect(fn () => MediaUploader::source($file)->upload())
         ->toThrow(FileSizeExceeded::class, 'is below the minimum required 1024 bytes');
 });
+
+// --- Expanded disallowed_extensions blocklist (defense in depth) ---
+
+it('blocks shell-script and Windows-executable extensions by default', function () {
+    foreach (['sh', 'bat', 'exe', 'ps1', 'py', 'vbs'] as $ext) {
+        $file = UploadedFile::fake()->create("payload.$ext", 10);
+
+        expect(fn () => MediaUploader::source($file)->upload())
+            ->toThrow(\Emaia\MediaMan\Exceptions\DisallowedExtension::class)
+            ->and(true)->toBeTrue();
+    }
+});
