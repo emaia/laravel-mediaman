@@ -91,6 +91,22 @@ return [
     'min_file_size' => env('MEDIAMAN_MIN_FILE_SIZE', 1),
 
     /*
+    | SVG uploads carry the XSS risk of embedded `<script>` / `<foreignObject>`
+    | / event handlers when served same-origin. Disabled by default.
+    |
+    | Set `enabled = true` and configure a `sanitizer` (a class implementing
+    | `Emaia\MediaMan\Security\SvgSanitizer`) to accept SVGs. The package does
+    | NOT ship a default sanitizer — XSS surface is your app's threat model
+    | to own. See docs/security.md → SVG uploads for a copy-paste adapter
+    | using enshrined/svg-sanitize.
+    */
+
+    'svg' => [
+        'enabled' => env('MEDIAMAN_SVG_ENABLED', false),
+        'sanitizer' => null,
+    ],
+
+    /*
     | Settings for `MediaUploader::fromUrl()` — downloading from remote URLs.
     */
 

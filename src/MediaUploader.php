@@ -10,9 +10,11 @@ use Emaia\MediaMan\Exceptions\FileSizeExceeded;
 use Emaia\MediaMan\Exceptions\InvalidBase64Data;
 use Emaia\MediaMan\Exceptions\MediaFileWriteFailed;
 use Emaia\MediaMan\Exceptions\MimeTypeNotAllowed;
+use Emaia\MediaMan\Exceptions\SvgNotAllowed;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Placeholders\PlaceholderGenerator;
 use Emaia\MediaMan\Resolvers\MediaResolver;
+use Emaia\MediaMan\Security\SvgSanitizer;
 use Emaia\MediaMan\Support\UrlGuard;
 use Emaia\MediaMan\Traits\ResolvesModels;
 use Illuminate\Http\Request;
@@ -491,6 +493,7 @@ class MediaUploader
         $this->validateExtension();
         $this->validateMimeType();
         $this->validateFileSize();
+        $this->sanitizeOrRejectSvg();
 
         $media = DB::transaction(function () {
             $media = $this->persistMediaModel();
@@ -747,6 +750,92 @@ class MediaUploader
         }
 
         throw MimeTypeNotAllowed::forMimeType($mimeType);
+    }
+
+    /**
+     * SVG carries an XSS risk (`<script>`, `<foreignObject>`, event handlers)
+     * when served same-origin. Disabled by default; when `mediaman.svg.enabled`
+     * is true, the upload is routed through the app-supplied
+     * `Emaia\MediaMan\Security\SvgSanitizer` implementation
+     * (`mediaman.svg.sanitizer`) and the cleaned markup is what lands on disk.
+     *
+     * @throws SvgNotAllowed
+     */
+    protected function sanitizeOrRejectSvg(): void
+    {
+        if (! $this->looksLikeSvg()) {
+            return;
+        }
+
+        if (! config('mediaman.svg.enabled', false)) {
+            throw SvgNotAllowed::disabled();
+        }
+
+        $sanitizerClass = config('mediaman.svg.sanitizer');
+
+        if ($sanitizerClass === null) {
+            throw SvgNotAllowed::noSanitizerConfigured();
+        }
+
+        /** @var SvgSanitizer $sanitizer */
+        $sanitizer = app($sanitizerClass);
+
+        $path = $this->file->getPathname();
+        $original = file_get_contents($path);
+
+        if ($original === false) {
+            throw SvgNotAllowed::sanitizationFailed("unable to read SVG temp file at [$path].");
+        }
+
+        $clean = $sanitizer->sanitize($original);
+
+        if ($clean === null) {
+            throw SvgNotAllowed::sanitizationFailed('sanitizer rejected the SVG markup as invalid.');
+        }
+
+        if (file_put_contents($path, $clean) === false) {
+            throw SvgNotAllowed::sanitizationFailed("unable to write sanitized SVG back to [$path].");
+        }
+    }
+
+    /**
+     * 3-way SVG detection: canonical MIME → filename extension → content marker.
+     *
+     * Belt-and-suspenders: outdated `finfo` magic databases sometimes return
+     * `text/xml` for SVGs that start with `<?xml ...?>`, which would bypass
+     * the MIME check alone. The extension check catches the typical `.svg`
+     * upload regardless of sniff; the content marker covers arbitrary-extension
+     * uploads carrying SVG markup. Reads only the first 1KB.
+     */
+    protected function looksLikeSvg(): bool
+    {
+        if ($this->file->getMimeType() === 'image/svg+xml') {
+            return true;
+        }
+
+        if (strtolower(pathinfo($this->fileName, PATHINFO_EXTENSION)) === 'svg') {
+            return true;
+        }
+
+        $head = @file_get_contents($this->file->getPathname(), false, null, 0, 1024);
+
+        if ($head === false) {
+            return false;
+        }
+
+        // Strip BOM + leading whitespace + optional XML declaration.
+        $head = preg_replace('/^\xEF\xBB\xBF/', '', $head) ?? $head;
+        $head = ltrim($head);
+
+        if (str_starts_with($head, '<?xml')) {
+            $end = strpos($head, '?>');
+
+            if ($end !== false) {
+                $head = ltrim(substr($head, $end + 2));
+            }
+        }
+
+        return str_starts_with($head, '<svg');
     }
 
     /** @throws FileSizeExceeded */
