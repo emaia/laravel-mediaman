@@ -200,6 +200,12 @@ class MediaUploader
 
     /**
      * Create an uploader from a remote URL.
+     *
+     * The remote `Content-Type` is treated as untrusted — extension derivation
+     * and the UploadedFile's recorded MIME come from a finfo sniff of the bytes
+     * that actually landed on disk, not from the server's header. Mismatches
+     * are surfaced via `Log::warning` so operators have an audit trail without
+     * breaking benign cases where a server mislabels by accident.
      */
     public static function fromUrl(string $url): MediaUploader
     {
@@ -215,6 +221,17 @@ class MediaUploader
             $downloader = app(Downloader::class);
             $result = $downloader->download($downloadUrl, $tmpPath, $resolved);
 
+            $sniffedMime = self::detectMimeFromFile($tmpPath);
+            $remoteMime = $result['mime'];
+
+            if ($remoteMime !== $sniffedMime) {
+                Log::warning('MediaMan: fromUrl Content-Type mismatch — using sniffed MIME', [
+                    'url' => $url,
+                    'remote_mime' => $remoteMime,
+                    'sniffed_mime' => $sniffedMime,
+                ]);
+            }
+
             $suggestedName = basename(parse_url($url, PHP_URL_PATH) ?: '');
 
             if ($suggestedName === '') {
@@ -222,7 +239,7 @@ class MediaUploader
             }
 
             if (pathinfo($suggestedName, PATHINFO_EXTENSION) === '') {
-                $ext = self::extensionForMime($result['mime']);
+                $ext = self::extensionForMime($sniffedMime);
 
                 if ($ext !== '') {
                     $suggestedName .= '.'.$ext;
@@ -232,7 +249,7 @@ class MediaUploader
             $uploadedFile = new UploadedFile(
                 $tmpPath,
                 $suggestedName,
-                $result['mime'],
+                $sniffedMime,
                 null,
                 true
             );
