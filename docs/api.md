@@ -209,7 +209,7 @@ Public surface of the package, organized by class/trait. Each entry links back t
 | `generateResponsive(array $options = [])`                  | Trigger responsive generation.                |
 | `withBreakpoints(array)`                                   | Responsive widths.                            |
 | `withFormats(array)`                                       | Responsive output formats.                    |
-| `withQuality(int)`                                         | Responsive quality.                           |
+| `withQuality(int\|array)`                                  | Responsive quality. Scalar applies to every lossy format; array (`['avif' => 50, 'webp' => 85]`) sets each format individually — see [Responsive images → Per-format quality](responsive-images.md#per-format-quality). |
 
 ### Terminal
 
@@ -547,10 +547,13 @@ All exceptions live under `Emaia\MediaMan\Exceptions`.
 | Class                          | Source                                                            |
 |--------------------------------|-------------------------------------------------------------------|
 | `DisallowedExtension`          | Upload of a blocked extension.                                    |
-| `FileSizeExceeded`             | File too large (per-upload or pre-decode).                        |
+| `FileSizeExceeded`             | File outside the size bounds — above `max_file_size` or below `min_file_size`. |
 | `MimeTypeNotAllowed`           | MIME not in the configured whitelist.                             |
 | `InvalidBase64Data`            | Malformed base64 or data URI in `fromBase64()`.                   |
 | `UrlNotAllowed`                | URL rejected by `UrlGuard` (scheme, host, or resolved IP).        |
+| `UploadFailed`                 | PHP-level upload error (`upload_max_filesize` exceeded, `partial`, `no_tmp_dir`, etc.) — distinct from `FileSizeExceeded`. Exposes the original `UPLOAD_ERR_*` code as `$e->phpUploadErrorCode`. |
+| `MediaFileWriteFailed`         | Disk write returned `false` or threw during `upload()`. The row and any partial file are rolled back. |
+| `SvgNotAllowed`                | SVG upload when `svg.enabled = false`, or when enabled without a configured `svg.sanitizer`, or when the sanitizer rejects the markup. |
 | `MediaNotAcceptedByCollection` | Collection-level MIME rejection.                                  |
 | `MediaNotAcceptedByChannel`    | Channel `acceptsFile()` rule failed. Carries `channel`, `rule`, `mediaId`. |
 | `TemporaryUrlNotSupported`     | Disk doesn't support `temporaryUrl()`.                            |
