@@ -28,11 +28,51 @@ class DoctorCommand extends Command
         $this->checkImageDriver();
         $this->checkQueue();
         $this->checkConversions();
+        $this->checkSecurity();
         $this->checkMediaInventory();
 
         $this->newLine();
 
         return $this->hasErrors ? self::FAILURE : self::SUCCESS;
+    }
+
+    /** Surface security-posture defaults that adopters commonly miss. */
+    protected function checkSecurity(): void
+    {
+        $this->section('Security');
+
+        $allowed = config('mediaman.allowed_mime_types', []);
+
+        if (empty($allowed)) {
+            $this->statusLine(
+                'MIME allow-list',
+                'warn',
+                'empty — accepting all MIME types. Set `mediaman.allowed_mime_types` for production. See docs/security.md → Hardening'
+            );
+        } else {
+            $this->statusLine('MIME allow-list', 'ok', count($allowed).' MIME type(s) whitelisted');
+        }
+
+        if (config('mediaman.svg.enabled', false)) {
+            $this->statusLine(
+                'SVG uploads',
+                'warn',
+                'enabled — uploads sanitized via enshrined/svg-sanitize. Verify same-origin serving is safe.'
+            );
+        } else {
+            $this->statusLine('SVG uploads', 'ok', 'disabled (default)');
+        }
+
+        if (! config('mediaman.block_disallowed_extensions', true)) {
+            $this->statusLine(
+                'Extension blocklist',
+                'warn',
+                'disabled — server-executable extensions can land. Re-enable unless you have a specific reason.'
+            );
+        } else {
+            $count = count(config('mediaman.disallowed_extensions', []));
+            $this->statusLine('Extension blocklist', 'ok', "$count extension(s) blocked");
+        }
     }
 
     protected function checkSchema(): void
