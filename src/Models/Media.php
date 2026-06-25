@@ -390,11 +390,15 @@ class Media extends Model implements Attachable
             return '0 '.$units[1];
         }
 
-        for ($i = 0; $this->size > 1024; $i++) {
-            $this->size /= 1024;
+        // Local copy — never mutate `$this->size` (model attribute persisted in DB
+        // and serialized every time `friendly_size` is appended).
+        $bytes = (float) $this->size;
+
+        for ($i = 0; $bytes > 1024; $i++) {
+            $bytes /= 1024;
         }
 
-        return round($this->size, 2).' '.$units[$i];
+        return round($bytes, 2).' '.$units[$i];
     }
 
     /** Absolutized resolver URL — routes through getUrl() so url.prefix and url.versioning apply. */
