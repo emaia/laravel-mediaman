@@ -7,6 +7,8 @@ use Emaia\MediaMan\Enums\MediaType;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Resolvers\MediaResolver;
 use Intervention\Image\EncodedImage;
+use Intervention\Image\Exceptions\EncoderException;
+use Intervention\Image\Exceptions\StreamException;
 use Intervention\Image\Image;
 use Intervention\Image\ImageManager;
 
@@ -58,6 +60,9 @@ class ImageManipulator
      * Encode and persist a single conversion. Extracted so the per-iteration
      * try/catch in `manipulate()` covers every step (registry lookup, decode,
      * encode, write).
+     *
+     * @throws StreamException
+     * @throws EncoderException
      */
     protected function runConversion(Media $media, string $conversion, bool $onlyIfMissing): void
     {

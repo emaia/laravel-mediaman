@@ -131,7 +131,9 @@ class MediaChannel
         return $this->hasModelAwareRules;
     }
 
-    /** Run every registered rule; throw on the first failure. */
+    /** Run every registered rule; throw on the first failure.
+     * @throws MediaNotAcceptedByChannel
+     */
     public function validateMedia(Media $media, object $model, string $channelName): void
     {
         foreach ($this->fileRules as $entry) {

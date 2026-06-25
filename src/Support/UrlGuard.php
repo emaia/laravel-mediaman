@@ -23,6 +23,9 @@ class UrlGuard
         '255.255.255.255',
     ];
 
+    /**
+     * @throws UrlNotAllowed
+     */
     public static function check(string $url): void
     {
         self::parseAndValidate($url);
@@ -35,6 +38,8 @@ class UrlGuard
      * IPs in a subsequent HTTP request to prevent DNS rebinding.
      *
      * @return array{host: string, port: int, ips: string[]}
+     *
+     * @throws UrlNotAllowed
      */
     public static function resolve(string $url): array
     {
@@ -63,6 +68,8 @@ class UrlGuard
 
     /**
      * @return array{scheme?: string, host: string, port?: int}
+     *
+     * @throws UrlNotAllowed
      */
     private static function parseAndValidate(string $url): array
     {
@@ -89,6 +96,9 @@ class UrlGuard
         return $parts;
     }
 
+    /**
+     * @throws UrlNotAllowed
+     */
     private static function checkHost(string $host): void
     {
         if (in_array($host, self::BLOCKED_HOSTS, true) || str_ends_with($host, '.localhost')) {
@@ -124,6 +134,9 @@ class UrlGuard
         }
     }
 
+    /**
+     * @throws UrlNotAllowed
+     */
     private static function checkIPv4(string $ip): void
     {
         if (config('mediaman.url_sources.allow_private_hosts', false)) {
@@ -146,6 +159,9 @@ class UrlGuard
         }
     }
 
+    /**
+     * @throws UrlNotAllowed
+     */
     private static function checkIPv6(string $ip): void
     {
         if (config('mediaman.url_sources.allow_private_hosts', false)) {
@@ -238,6 +254,9 @@ class UrlGuard
         return $ips;
     }
 
+    /**
+     * @throws UrlNotAllowed
+     */
     private static function checkResolvedIp(string $ip): void
     {
         if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {

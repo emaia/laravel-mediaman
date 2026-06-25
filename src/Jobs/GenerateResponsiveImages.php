@@ -23,7 +23,6 @@ class GenerateResponsiveImages implements ShouldQueue
     {
         $this->media = $media;
         $this->options = $options;
-
     }
 
     public function handle(ResponsiveImageGenerator $generator): void
