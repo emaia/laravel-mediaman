@@ -2,10 +2,15 @@
 
 use Emaia\MediaMan\ConversionRegistry;
 use Emaia\MediaMan\Exceptions\InvalidConversion;
+use Emaia\MediaMan\Facades\Conversion;
 use Emaia\MediaMan\ImageManipulator;
+use Emaia\MediaMan\MediaUploader;
 use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\Resolvers\MediaResolver;
+use Illuminate\Http\UploadedFile;
 use Intervention\Image\Drivers\Gd\Driver;
 use Intervention\Image\Encoders\WebpEncoder;
+use Intervention\Image\Format;
 use Intervention\Image\Image;
 use Intervention\Image\ImageManager;
 
@@ -98,7 +103,7 @@ it('will only apply conversions to an image', function () {
     expect($invoked)->toBeFalse();
 });
 
-it('will throw InvalidConversion for unregistered conversions', function () {
+it('captures InvalidConversion in the report instead of throwing', function () {
     $registry = new ConversionRegistry;
     $manager = new ImageManager(Driver::class);
     $manipulator = new ImageManipulator($registry, $manager);
@@ -106,8 +111,61 @@ it('will throw InvalidConversion for unregistered conversions', function () {
     $media = makeImageMedia();
     createOriginalImage($media, $manager);
 
-    $manipulator->manipulate($media, ['does-not-exist'], onlyIfMissing: false);
-})->throws(InvalidConversion::class, 'Conversion `does-not-exist` does not exist');
+    $report = $manipulator->manipulate($media, ['does-not-exist'], onlyIfMissing: false);
+
+    expect($report['completed'])->toBe([])
+        ->and($report['failed'])->toHaveCount(1)
+        ->and($report['failed'][0]['conversion'])->toBe('does-not-exist')
+        ->and($report['failed'][0]['exception'])->toBeInstanceOf(InvalidConversion::class);
+});
+
+it('isolates per-conversion failures — surviving conversions still run', function () {
+    $registry = new ConversionRegistry;
+
+    // Two valid conversions bracketing a broken one. The broken closure throws
+    // mid-batch; pre-isolation this would cancel `last` silently.
+    $registry->register('first', fn (Image $image) => $image->resize(50, 50));
+    $registry->register('broken', function (Image $image) {
+        throw new RuntimeException('encoder blew up');
+    });
+    $registry->register('last', fn (Image $image) => $image->resize(30, 30));
+
+    $manager = new ImageManager(Driver::class);
+    $manipulator = new ImageManipulator($registry, $manager);
+
+    $media = makeImageMedia();
+    createOriginalImage($media, $manager);
+
+    $report = $manipulator->manipulate($media, ['first', 'broken', 'last'], onlyIfMissing: false);
+
+    expect($report['completed'])->toBe(['first', 'last'])
+        ->and($report['failed'])->toHaveCount(1)
+        ->and($report['failed'][0]['conversion'])->toBe('broken')
+        ->and($report['failed'][0]['exception'])->toBeInstanceOf(RuntimeException::class)
+        ->and($report['failed'][0]['exception']->getMessage())->toBe('encoder blew up');
+
+    // Both surviving conversions actually wrote to disk (source is PNG, default encode preserves format)
+    expect(Storage::disk('test')->exists($media->getDirectory().'/conversions/first/original.png'))->toBeTrue()
+        ->and(Storage::disk('test')->exists($media->getDirectory().'/conversions/last/original.png'))->toBeTrue();
+});
+
+it('returns an empty report for non-image media', function () {
+    $registry = new ConversionRegistry;
+    $registry->register('thumb', fn (Image $image) => $image->resize(50, 50));
+
+    $manager = new ImageManager(Driver::class);
+    $manipulator = new ImageManipulator($registry, $manager);
+
+    $media = new Media;
+    $media->name = 'doc';
+    $media->file_name = 'a.pdf';
+    $media->mime_type = 'application/pdf';
+    $media->disk = 'test';
+    $media->size = 1024;
+    $media->save();
+
+    expect($manipulator->manipulate($media, ['thumb']))->toBe(['completed' => [], 'failed' => []]);
+});
 
 it('writes the encoded variant when a conversion returns an EncodedImage', function () {
     $registry = new ConversionRegistry;
@@ -184,4 +242,32 @@ it('will skip conversions if the converted image already exists', function () {
 
     // The closure still runs (encode happens before exists check), but writes are skipped
     expect($invocations)->toBe(2);
+});
+
+it('preserves the source MIME format when the closure returns Image without explicit encode', function () {
+    Conversion::register('thumb', fn (Image $img) => $img->cover(50, 50));
+
+    // WEBP source — drivers handle implicit `encode()` inconsistently for
+    // non-JPEG formats. The fix passes the source MIME so the output
+    // round-trips deterministically.
+    $webpBytes = (string) (new ImageManager(new Driver))
+        ->createImage(200, 200)
+        ->encodeUsingFormat(Format::WEBP);
+
+    $tmp = tempnam(sys_get_temp_dir(), 'mm_src_');
+    file_put_contents($tmp, $webpBytes);
+    $file = new UploadedFile($tmp, 'photo.webp', 'image/webp', null, true);
+
+    $media = MediaUploader::source($file)->upload();
+
+    app(ImageManipulator::class)->manipulate($media, ['thumb']);
+
+    // The conversion file on disk should have a .webp extension matching
+    // the source — not .jpg / .png / etc.
+    $disk = $media->fresh()->conversionFilesystem('thumb');
+    $dir = app(MediaResolver::class)->pathForConversion($media, 'thumb');
+    $files = $disk->files($dir);
+
+    expect($files)->toHaveCount(1)
+        ->and($files[0])->toEndWith('.webp');
 });

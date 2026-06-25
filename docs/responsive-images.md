@@ -3,6 +3,7 @@
 [← Back to README](../README.md)
 
 - [Enabling](#enabling)
+- [Verifying driver/codec support](#verifying-drivercodec-support)
 - [Generating for existing media](#generating-for-existing-media)
 - [Inspecting variants](#inspecting-variants)
 - [Getting a URL](#getting-a-url)
@@ -10,6 +11,7 @@
 - [Placeholder integration](#placeholder-integration)
 - [Clearing variants](#clearing-variants)
 - [Width calculators](#width-calculators)
+- [Responsive disk](#responsive-disk)
 
 MediaMan generates multiple size and format variants of your images and exposes ready-to-use `srcset`/`<picture>` HTML so browsers can pick the most appropriate version. Variants live alongside the original file; metadata is persisted in `custom_properties`.
 
@@ -61,7 +63,44 @@ $media = MediaUploader::source($request->file('file'))
     ->upload();
 ```
 
+### Per-format quality
+
+`quality` accepts a scalar (same value for every lossy format) or an array keyed by format. The array form must declare every lossy format in `formats`; PNG/GIF entries are accepted but ignored because their encoders don't take a quality parameter.
+
+```php
+$media = MediaUploader::source($request->file('file'))
+    ->generateResponsive()
+    ->withFormats(['avif', 'webp', 'jpg'])
+    ->withQuality([
+        'avif' => 50,  // AVIF can go aggressive — modern encoder, high efficiency
+        'webp' => 85,
+        'jpg'  => 80,
+    ])
+    ->upload();
+```
+
+Same shape works at the config level:
+
+```php
+'formats' => ['avif', 'webp', 'jpg'],
+'quality' => ['avif' => 50, 'webp' => 85, 'jpg' => 80],
+```
+
+Missing entries fail loud at generation time (`InvalidArgumentException`) so a typo can't silently fall back to a default.
+
 Config defaults live under `config('mediaman.responsive_images')` — see [Configuration → Responsive images](configuration.md#responsive-images).
+
+## Verifying driver/codec support
+
+Whether a given format actually encodes is a function of the active image driver and the codecs it can reach. AVIF, HEIC and WebP each have driver/library prerequisites that aren't visible from PHP land — a misconfigured stack silently writes zero-byte variants or skips them at runtime.
+
+Run `php artisan mediaman:doctor` to surface this upfront. The **Image driver** section probes each format listed in `responsive_images.formats` with a 10×10 encode and reports `ok`, `warn` (with a targeted hint), or the driver's exception. Common gaps:
+
+- **HEIC on imagick/vips**: needs `libheif` *and* an HEVC encoder plugin (e.g. `libheif-plugin-x265`). Without the plugin the encoder returns zero bytes — the probe catches this and tells you which package to install.
+- **AVIF on GD**: GD has no AVIF encoder. The probe surfaces the exception so you know to swap drivers or drop the format.
+- **Vips + PHP FFI**: Vips loads its bindings via PHP FFI on the first encode, configured per-SAPI. The probe runs a 1×1 PNG encode to force the FFI binding, then prints the current SAPI + `ffi.enable` value with a hint to verify the same setting under whichever SAPI production serves under (CLI vs `fpm-fcgi` vs `cli-server` from `artisan serve`).
+
+The doctor output is the canonical guide — each warn/error carries the actionable next step.
 
 ## Generating for existing media
 
@@ -229,3 +268,19 @@ Two strategies ship out of the box:
 - **`file_size_optimized`** — iteratively reduces width until the predicted file size falls below a threshold
 
 Pick via `responsive_images.width_calculator`. See [Configuration → Responsive images](configuration.md#responsive-images) for the full set of knobs.
+
+## Responsive disk
+
+Responsive variants are typically served on every page view (the `<picture>` element fetches multiple per render), so keeping them on a hot local disk while the original sits on durable cloud storage is a common pattern:
+
+```php
+// config/mediaman.php
+'responsive_images' => [
+    'disk' => 'public',   // null (default) → variants live on $media->disk
+    // ...
+],
+```
+
+When set, every responsive variant is written to and served from this disk regardless of where the originating media lives. Switching the value does **not** migrate existing files — run `mediaman:clean --disk=old-disk` to find leftovers, or regenerate the variants on the new disk.
+
+`mediaman:doctor`, `mediaman:clean`, and `mediaman:rotate-paths` all probe/scan/rotate the responsive disk alongside the main and conversion disks.

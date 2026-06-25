@@ -111,9 +111,9 @@ trait ResponsiveImages
             $srcset = $this->injectPlaceholderIntoSrcset($srcset, $placeholderUri);
 
             $mimeType = $this->formatToMimeType($format);
-            $sourceHtml = "<source type=\"{$mimeType}\" srcset=\"{$srcset}\"";
+            $sourceHtml = "<source type=\"$mimeType\" srcset=\"$srcset\"";
             if (! empty($sizes)) {
-                $sourceHtml .= " sizes=\"{$sizes}\"";
+                $sourceHtml .= " sizes=\"$sizes\"";
             }
             $sourceHtml .= '>';
 
@@ -154,9 +154,7 @@ trait ResponsiveImages
         return $srcset === '' ? $entry : $srcset.', '.$entry;
     }
 
-    /**
-     * Get available responsive image formats.
-     */
+    /** `['original']` when no variants exist; otherwise the unique sorted format list. */
     public function getAvailableResponsiveFormats(): array
     {
         if (! $this->hasResponsiveImages()) {
@@ -171,17 +169,12 @@ trait ResponsiveImages
             ->toArray();
     }
 
-    /**
-     * Check if responsive images have been generated.
-     */
     public function hasResponsiveImages(): bool
     {
         return ! empty($this->getCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES) ?? []);
     }
 
-    /**
-     * Get responsive images data.
-     */
+    /** Responsive variant manifest (each item carries `format`, `width`, `path`). */
     public function getResponsiveImages(): BaseCollection
     {
         $responsiveData = $this->getCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES) ?? [];
@@ -191,9 +184,7 @@ trait ResponsiveImages
         });
     }
 
-    /**
-     * Get simple img tag HTML.
-     */
+    /** `<img>` markup with `srcset`/`sizes` populated from the responsive manifest. */
     public function getSimpleImgHtml(array $attributes = [], $sizes = null): string
     {
         if (! $this->isOfType(MediaType::IMAGE)) {
@@ -255,9 +246,6 @@ trait ResponsiveImages
         return $defaultAttributes;
     }
 
-    /**
-     * Convert attributes array to HTML string.
-     */
     protected function attributesToString(array $attributes): string
     {
         return collect($attributes)
@@ -266,29 +254,24 @@ trait ResponsiveImages
             ->implode(' ');
     }
 
-    /**
-     * Generate srcset string for HTML.
-     */
+    /** `srcset` attribute value for the requested format (or the best-available). */
     public function getSrcset(string $format = ''): string
     {
         if (! $this->isOfType(MediaType::IMAGE)) {
             return '';
         }
 
-        // If no format specified, try to determine the best format
         if (empty($format)) {
             $availableFormats = $this->getAvailableResponsiveFormats();
             $format = $availableFormats[0] ?? 'original';
         }
 
-        // Handle original format (no responsive images)
         if ($format === 'original' || ! $this->hasResponsiveImages()) {
             $originalWidth = $this->getImageWidth();
 
             return $originalWidth > 0 ? $this->getUrl().' '.$originalWidth.'w' : $this->getUrl();
         }
 
-        // Get responsive images for the specified format
         $images = $this->getResponsiveImagesByFormat($format);
 
         if ($images->isEmpty()) {
@@ -305,9 +288,7 @@ trait ResponsiveImages
             ->implode(', ');
     }
 
-    /**
-     * Get image width (for images only).
-     */
+    /** Resolution priority: persisted meta → largest variant width → lazy decode. */
     public function getImageWidth(): int
     {
         if (! $this->isOfType(MediaType::IMAGE)) {
@@ -357,17 +338,11 @@ trait ResponsiveImages
         }
     }
 
-    /**
-     * Get responsive images by format.
-     */
     public function getResponsiveImagesByFormat(string $format): BaseCollection
     {
         return $this->getResponsiveImages()->where('format', $format);
     }
 
-    /**
-     * Convert format to MIME type.
-     */
     protected function formatToMimeType(string $format): string
     {
         $mediaFormat = MediaFormat::tryFromValue($format);
@@ -384,9 +359,6 @@ trait ResponsiveImages
         return 'image/'.$format;
     }
 
-    /**
-     * Clear responsive images.
-     */
     public function clearResponsiveImages(): self
     {
         app(ResponsiveImageGenerator::class)
@@ -395,9 +367,7 @@ trait ResponsiveImages
         return $this;
     }
 
-    /**
-     * Get responsive image URL for specific width and format.
-     */
+    /** Picks the closest-fitting variant ≥ `$width`; falls back to the original. */
     public function getResponsiveUrl(int $width = 0, string $format = ''): string
     {
         if (! $this->isOfType(MediaType::IMAGE)) {
@@ -429,10 +399,7 @@ trait ResponsiveImages
         return $optimal ? $optimal->url : $this->getUrl();
     }
 
-    /**
-     * Get the best format available for responsive images.
-     * Prioritizes modern formats like AVIF and WebP.
-     */
+    /** Picks the modern-most format available (AVIF > HEIC > WebP > JPG > PNG). */
     public function getBestResponsiveFormat(): string
     {
         $availableFormats = $this->getAvailableResponsiveFormats();
@@ -452,9 +419,7 @@ trait ResponsiveImages
         return $availableFormats[0];
     }
 
-    /**
-     * Get the optimal responsive image for a given width.
-     */
+    /** Smallest variant ≥ `$targetWidth` in the requested format, or null. */
     public function getResponsiveImageForWidth(int $targetWidth, string $format = ''): ?object
     {
         if (! $this->hasResponsiveImages()) {
@@ -477,17 +442,11 @@ trait ResponsiveImages
             ->first();
     }
 
-    /**
-     * Check if a specific format is available in responsive images.
-     */
     public function hasResponsiveFormat(string $format): bool
     {
         return in_array($format, $this->getAvailableResponsiveFormats());
     }
 
-    /**
-     * Get responsive images grouped by format.
-     */
     public function getResponsiveImagesByFormatGrouped(): array
     {
         if (! $this->hasResponsiveImages()) {
@@ -499,9 +458,7 @@ trait ResponsiveImages
             ->toArray();
     }
 
-    /**
-     * Get image height (for images only).
-     */
+    /** Mirror of `getImageWidth()` for the height axis. */
     public function getImageHeight(): int
     {
         if (! $this->isOfType(MediaType::IMAGE)) {

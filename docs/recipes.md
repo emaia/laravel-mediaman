@@ -8,7 +8,7 @@
 - [SVG to PNG fallback](#svg-to-png-fallback)
 - [ZIP download of multiple media](#zip-download-of-multiple-media)
 - [Multi-file form upload](#multi-file-form-upload)
-- [String or stream upload](#string-or-stream-upload)
+- [Best-effort (partial) attach](#best-effort-partial-attach)
 
 Common needs that MediaMan deliberately doesn't ship out-of-the-box — here's how to bolt them onto the existing event/queue/custom-properties flow.
 
@@ -16,7 +16,7 @@ Most recipes follow the same shape:
 
 1. Listen to a MediaMan event (`MediaUploaded`, `ConversionCompleted`, `ResponsiveImagesGenerated`).
 2. Dispatch a queued job that runs a third-party library.
-3. Write any generated files into the Media's directory via `PathGenerator` (so paths remain pluggable).
+3. Write any generated files into the Media's directory via `MediaResolver` (so paths remain pluggable).
 4. Persist metadata in `custom_properties`.
 
 ---
@@ -105,7 +105,7 @@ composer require spatie/pdf-to-image
 
 ```php
 use Emaia\MediaMan\Events\MediaUploaded;
-use Emaia\MediaMan\Generators\PathGenerator;
+use Emaia\MediaMan\Resolvers\MediaResolver;
 use Spatie\PdfToImage\Pdf;
 
 class GeneratePdfThumbnail implements ShouldQueue
@@ -126,7 +126,7 @@ class GeneratePdfThumbnail implements ShouldQueue
 
         (new Pdf($tmpPdf))->saveImage($tmpJpg);
 
-        $thumbPath = app(PathGenerator::class)->getDirectory($media).'/preview.jpg';
+        $thumbPath = app(MediaResolver::class)->directory($media).'/preview.jpg';
         $disk->put($thumbPath, file_get_contents($tmpJpg));
 
         $media->setCustomProperty('preview_path', $thumbPath);
@@ -161,7 +161,7 @@ composer require pbmedia/laravel-ffmpeg
 
 ```php
 use Emaia\MediaMan\Events\MediaUploaded;
-use Emaia\MediaMan\Generators\PathGenerator;
+use Emaia\MediaMan\Resolvers\MediaResolver;
 use ProtoneMedia\LaravelFFMpeg\Support\FFMpeg;
 
 class GenerateVideoThumbnail implements ShouldQueue
@@ -175,7 +175,7 @@ class GenerateVideoThumbnail implements ShouldQueue
         }
 
         $disk = $media->filesystem();
-        $thumbPath = app(PathGenerator::class)->getDirectory($media).'/poster.jpg';
+        $thumbPath = app(MediaResolver::class)->directory($media).'/poster.jpg';
 
         // Read on the source disk, write the frame on the same disk.
         FFMpeg::fromDisk($media->disk)
@@ -315,43 +315,25 @@ foreach ($files as $i => $file) {
 
 ---
 
-## String or stream upload
+## Best-effort (partial) attach
 
-**Use case:** Persist programmatically generated data (a CSV string, a base64 payload from a job result, a stream from another API) as a Media without an `UploadedFile` instance.
+**Use case:** Bulk ingestion (imports, seeders) into a channel with aggregate `acceptsFile` rules, where you want to keep every item that fits and skip the rejected ones — instead of the default all-or-nothing batch.
 
-**Approach:** Write to a temp file, then funnel through `fromDisk()`.
+**Approach:** `attachMedia()` is atomic per call, so make each item its own call and catch the rejection. Atomic is the primitive; partial is one loop on top.
 
 ```php
-use Emaia\MediaMan\MediaUploader;
-use Illuminate\Support\Facades\Storage;
+use Emaia\MediaMan\Exceptions\MediaNotAcceptedByChannel;
 
-// From a string
-function uploadFromString(string $content, string $filename): \Emaia\MediaMan\Models\Media
-{
-    Storage::disk('local')->put('tmp/'.$filename, $content);
+$attached = $skipped = [];
 
-    $media = MediaUploader::fromDisk('tmp/'.$filename, 'local')
-        ->useFileName($filename)
-        ->upload();
-
-    Storage::disk('local')->delete('tmp/'.$filename);
-
-    return $media;
-}
-
-// From a stream
-function uploadFromStream($stream, string $filename): \Emaia\MediaMan\Models\Media
-{
-    Storage::disk('local')->writeStream('tmp/'.$filename, $stream);
-
-    $media = MediaUploader::fromDisk('tmp/'.$filename, 'local')
-        ->useFileName($filename)
-        ->upload();
-
-    Storage::disk('local')->delete('tmp/'.$filename);
-
-    return $media;
+foreach ($mediaIds as $id) {
+    try {
+        $product->attachMedia($id, 'gallery');
+        $attached[] = $id;
+    } catch (MediaNotAcceptedByChannel $e) {
+        $skipped[] = ['id' => $e->mediaId, 'rule' => $e->rule];
+    }
 }
 ```
 
-**Trade-offs:** Two extra disk operations vs. a hypothetical native API. For small payloads the overhead is negligible; for huge streams, look at chunked uploads via `Storage::disk()->writeStream()` directly into a custom `MediaUploader` subclass.
+**Trade-offs:** One `attachMedia` call (and, for aggregate channels, one short transaction + row lock) per item instead of one for the whole batch — fine for ingestion, and you get a precise per-item report. For all-or-nothing interactive flows, pass the whole array to a single `attachMedia([...])` and let the batch roll back as a unit.

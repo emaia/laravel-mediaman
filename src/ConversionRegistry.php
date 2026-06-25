@@ -11,32 +11,31 @@ use SplFileObject;
 
 class ConversionRegistry
 {
+    /**
+     * @var array<string, array{closure: callable, format: ?string, disk: ?string}>
+     */
     protected array $conversions = [];
 
-    /**
-     * Get all the registered conversions.
-     */
+    /** @return array<string, callable> Name → closure for every registered conversion. */
     public function all(): array
     {
         return array_map(fn ($item) => $item['closure'], $this->conversions);
     }
 
     /**
-     * Register a new conversion.
+     * `$disk = null` stores conversion files on the media's own disk; passing
+     * an explicit disk enables hot/cold storage tiering for the variant.
      */
-    public function register(string $name, callable $conversion): void
+    public function register(string $name, callable $conversion, ?string $disk = null): void
     {
         $this->conversions[$name] = [
             'closure' => $conversion,
             'format' => $this->detectFormat($conversion),
+            'disk' => $disk,
         ];
     }
 
-    /**
-     * Get the conversion with the specified name.
-     *
-     * @throws InvalidConversion
-     */
+    /** @throws InvalidConversion */
     public function get(string $name): callable
     {
         if (! $this->exists($name)) {
@@ -46,9 +45,7 @@ class ConversionRegistry
         return $this->conversions[$name]['closure'];
     }
 
-    /**
-     * Get the pre-computed output format for a conversion.
-     */
+    /** Pre-computed output format from registration-time reflection, or null. */
     public function getFormat(string $name): ?string
     {
         if (! $this->exists($name)) {
@@ -58,17 +55,40 @@ class ConversionRegistry
         return $this->conversions[$name]['format'];
     }
 
-    /**
-     * Determine if a conversion with the specified name exists.
-     */
     public function exists(string $name): bool
     {
         return isset($this->conversions[$name]);
     }
 
+    /** Per-conversion disk override, or null when the media's own disk is used. */
+    public function getDisk(string $name): ?string
+    {
+        if (! $this->exists($name)) {
+            return null;
+        }
+
+        return $this->conversions[$name]['disk'] ?? null;
+    }
+
     /**
-     * Detect the output format from a conversion closure at registration time.
+     * All unique, non-null disk names across every registered conversion.
+     *
+     * @return string[]
      */
+    public function disks(): array
+    {
+        $disks = [];
+
+        foreach ($this->conversions as $item) {
+            if (isset($item['disk'])) {
+                $disks[$item['disk']] = true;
+            }
+        }
+
+        return array_keys($disks);
+    }
+
+    /** Inspects the closure source for `encodeUsingFormat()` / `encode('mime')` calls. */
     private function detectFormat(callable $converter): ?string
     {
         try {
@@ -107,9 +127,6 @@ class ConversionRegistry
         return null;
     }
 
-    /**
-     * Extract the closure source code using Reflection.
-     */
     private function getClosureCode(ReflectionFunction $reflection): ?string
     {
         try {

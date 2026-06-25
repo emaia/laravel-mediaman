@@ -11,6 +11,7 @@
 - [Ordering media](#ordering-media)
 - [Channel fallbacks](#channel-fallbacks)
 - [Channel conversions](#channel-conversions)
+- [Channel validation rules](#channel-validation-rules)
 - [Cross-model operations](#cross-model-operations)
 
 ## Setup
@@ -243,6 +244,81 @@ public function registerMediaChannels(): void
         ->performConversions('thumb', 'large');
 }
 ```
+
+## Channel validation rules
+
+`acceptsFile()` registers closures that run at **attach time** (not at upload). Every rule must return truthy or the attach fails with `MediaNotAcceptedByChannel` — the Media itself stays in the library, so the caller can re-attach it somewhere else or retry without re-uploading.
+
+```php
+use Emaia\MediaMan\Enums\MediaType;
+use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\Traits\HasMedia;
+
+public function registerMediaChannels(): void
+{
+    $this->addMediaChannel('hero')
+        ->acceptsFile('min-width', fn (Media $m) => $m->getImageWidth() >= 1920)
+        ->acceptsFile('landscape', fn (Media $m) => $m->getImageWidth() > $m->getImageHeight());
+
+    $this->addMediaChannel('gallery')
+        ->acceptsFile('image-only', fn (Media $m) => $m->isOfType(MediaType::IMAGE))
+        ->acceptsFile('max-5', fn (Media $m, HasMedia $model) =>
+            $model->getMedia('gallery')->count() < 5
+        );
+
+    $this->addMediaChannel('uploads')
+        ->acceptsFile('within-quota', fn (Media $m, HasMedia $model) =>
+            $model->getMedia('uploads')->sum('size') + $m->size <= 100 * 1024 * 1024
+        );
+}
+```
+
+Rules stack with implicit AND — every registered closure must pass. Pass a string as the first argument to name a rule for error reporting; the exception's `$e->rule` carries that name back to the caller.
+
+Closures receive the `Media` instance, and the owning model as a **second** parameter when the signature declares it. The package detects this with reflection once at registration, so per-item validation stays reflection-free.
+
+### Property-only vs. aggregate rules
+
+When every rule reads only the media (`mime_type`, dimensions, size, custom properties), the trait runs the **fast path**: it validates all incoming items up-front and attaches them in a single INSERT — same throughput as a channel without rules.
+
+When any rule declares the second `$model` parameter, the trait switches to the **aggregate path**:
+
+- The owning model row is locked (`lockForUpdate()`) at the start of a `DB::transaction` so concurrent batches against the same instance queue instead of racing past a `count() < N` cap.
+- Each item is validated and attached one at a time, so aggregate rules see the count grow as the batch progresses.
+- The batch is **all-or-nothing**: if any item is rejected, the whole transaction rolls back, so you never end up with a partial subset whose contents depend on input order. A thrown exception always means "nothing changed", which keeps controller `catch` blocks honest.
+
+Rules run **before** the current item is attached, so `getMedia($channel)` reflects items already accepted earlier in the batch but not the candidate itself. A `count() < N` cap needs no compensation (the Nth accepted item makes the next read return `N`), but an aggregate **sum** must include the candidate explicitly — note the `+ $m->size` in the `within-quota` example above.
+
+**Want best-effort instead?** For bulk ingestion where you'd rather keep the items that fit and skip the rest, attach per-item in a loop — atomic is the primitive, partial builds on top of it. See [Recipes → Best-effort (partial) attach](recipes.md#best-effort-partial-attach).
+
+The concurrency guarantee depends on a driver with real row locks (MySQL/InnoDB, Postgres). SQLite serializes writes via its file lock and gets equivalent safety without emitting `FOR UPDATE`.
+
+Keep rule closures cheap — they run per-item, and aggregate rules also run inside a transaction. Avoid HTTP calls and expensive filesystem reads in rules.
+
+**Side effect on the `media` relation.** The aggregate path invalidates any eager-loaded `media` relation on the model so rules read fresh data inside the transaction. After the attach call returns, accessing `$product->media` triggers a new query. If you need the relation hot for follow-up reads, call `$product->load('media')` again — or just rely on `getMedia($channel)`, which now reflects the post-attach state.
+
+**Soft-deleted media.** All three attach paths verify that every requested id exists by loading the Media row through the configured model. If your custom `Media` uses `SoftDeletes`, a trashed row is invisible to that query and the attach throws `InvalidArgumentException` reporting it as missing — which matches the intent of "cannot attach trashed media". Restore the row first (or use `Media::withTrashed()->find(...)` to surface it) before reattaching.
+
+### Handling rejection in a controller
+
+```php
+use Emaia\MediaMan\Exceptions\MediaNotAcceptedByChannel;
+
+try {
+    $product->attachMedia($media, 'hero');
+} catch (MediaNotAcceptedByChannel $e) {
+    // Default: $media stays in the library available for re-attach.
+    // To discard: $media->delete();
+
+    return back()->with('error', match ($e->rule) {
+        'min-width' => 'The hero image must be at least 1920px wide.',
+        'landscape' => 'The hero image must be landscape.',
+        default     => 'Image rejected by the hero channel.',
+    });
+}
+```
+
+`$e->channel`, `$e->rule` and `$e->mediaId` are public readonly props — pattern-match on them instead of parsing the exception message.
 
 ## Cross-model operations
 

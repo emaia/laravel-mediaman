@@ -160,7 +160,7 @@ class FormatDetectionTest extends TestCase
             'image/webp' => 'webp',
             'image/bmp' => 'bmp',
             'image/avif' => 'avif',
-            'image/tiff' => 'tiff',
+            'image/tiff' => 'tif',
             'image/heic' => 'heic',
             'image/heif' => 'heif',
         ];

@@ -258,6 +258,68 @@ it('skips the coverage line when no records exist', function () {
         ->assertExitCode(0);
 });
 
+it('reports a successful format probe when the driver supports the format', function () {
+    Config::set('mediaman.responsive_images.formats', ['webp']);
+
+    $out = captureDoctorOutput();
+
+    expect($out)
+        ->toContain('Format probe (webp)')
+        ->toContain('encodes ✓');
+});
+
+it('warns on a format probe when the driver returns zero bytes or throws', function () {
+    // GD has no HEIC encoder — the probe surfaces this without breaking the
+    // doctor (warn, not error).
+    Config::set('mediaman.driver', 'gd');
+    Config::set('mediaman.responsive_images.formats', ['heic']);
+
+    $out = captureDoctorOutput();
+
+    expect($out)
+        ->toContain('Format probe (heic)')
+        ->toContain('⚠');
+});
+
+it('warns on a format probe with an unknown format', function () {
+    Config::set('mediaman.responsive_images.formats', ['bogus']);
+
+    $out = captureDoctorOutput();
+
+    expect($out)
+        ->toContain('Format probe (bogus)')
+        ->toContain('unrecognized');
+});
+
+it('skips the format probe when formats is empty', function () {
+    Config::set('mediaman.responsive_images.formats', []);
+
+    $out = captureDoctorOutput();
+
+    expect($out)->not->toContain('Format probe');
+});
+
+it('does not emit the vips SAPI hint when a non-vips driver is effective', function () {
+    Config::set('mediaman.driver', 'gd');
+
+    $out = captureDoctorOutput();
+
+    expect($out)
+        ->toContain('Drivers\\Gd\\Driver')
+        ->not->toContain('Probe SAPI')
+        ->not->toContain('vips uses PHP FFI');
+});
+
+it('emits a successful 1x1 encode probe under any healthy driver', function () {
+    Config::set('mediaman.driver', 'gd');
+
+    $out = captureDoctorOutput();
+
+    expect($out)
+        ->toContain('Probe')
+        ->toContain('driver encodes a 1×1 test image');
+});
+
 it('reports responsive coverage when records have responsive_images persisted', function () {
     $media = MediaUploader::source(UploadedFile::fake()->image('a.jpg'))->upload();
     MediaUploader::source(UploadedFile::fake()->image('b.jpg'))->upload();

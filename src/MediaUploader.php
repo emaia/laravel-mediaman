@@ -3,57 +3,51 @@
 namespace Emaia\MediaMan;
 
 use Emaia\MediaMan\Downloaders\Downloader;
-use Emaia\MediaMan\Enums\MediaFormat;
-use Emaia\MediaMan\Enums\MediaType;
 use Emaia\MediaMan\Events\MediaUploaded;
 use Emaia\MediaMan\Exceptions\DisallowedExtension;
 use Emaia\MediaMan\Exceptions\FileSizeExceeded;
 use Emaia\MediaMan\Exceptions\InvalidBase64Data;
+use Emaia\MediaMan\Exceptions\MediaFileWriteFailed;
 use Emaia\MediaMan\Exceptions\MimeTypeNotAllowed;
-use Emaia\MediaMan\Generators\FileNamer;
+use Emaia\MediaMan\Exceptions\SvgNotAllowed;
+use Emaia\MediaMan\Exceptions\UploadFailed;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Placeholders\PlaceholderGenerator;
+use Emaia\MediaMan\Resolvers\MediaResolver;
+use Emaia\MediaMan\Security\SvgSanitizer;
 use Emaia\MediaMan\Support\UrlGuard;
 use Emaia\MediaMan\Traits\ResolvesModels;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Intervention\Image\ImageManager;
+use Symfony\Component\Mime\MimeTypes;
 
 class MediaUploader
 {
     use ResolvesModels;
 
-    /** @var UploadedFile */
-    protected $file;
+    protected UploadedFile $file;
 
-    /** @var string */
-    protected $name;
+    protected ?string $name = null;
 
-    /** @var array */
-    protected $collections = [];
+    /** @var string[] */
+    protected array $collections = [];
 
-    /** @var string */
-    protected $fileName;
+    protected ?string $fileName = null;
 
-    /** @var string */
-    protected $disk;
+    protected ?string $disk = null;
 
-    /** @var array */
-    protected $custom_properties = [];
+    protected array $custom_properties = [];
 
     protected ?array $allowedMimeTypes = null;
 
     protected ?int $maxFileSize = null;
 
-    /**
-     * Enable automatic responsive image generation.
-     */
     protected bool $generateResponsive = false;
 
-    /**
-     * Options for responsive image generation.
-     */
     protected array $responsiveOptions = [];
 
     public function __construct(UploadedFile $file)
@@ -80,7 +74,7 @@ class MediaUploader
 
         if (! $file instanceof UploadedFile) {
             throw new \InvalidArgumentException(
-                "No uploaded file in request field [{$key}]."
+                "No uploaded file in request field [$key]."
             );
         }
 
@@ -90,21 +84,43 @@ class MediaUploader
     /**
      * Create an uploader from a file on an existing filesystem disk.
      *
-     * TODO: use readStream/writeStream to avoid loading the entire file
-     * into memory at once (relevant for very large files on cloud disks).
+     * Streams the source through `readStream()` → `stream_copy_to_stream()`
+     * so memory stays constant regardless of file size (matters for video,
+     * datasets, large archives on cloud disks).
      */
     public static function fromDisk(string $path, string $disk): MediaUploader
     {
         $filesystem = Storage::disk($disk);
 
         if (! $filesystem->exists($path)) {
-            throw new \RuntimeException("File [{$path}] not found on disk [{$disk}].");
+            throw new \RuntimeException("File [$path] not found on disk [$disk].");
         }
 
         $tmpPath = tempnam(sys_get_temp_dir(), 'mediaman_');
 
         try {
-            file_put_contents($tmpPath, $filesystem->get($path));
+            $source = $filesystem->readStream($path);
+
+            if (! is_resource($source)) {
+                throw new \RuntimeException("Failed to open read stream for [$path] on disk [$disk].");
+            }
+
+            $target = fopen($tmpPath, 'wb');
+
+            if ($target === false) {
+                fclose($source);
+
+                throw new \RuntimeException("Failed to open temp file [$tmpPath] for writing.");
+            }
+
+            try {
+                if (stream_copy_to_stream($source, $target) === false) {
+                    throw new \RuntimeException("Failed to copy [$path] from disk [$disk] to temp.");
+                }
+            } finally {
+                fclose($target);
+                fclose($source);
+            }
 
             $uploadedFile = new UploadedFile(
                 $tmpPath,
@@ -184,6 +200,12 @@ class MediaUploader
 
     /**
      * Create an uploader from a remote URL.
+     *
+     * The remote `Content-Type` is treated as untrusted — extension derivation
+     * and the UploadedFile's recorded MIME come from a finfo sniff of the bytes
+     * that actually landed on disk, not from the server's header. Mismatches
+     * are surfaced via `Log::warning` so operators have an audit trail without
+     * breaking benign cases where a server mislabels by accident.
      */
     public static function fromUrl(string $url): MediaUploader
     {
@@ -199,6 +221,17 @@ class MediaUploader
             $downloader = app(Downloader::class);
             $result = $downloader->download($downloadUrl, $tmpPath, $resolved);
 
+            $sniffedMime = self::detectMimeFromFile($tmpPath);
+            $remoteMime = $result['mime'];
+
+            if ($remoteMime !== $sniffedMime) {
+                Log::warning('MediaMan: fromUrl Content-Type mismatch — using sniffed MIME', [
+                    'url' => $url,
+                    'remote_mime' => $remoteMime,
+                    'sniffed_mime' => $sniffedMime,
+                ]);
+            }
+
             $suggestedName = basename(parse_url($url, PHP_URL_PATH) ?: '');
 
             if ($suggestedName === '') {
@@ -206,7 +239,7 @@ class MediaUploader
             }
 
             if (pathinfo($suggestedName, PATHINFO_EXTENSION) === '') {
-                $ext = self::extensionForMime($result['mime']);
+                $ext = self::extensionForMime($sniffedMime);
 
                 if ($ext !== '') {
                     $suggestedName .= '.'.$ext;
@@ -216,7 +249,7 @@ class MediaUploader
             $uploadedFile = new UploadedFile(
                 $tmpPath,
                 $suggestedName,
-                $result['mime'],
+                $sniffedMime,
                 null,
                 true
             );
@@ -230,18 +263,109 @@ class MediaUploader
     }
 
     /**
-     * Pick a file extension for a MIME type. Uses the format map for images
-     * (authoritative) and falls back to the MIME subtype for other types.
+     * Create an uploader from raw bytes. MIME sniffed from content — useful
+     * for in-memory payloads (generated PDFs, headless screenshots, webhook bodies).
      */
-    private static function extensionForMime(string $mimeType): string
+    public static function fromString(string $content, string $fileName, ?string $name = null): MediaUploader
     {
-        if (str_starts_with($mimeType, 'image/')) {
-            return MediaFormat::extensionFromMimeType($mimeType);
+        $tmpPath = tempnam(sys_get_temp_dir(), 'mediaman_');
+
+        try {
+            file_put_contents($tmpPath, $content);
+
+            $uploadedFile = new UploadedFile(
+                $tmpPath,
+                $fileName,
+                self::detectMimeFromFile($tmpPath),
+                null,
+                true
+            );
+
+            $instance = new self($uploadedFile);
+
+            if ($name !== null) {
+                $instance->setName($name);
+            }
+
+            return $instance;
+        } catch (\Throwable $e) {
+            @unlink($tmpPath);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Create an uploader from a readable PHP stream resource. Caller owns the
+     * stream — `fromStream` consumes the cursor but does not call `fclose()`.
+     *
+     * @param  resource  $stream
+     *
+     * @throws \InvalidArgumentException when `$stream` is not a resource.
+     * @throws \RuntimeException when the temp file cannot be opened for writing.
+     */
+    public static function fromStream($stream, string $fileName, ?string $name = null): MediaUploader
+    {
+        if (! is_resource($stream)) {
+            throw new \InvalidArgumentException('MediaUploader::fromStream() expects a PHP stream resource.');
         }
 
-        $slash = strrpos($mimeType, '/');
+        $tmpPath = tempnam(sys_get_temp_dir(), 'mediaman_');
 
-        return $slash !== false ? substr($mimeType, $slash + 1) : '';
+        try {
+            $target = fopen($tmpPath, 'wb');
+
+            if ($target === false) {
+                throw new \RuntimeException("Failed to open temp file [$tmpPath] for writing.");
+            }
+
+            try {
+                stream_copy_to_stream($stream, $target);
+            } finally {
+                fclose($target);
+            }
+
+            $uploadedFile = new UploadedFile(
+                $tmpPath,
+                $fileName,
+                self::detectMimeFromFile($tmpPath),
+                null,
+                true
+            );
+
+            $instance = new self($uploadedFile);
+
+            if ($name !== null) {
+                $instance->setName($name);
+            }
+
+            return $instance;
+        } catch (\Throwable $e) {
+            @unlink($tmpPath);
+
+            throw $e;
+        }
+    }
+
+    /** Sniff MIME via finfo; falls back to `application/octet-stream`. */
+    private static function detectMimeFromFile(string $path): string
+    {
+        $fileInfo = finfo_open(FILEINFO_MIME_TYPE);
+
+        if ($fileInfo === false) {
+            return 'application/octet-stream';
+        }
+
+        $mimeType = finfo_file($fileInfo, $path);
+        finfo_close($fileInfo);
+
+        return is_string($mimeType) ? $mimeType : 'application/octet-stream';
+    }
+
+    /** Canonical extension for a MIME type via Symfony's MimeTypes registry. */
+    private static function extensionForMime(string $mimeType): string
+    {
+        return MimeTypes::getDefault()->getExtensions($mimeType)[0] ?? '';
     }
 
     /**
@@ -286,9 +410,7 @@ class MediaUploader
         return $rebuilt;
     }
 
-    /**
-     * Set the file to be uploaded.
-     */
+    /** Replace the source file mid-chain, re-deriving default `name` / `fileName` from it. */
     public function setFile(UploadedFile $file): MediaUploader
     {
         $this->file = $file;
@@ -302,9 +424,7 @@ class MediaUploader
         return $this;
     }
 
-    /**
-     * Set the name of the media item.
-     */
+    /** Display name persisted in the `name` column. Defaults to the file basename. */
     public function setName(string $name): MediaUploader
     {
         $this->name = $name;
@@ -317,9 +437,7 @@ class MediaUploader
         return $this->setName($name);
     }
 
-    /**
-     * Set the name of the media item.
-     */
+    /** Attach the upload to a collection (created if missing). */
     public function setCollection(string $name): MediaUploader
     {
         $this->collections[] = $name;
@@ -338,7 +456,7 @@ class MediaUploader
     }
 
     /**
-     * Set the name of the file.
+     * Override the on-disk file name (sanitized through the resolver's `baseName()`).
      */
     public function setFileName(string $fileName): MediaUploader
     {
@@ -352,17 +470,12 @@ class MediaUploader
         return $this->setFileName($fileName);
     }
 
-    /**
-     * Sanitize the file name.
-     */
     protected function sanitizeFileName(string $fileName): string
     {
-        return app(FileNamer::class)->getBaseName($fileName);
+        return app(MediaResolver::class)->baseName($fileName);
     }
 
-    /**
-     * Specify the disk where the file will be stored.
-     */
+    /** Disk where the file lands on success. Defaults to `mediaman.disk`. */
     public function setDisk(string $disk): MediaUploader
     {
         $this->disk = $disk;
@@ -380,9 +493,7 @@ class MediaUploader
         return $this->setDisk($disk);
     }
 
-    /**
-     * Set any custom custom_properties to be saved to the media item.
-     */
+    /** Custom properties (free-form JSON column) persisted on the media row. */
     public function withCustomProperties(array $custom_properties): MediaUploader
     {
         $this->custom_properties = $custom_properties;
@@ -395,12 +506,7 @@ class MediaUploader
         return $this->withCustomProperties($custom_properties);
     }
 
-    /**
-     * Set the allowed MIME types for this upload.
-     *
-     * Overrides the global `mediaman.allowed_mime_types` config.
-     * Supports wildcards like 'image/*'.
-     */
+    /** Overrides `mediaman.allowed_mime_types` for this upload. Wildcards (`image/*`) supported. */
     public function allowMimeTypes(array $mimeTypes): MediaUploader
     {
         $this->allowedMimeTypes = $mimeTypes;
@@ -408,12 +514,7 @@ class MediaUploader
         return $this;
     }
 
-    /**
-     * Set the maximum allowed file size for this upload, in bytes.
-     *
-     * Overrides the global `mediaman.max_file_size` config.
-     * Pass 0 to disable the check for this upload.
-     */
+    /** Overrides `mediaman.max_file_size` for this upload. Pass 0 to disable the check. */
     public function maxFileSize(int $bytes): MediaUploader
     {
         $this->maxFileSize = $bytes;
@@ -422,14 +523,45 @@ class MediaUploader
     }
 
     /**
-     * Upload the file to the specified disk.
+     * Atomic: row + file write + collection attach run in a single transaction;
+     * a partial failure rolls back the row and cleans the written file.
+     * Responsive generation + `MediaUploaded` event fire after commit.
      */
     public function upload(): Media
     {
+        $this->validateUploadIntegrity();
         $this->validateExtension();
         $this->validateMimeType();
         $this->validateFileSize();
+        $this->sanitizeOrRejectSvg();
 
+        $media = DB::transaction(function () {
+            $media = $this->persistMediaModel();
+
+            try {
+                $this->writeMediaFile($media);
+                $this->attachToCollections($media);
+            } catch (\Throwable $e) {
+                $this->cleanupFailedUpload($media);
+
+                throw $e;
+            }
+
+            return $media;
+        });
+
+        $this->generateResponsiveImagesIfRequested($media);
+
+        event(new MediaUploaded($media));
+
+        return $media;
+    }
+
+    /**
+     * Build and persist the media row. Does not touch storage.
+     */
+    protected function persistMediaModel(): Media
+    {
         $model = $this->mediaModel();
 
         $media = new $model;
@@ -478,12 +610,31 @@ class MediaUploader
 
         $media->save();
 
-        $media->filesystem()->putFileAs(
+        return $media;
+    }
+
+    /**
+     * Treats a `false` return from the filesystem driver as a hard failure
+     * (S3 deny, full disk) instead of silently leaving an orphan row.
+     *
+     * @throws MediaFileWriteFailed
+     */
+    protected function writeMediaFile(Media $media): void
+    {
+        $result = $media->filesystem()->putFileAs(
             $media->getDirectory(),
             $this->file,
             $this->fileName
         );
 
+        if ($result === false) {
+            throw MediaFileWriteFailed::forPath($media->getPath(), $media->disk);
+        }
+    }
+
+    /** Requested collection if any, otherwise the configured default (when one exists). */
+    protected function attachToCollections(Media $media): void
+    {
         if (count($this->collections) > 0) {
             // todo: support multiple collections
             $collectionModel = $this->collectionModel();
@@ -494,33 +645,64 @@ class MediaUploader
             $collection->validateMedia($media);
             $media->collections()->attach($collection->getKey());
             $collection->enforceMaxItems();
-        } else {
-            // add to the default collection
-            // todo: allow not to add in the default collection
-            $collectionModel = $this->collectionModel();
-            $collection = $collectionModel::findByName(config('mediaman.collection'));
-            if ($collection) {
-                $collection->validateMedia($media);
-                $media->collections()->attach($collection->getKey());
-                $collection->enforceMaxItems();
-            }
+
+            return;
         }
 
-        // Generate responsive images if requested or auto-enabled
-        if ($this->generateResponsive || config('mediaman.responsive_images.auto_generate', false)) {
-            if (config('mediaman.responsive_images.enabled', true) && $media->isOfType(MediaType::IMAGE)) {
-                $media->generateResponsiveImages($this->responsiveOptions);
-            }
+        // todo: opt-out of the default collection
+        $collectionModel = $this->collectionModel();
+        $collection = $collectionModel::findByName(config('mediaman.collection'));
+
+        if ($collection) {
+            $collection->validateMedia($media);
+            $media->collections()->attach($collection->getKey());
+            $collection->enforceMaxItems();
         }
-
-        event(new MediaUploaded($media));
-
-        return $media;
     }
 
     /**
-     * Enable responsive image generation.
+     * Best-effort cleanup for failed uploads. Each media owns an obfuscated
+     * directory so deleting it never touches another media's files. Swallows
+     * its own errors — the original failure is what the caller should see.
      */
+    protected function cleanupFailedUpload(Media $media): void
+    {
+        try {
+            $filesystem = $media->filesystem();
+
+            if (! $filesystem->deleteDirectory($media->getDirectory())) {
+                $filesystem->delete($media->getPath());
+            }
+        } catch (\Throwable) {
+            // best-effort cleanup only
+        }
+    }
+
+    /** Logged but never rolled back — variants are a derived artifact, regenerable later. */
+    protected function generateResponsiveImagesIfRequested(Media $media): void
+    {
+        $requested = $this->generateResponsive
+            || config('mediaman.responsive_images.auto_generate', false);
+
+        if (! $requested) {
+            return;
+        }
+
+        if (! config('mediaman.responsive_images.enabled', true) || ! $media->isRasterImage()) {
+            return;
+        }
+
+        try {
+            $media->generateResponsiveImages($this->responsiveOptions);
+        } catch (\Throwable $e) {
+            Log::warning('MediaMan: responsive image generation failed after upload', [
+                'media_id' => $media->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /** Enable responsive variant generation; chain `withBreakpoints`/`withFormats`/`withQuality`. */
     public function generateResponsive(array $options = []): MediaUploader
     {
         $this->generateResponsive = true;
@@ -534,18 +716,14 @@ class MediaUploader
         return str_starts_with($this->file->getMimeType() ?? '', 'image/');
     }
 
-    /**
-     * Determine whether to generate a placeholder for this upload.
-     */
     protected function shouldGeneratePlaceholder(): bool
     {
         return (bool) config('mediaman.placeholder.enabled', true);
     }
 
     /**
-     * Read width/height from an image file. Uses getimagesize() which reads
-     * only the file header (no pixel decode), falling back to a full decode
-     * for image formats the PHP function doesn't support (AVIF, HEIC, etc.).
+     * `getimagesize()` reads only the header (no pixel decode); falls back to
+     * a full Intervention decode for formats it doesn't support (AVIF, HEIC).
      */
     protected function readImageMeta(string $path): ?array
     {
@@ -570,9 +748,7 @@ class MediaUploader
         }
     }
 
-    /**
-     * Set responsive image breakpoints.
-     */
+    /** Override responsive widths (px) for this upload. */
     public function withBreakpoints(array $breakpoints): MediaUploader
     {
         $this->responsiveOptions['widths'] = $breakpoints;
@@ -580,9 +756,7 @@ class MediaUploader
         return $this;
     }
 
-    /**
-     * Set responsive image formats.
-     */
+    /** Override responsive output formats for this upload (e.g. `['webp', 'jpg']`). */
     public function withFormats(array $formats): MediaUploader
     {
         $this->responsiveOptions['formats'] = $formats;
@@ -591,20 +765,21 @@ class MediaUploader
     }
 
     /**
-     * Set responsive image quality.
+     * Override responsive encoder quality for this upload. Pass an int to apply
+     * uniformly to every lossy format, or an array keyed by format (e.g.
+     * `['avif' => 50, 'webp' => 85]`) — the array form must cover every lossy
+     * format in the resolved `formats` list or generation throws.
+     *
+     * @param  int|array<string, int>  $quality
      */
-    public function withQuality(int $quality): MediaUploader
+    public function withQuality(int|array $quality): MediaUploader
     {
         $this->responsiveOptions['quality'] = $quality;
 
         return $this;
     }
 
-    /**
-     * Validate the file MIME type against allowed types.
-     *
-     * @throws MimeTypeNotAllowed
-     */
+    /** @throws MimeTypeNotAllowed */
     protected function validateMimeType(): void
     {
         $allowed = $this->allowedMimeTypes ?? config('mediaman.allowed_mime_types', []);
@@ -625,19 +800,107 @@ class MediaUploader
     }
 
     /**
-     * Validate the file size against the configured maximum.
+     * SVG carries an XSS risk (`<script>`, `<foreignObject>`, event handlers)
+     * when served same-origin. Disabled by default; when `mediaman.svg.enabled`
+     * is true, the upload is routed through the app-supplied
+     * `Emaia\MediaMan\Security\SvgSanitizer` implementation
+     * (`mediaman.svg.sanitizer`) and the cleaned markup is what lands on disk.
      *
-     * @throws FileSizeExceeded
+     * @throws SvgNotAllowed
      */
+    protected function sanitizeOrRejectSvg(): void
+    {
+        if (! $this->looksLikeSvg()) {
+            return;
+        }
+
+        if (! config('mediaman.svg.enabled', false)) {
+            throw SvgNotAllowed::disabled();
+        }
+
+        $sanitizerClass = config('mediaman.svg.sanitizer');
+
+        if ($sanitizerClass === null) {
+            throw SvgNotAllowed::noSanitizerConfigured();
+        }
+
+        /** @var SvgSanitizer $sanitizer */
+        $sanitizer = app($sanitizerClass);
+
+        $path = $this->file->getPathname();
+        $original = file_get_contents($path);
+
+        if ($original === false) {
+            throw SvgNotAllowed::sanitizationFailed("unable to read SVG temp file at [$path].");
+        }
+
+        $clean = $sanitizer->sanitize($original);
+
+        if ($clean === null) {
+            throw SvgNotAllowed::sanitizationFailed('sanitizer rejected the SVG markup as invalid.');
+        }
+
+        if (file_put_contents($path, $clean) === false) {
+            throw SvgNotAllowed::sanitizationFailed("unable to write sanitized SVG back to [$path].");
+        }
+    }
+
+    /**
+     * 3-way SVG detection: canonical MIME → filename extension → content marker.
+     *
+     * Belt-and-suspenders: outdated `finfo` magic databases sometimes return
+     * `text/xml` for SVGs that start with `<?xml ...?>`, which would bypass
+     * the MIME check alone. The extension check catches the typical `.svg`
+     * upload regardless of sniff; the content marker covers arbitrary-extension
+     * uploads carrying SVG markup. Reads only the first 1KB.
+     */
+    protected function looksLikeSvg(): bool
+    {
+        if ($this->file->getMimeType() === 'image/svg+xml') {
+            return true;
+        }
+
+        if (strtolower(pathinfo($this->fileName, PATHINFO_EXTENSION)) === 'svg') {
+            return true;
+        }
+
+        $head = @file_get_contents($this->file->getPathname(), false, null, 0, 1024);
+
+        if ($head === false) {
+            return false;
+        }
+
+        // Strip BOM + leading whitespace + optional XML declaration.
+        $head = preg_replace('/^\xEF\xBB\xBF/', '', $head) ?? $head;
+        $head = ltrim($head);
+
+        if (str_starts_with($head, '<?xml')) {
+            $end = strpos($head, '?>');
+
+            if ($end !== false) {
+                $head = ltrim(substr($head, $end + 2));
+            }
+        }
+
+        return str_starts_with($head, '<svg');
+    }
+
+    /** @throws FileSizeExceeded */
     protected function validateFileSize(): void
     {
+        $actualBytes = (int) $this->file->getSize();
+
+        $minBytes = (int) config('mediaman.min_file_size', 1);
+
+        if ($minBytes > 0 && $actualBytes < $minBytes) {
+            throw FileSizeExceeded::belowMinimum($actualBytes, $minBytes);
+        }
+
         $maxBytes = $this->maxFileSize ?? (int) config('mediaman.max_file_size', 0);
 
         if ($maxBytes <= 0) {
             return;
         }
-
-        $actualBytes = (int) $this->file->getSize();
 
         if ($actualBytes > $maxBytes) {
             throw FileSizeExceeded::forSize($actualBytes, $maxBytes);
@@ -645,10 +908,26 @@ class MediaUploader
     }
 
     /**
-     * Validate the file extension against disallowed extensions.
+     * Surface PHP-level upload errors with the actual cause instead of
+     * letting downstream size/MIME checks mask them with misleading
+     * diagnostics. A file that hit `upload_max_filesize` arrives as a
+     * 0-byte `UploadedFile` with `isValid() === false` and `getError()`
+     * set to `UPLOAD_ERR_INI_SIZE` — reporting "below min file size"
+     * for that case blames the symptom (0 bytes), not the cause.
      *
-     * @throws DisallowedExtension
+     * @throws UploadFailed
      */
+    protected function validateUploadIntegrity(): void
+    {
+        if (! $this->file->isValid()) {
+            throw UploadFailed::fromPhpUpload(
+                $this->file->getError(),
+                $this->file->getErrorMessage(),
+            );
+        }
+    }
+
+    /** @throws DisallowedExtension */
     protected function validateExtension(): void
     {
         if (! config('mediaman.block_disallowed_extensions', true)) {

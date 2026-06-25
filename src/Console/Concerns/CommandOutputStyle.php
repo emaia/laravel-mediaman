@@ -35,7 +35,7 @@ trait CommandOutputStyle
             $this->hasErrors = true;
         }
 
-        $this->components->twoColumnDetail($label, "{$icon} {$value}");
+        $this->components->twoColumnDetail($label, "$icon $value");
     }
 
     protected function formatBytes(int $bytes): string

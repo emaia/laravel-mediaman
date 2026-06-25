@@ -17,17 +17,11 @@ class BreakpointWidthCalculator implements WidthCalculator
         $this->imageManager = $imageManager;
     }
 
-    /**
-     * Calculate widths based on predefined breakpoints.
-     */
     public function calculateWidthsFromFile(string $imagePath): Collection
     {
         return $this->calculateWidthsFromBinary((string) file_get_contents($imagePath));
     }
 
-    /**
-     * Calculate widths from in-memory binary image data.
-     */
     public function calculateWidthsFromBinary(string $binary): Collection
     {
         $image = $this->imageManager->decode($binary);
@@ -35,9 +29,7 @@ class BreakpointWidthCalculator implements WidthCalculator
         return $this->calculateWidths(strlen($binary), $image->width(), $image->height());
     }
 
-    /**
-     * Calculate widths based on breakpoints, filtered by original width.
-     */
+    /** Drops breakpoints larger than `$width`; original width is always included. */
     public function calculateWidths(int $fileSize, int $width, int $height): Collection
     {
         return collect($this->breakpoints)
@@ -49,9 +41,6 @@ class BreakpointWidthCalculator implements WidthCalculator
             ->values();
     }
 
-    /**
-     * Set custom breakpoints.
-     */
     public function setBreakpoints(array $breakpoints): self
     {
         $this->breakpoints = $breakpoints;
@@ -59,9 +48,6 @@ class BreakpointWidthCalculator implements WidthCalculator
         return $this;
     }
 
-    /**
-     * Get current breakpoints.
-     */
     public function getBreakpoints(): array
     {
         return $this->breakpoints;

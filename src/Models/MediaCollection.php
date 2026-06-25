@@ -38,7 +38,7 @@ class MediaCollection extends Model
         return config('mediaman.tables.collections', 'mediaman_collections');
     }
 
-    public static function findByName(string|array $names, array $columns = ['*'])
+    public static function findByName(string|array $names, array $columns = ['*']): Collection|static|null
     {
         $query = static::query()->select($columns);
 
@@ -59,8 +59,6 @@ class MediaCollection extends Model
         );
     }
 
-    // ─── Fluent setters ──────────────────────────────────────────────
-
     public function singleFile(): self
     {
         return $this->onlyKeepLatest(1);
@@ -79,8 +77,6 @@ class MediaCollection extends Model
 
         return $this;
     }
-
-    // ─── Validation ───────────────────────────────────────────────────
 
     public function validateMedia(Media $media): void
     {
@@ -114,8 +110,6 @@ class MediaCollection extends Model
         return false;
     }
 
-    // ─── Auto-prune ───────────────────────────────────────────────────
-
     /**
      * TODO: for collections with very large item counts, consider chunking
      * or a sub-query approach instead of loading all media into memory.
@@ -131,8 +125,8 @@ class MediaCollection extends Model
         $table = config('mediaman.tables.media');
 
         $attached = $this->media()
-            ->orderBy("{$table}.created_at", 'asc')
-            ->orderBy("{$table}.id", 'asc')
+            ->orderBy("$table.created_at", 'asc')
+            ->orderBy("$table.id", 'asc')
             ->get();
 
         if ($attached->count() <= $max) {
@@ -147,9 +141,7 @@ class MediaCollection extends Model
         event(new MediaPrunedFromCollection($this, $detachedIds));
     }
 
-    // ─── Attach / Sync / Detach (with hooks) ──────────────────────────
-
-    public function attachMedia($media): ?int
+    public function attachMedia(mixed $media): ?int
     {
         if (! $fetch = $this->fetchMedia($media)) {
             return null;
@@ -186,7 +178,7 @@ class MediaCollection extends Model
         return $attached > 0 ? $attached : null;
     }
 
-    public function syncMedia($media, bool $detaching = true): ?array
+    public function syncMedia(mixed $media, bool $detaching = true): ?array
     {
         if ($this->shouldDetachAll($media)) {
             return $this->media()->sync([]);
@@ -251,7 +243,7 @@ class MediaCollection extends Model
         return null;
     }
 
-    private function shouldDetachAll($media): bool
+    private function shouldDetachAll(mixed $media): bool
     {
         if (is_bool($media) || empty($media)) {
             return true;

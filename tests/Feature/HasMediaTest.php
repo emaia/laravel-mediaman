@@ -6,7 +6,6 @@ use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Tests\Models\Subject;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
-use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Queue;
 
 beforeEach(function () {
@@ -64,13 +63,13 @@ it('returns number of attached media when associating succeeds', function () {
     expect($attachedCount)->toEqual(1);
 });
 
-it('rethrows QueryException when attaching a non-existent media id', function () {
-    // Prior to the syncMedia rethrow fix the FK constraint violation was
-    // engulfed by a generic catch(Throwable) and surfaced as a silent null
-    // return — indistinguishable from "nothing to attach". The exception now
-    // propagates so callers can react to the integrity error.
+it('throws InvalidArgumentException when attaching a non-existent media id', function () {
+    // syncMedia validates ids exist up-front in all three attach paths so
+    // the error surfaces explicitly with the missing ids — no longer relies
+    // on FK enforcement, which would silently create orphan pivot rows on
+    // connections with foreign_key_constraints disabled.
     $this->subject->attachMedia(99999, 'custom');
-})->throws(QueryException::class);
+})->throws(InvalidArgumentException::class);
 
 it('returns number of detached media or null while disassociating', function () {
     $media = Media::factory()->create();

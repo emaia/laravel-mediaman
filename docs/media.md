@@ -39,8 +39,8 @@ $media = Media::with('collections')->find(1);
 'mime_type'         => string
 'size'              => int    // bytes
 'friendly_size'     => string // "1.2 MB"
-'media_uri'         => string // for asset()
-'media_url'         => string // direct URL
+'media_uri'         => string // getUrl() — resolver URL (url.prefix + url.versioning)
+'media_url'         => string // asset(getUrl()) — absolutized
 'disk'              => string
 'custom_properties' => array
 'created_at'        => string
@@ -62,7 +62,7 @@ $media->getFullPath('thumb');               // absolute path on disk
 $media->getDirectory();                     // base directory
 ```
 
-URL generation honors `config('mediaman.url.prefix')` and `config('mediaman.url.version_query')` — see [Configuration → URL generation](configuration.md#url-generation).
+URL generation honors `config('mediaman.url.prefix')` and `config('mediaman.url.versioning')` — see [Configuration → URL generation](configuration.md#url-generation).
 
 ## HTTP responses
 
@@ -86,7 +86,7 @@ try {
 }
 ```
 
-Default expiration via `temporary_url.default_lifetime_minutes` (5 min). Signed temporary URLs do **not** apply the `url.prefix` or `version_query` config.
+Default expiration via `temporary_url.default_lifetime_minutes` (5 min). Signed temporary URLs do **not** apply the `url.prefix` or `url.versioning` config.
 
 ## Placeholder for pending conversions
 

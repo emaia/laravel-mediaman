@@ -5,8 +5,8 @@ namespace Emaia\MediaMan\Console\Commands;
 use Emaia\MediaMan\Console\Concerns\CommandOutputStyle;
 use Emaia\MediaMan\Console\Concerns\ParsesMediaIds;
 use Emaia\MediaMan\ConversionRegistry;
-use Emaia\MediaMan\Generators\PathGenerator;
 use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\Resolvers\MediaResolver;
 use Illuminate\Console\Command;
 
 class ClearConversionsCommand extends Command
@@ -41,7 +41,7 @@ class ClearConversionsCommand extends Command
             return self::FAILURE;
         }
 
-        $query = Media::query()->where('mime_type', 'like', 'image/%');
+        $query = Media::query()->raster();
 
         if ($mediaOption = $this->option('media')) {
             $ids = $this->parseMediaIds($mediaOption);
@@ -72,7 +72,7 @@ class ClearConversionsCommand extends Command
         $total = $mediaItems->count();
         $convCount = count($conversionNames);
 
-        if ($total * $convCount > 100 && ! $this->option('force') && ! $this->confirm("Will clear {$convCount} conversion(s) on {$total} media item(s). Continue?")) {
+        if ($total * $convCount > 100 && ! $this->option('force') && ! $this->confirm("Will clear $convCount conversion(s) on $total media item(s). Continue?")) {
             $this->info('Cancelled.');
 
             return self::SUCCESS;
@@ -87,13 +87,12 @@ class ClearConversionsCommand extends Command
         $cleared = 0;
         $skipped = 0;
         $failures = [];
-        $pathGenerator = app(PathGenerator::class);
+        $resolver = app(MediaResolver::class);
 
         foreach ($mediaItems as $media) {
-            $filesystem = $media->filesystem();
-
             foreach ($conversionNames as $conv) {
-                $conversionDir = $pathGenerator->getPathForConversion($media, $conv);
+                $filesystem = $media->conversionFilesystem($conv);
+                $conversionDir = $resolver->pathForConversion($media, $conv);
 
                 try {
                     if (! $filesystem->exists($conversionDir)) {
@@ -105,7 +104,7 @@ class ClearConversionsCommand extends Command
                     if ($filesystem->deleteDirectory($conversionDir)) {
                         $cleared++;
                     } else {
-                        $failures[] = ['id' => $media->getKey(), 'name' => $media->name, 'error' => "failed to delete '{$conv}' directory"];
+                        $failures[] = ['id' => $media->getKey(), 'name' => $media->name, 'error' => "failed to delete '$conv' directory"];
                     }
                 } catch (\Exception $e) {
                     $failures[] = ['id' => $media->getKey(), 'name' => $media->name, 'error' => $e->getMessage()];

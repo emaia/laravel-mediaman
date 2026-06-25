@@ -66,73 +66,74 @@ class RotatePathsCommand extends Command
                 return;
             }
 
-            try {
-                $filesystem = Storage::disk($media->disk);
-            } catch (\InvalidArgumentException $e) {
-                $this->warn("  Media {$media->getKey()}: disk [{$media->disk}] not configured, skipping.");
+            $disks = $this->resolveMediaDisks($media);
 
-                return;
-            }
+            foreach ($disks as $diskName) {
+                try {
+                    $filesystem = Storage::disk($diskName);
+                } catch (\InvalidArgumentException $e) {
+                    $this->warn("  Media {$media->getKey()}: disk [$diskName] not configured, skipping.");
 
-            $oldExists = $filesystem->exists($oldDir);
-            $newExists = $filesystem->exists($newDir);
-
-            if (! $oldExists) {
-                if ($newExists) {
-                    $this->line("  <fg=blue>Media {$media->getKey()}</>: already at {$newDir}, skipping.");
-                    $skippedAlreadyMigrated++;
-                } else {
-                    $this->warn("  Media {$media->getKey()}: neither {$oldDir} nor {$newDir} exists on disk [{$media->disk}].");
-                    $skippedMissing++;
+                    continue;
                 }
 
-                return;
-            }
+                $oldExists = $filesystem->exists($oldDir);
+                $newExists = $filesystem->exists($newDir);
 
-            if ($newExists) {
-                $this->warn("  Media {$media->getKey()}: both {$oldDir} and {$newDir} exist. Manual review required.");
-                $skippedConflict++;
+                if (! $oldExists) {
+                    if ($newExists) {
+                        $this->line("  <fg=blue>Media {$media->getKey()}</> disk [$diskName]: already at $newDir, skipping.");
+                        $skippedAlreadyMigrated++;
+                    } else {
+                        $this->warn("  Media {$media->getKey()}: neither $oldDir nor $newDir exists on disk [$diskName].");
+                        $skippedMissing++;
+                    }
 
-                return;
-            }
+                    continue;
+                }
 
-            // $oldExists && ! $newExists — the rename we want to do.
-            if ($dryRun) {
-                $this->line("  <fg=yellow>Media {$media->getKey()}</>: would move {$oldDir} → {$newDir}");
+                if ($newExists) {
+                    $this->warn("  Media {$media->getKey()}: both $oldDir and $newDir exist on disk [$diskName]. Manual review required.");
+                    $skippedConflict++;
+
+                    continue;
+                }
+
+                if ($dryRun) {
+                    $this->line("  <fg=yellow>Media {$media->getKey()}</> disk [$diskName]: would move $oldDir → $newDir");
+                    $renamed++;
+
+                    continue;
+                }
+
+                $files = $filesystem->allFiles($oldDir);
+
+                foreach ($files as $file) {
+                    $relative = substr($file, strlen($oldDir) + 1);
+                    $filesystem->move($file, $newDir.'/'.$relative);
+                }
+
+                $filesystem->deleteDirectory($oldDir);
+
+                $fileCount = count($files);
+                $this->line("  <fg=green>Media {$media->getKey()}</> disk [$diskName]: moved $oldDir → $newDir ($fileCount file(s))");
                 $renamed++;
-
-                return;
             }
-
-            $files = $filesystem->allFiles($oldDir);
-
-            foreach ($files as $file) {
-                $relative = substr($file, strlen($oldDir) + 1);
-                $filesystem->move($file, $newDir.'/'.$relative);
-            }
-
-            // Clean up the now-empty source directory (some drivers keep
-            // empty directories around after moving the last file out).
-            $filesystem->deleteDirectory($oldDir);
-
-            $fileCount = count($files);
-            $this->line("  <fg=green>Media {$media->getKey()}</>: moved {$oldDir} → {$newDir} ({$fileCount} file(s))");
-            $renamed++;
         });
 
         $this->newLine();
-        $this->info(($dryRun ? 'Would rename' : 'Renamed').": {$renamed}");
+        $this->info(($dryRun ? 'Would rename' : 'Renamed').": $renamed");
 
         if ($skippedAlreadyMigrated > 0) {
-            $this->line("Already migrated: {$skippedAlreadyMigrated}");
+            $this->line("Already migrated: $skippedAlreadyMigrated");
         }
 
         if ($skippedMissing > 0) {
-            $this->line("Missing on disk:  {$skippedMissing}");
+            $this->line("Missing on disk:  $skippedMissing");
         }
 
         if ($skippedConflict > 0) {
-            $this->warn("Conflicts (both old + new exist): {$skippedConflict}");
+            $this->warn("Conflicts (both old + new exist): $skippedConflict");
         }
 
         if ($dryRun && $renamed > 0) {
@@ -141,5 +142,21 @@ class RotatePathsCommand extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Resolve every disk this media has files on: the primary disk, every
+     * disk a conversion resolves to (explicit register or config default),
+     * and the responsive variant disk.
+     *
+     * @return string[]
+     */
+    protected function resolveMediaDisks(Media $media): array
+    {
+        return array_values(array_unique([
+            $media->disk,
+            ...$media->getConversionDisks(),
+            $media->responsiveDisk(),
+        ]));
     }
 }

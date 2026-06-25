@@ -8,6 +8,7 @@ use Emaia\MediaMan\Models\Media;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Intervention\Image\Format;
 use Intervention\Image\ImageManager;
 use Throwable;
 
@@ -28,11 +29,51 @@ class DoctorCommand extends Command
         $this->checkImageDriver();
         $this->checkQueue();
         $this->checkConversions();
+        $this->checkSecurity();
         $this->checkMediaInventory();
 
         $this->newLine();
 
         return $this->hasErrors ? self::FAILURE : self::SUCCESS;
+    }
+
+    /** Surface security-posture defaults that adopters commonly miss. */
+    protected function checkSecurity(): void
+    {
+        $this->section('Security');
+
+        $allowed = config('mediaman.allowed_mime_types', []);
+
+        if (empty($allowed)) {
+            $this->statusLine(
+                'MIME allow-list',
+                'warn',
+                'empty — accepting all MIME types. Set `mediaman.allowed_mime_types` for production. See docs/security.md → Hardening'
+            );
+        } else {
+            $this->statusLine('MIME allow-list', 'ok', count($allowed).' MIME type(s) whitelisted');
+        }
+
+        if (config('mediaman.svg.enabled', false)) {
+            $this->statusLine(
+                'SVG uploads',
+                'warn',
+                'enabled — uploads sanitized via enshrined/svg-sanitize. Verify same-origin serving is safe.'
+            );
+        } else {
+            $this->statusLine('SVG uploads', 'ok', 'disabled (default)');
+        }
+
+        if (! config('mediaman.block_disallowed_extensions', true)) {
+            $this->statusLine(
+                'Extension blocklist',
+                'warn',
+                'disabled — server-executable extensions can land. Re-enable unless you have a specific reason.'
+            );
+        } else {
+            $count = count(config('mediaman.disallowed_extensions', []));
+            $this->statusLine('Extension blocklist', 'ok', "$count extension(s) blocked");
+        }
     }
 
     protected function checkSchema(): void
@@ -74,7 +115,7 @@ class DoctorCommand extends Command
             $relative = str_starts_with($path, base_path().'/')
                 ? substr($path, strlen(base_path()) + 1)
                 : $path;
-            $this->statusLine('Published', 'ok', "at {$relative}");
+            $this->statusLine('Published', 'ok', "at $relative");
         } else {
             $this->statusLine('Published', 'info', 'no (using package defaults — run `php artisan mediaman:publish-config` to customize)');
         }
@@ -87,12 +128,51 @@ class DoctorCommand extends Command
         $configured = config('mediaman.disk');
         $effective = $configured ?? config('filesystems.default');
 
-        $this->statusLine('Configured', 'info', $configured === null ? "null (fallback to filesystems.default = '{$effective}')" : "'{$effective}'");
+        $this->statusLine('Configured', 'info', $configured === null ? "null (fallback to filesystems.default = '$effective')" : "'$effective'");
 
+        $this->probeDisk($effective, 'Probe (write/read/delete)');
+
+        $this->checkVariantDisks();
+    }
+
+    /**
+     * Probe every distinct disk referenced by conversion registrations, the
+     * `mediaman.conversions.disk` default, and the `mediaman.responsive_images.disk`
+     * config (each only when it differs from the main disk to avoid a duplicate probe).
+     */
+    protected function checkVariantDisks(): void
+    {
+        $main = config('mediaman.disk') ?? config('filesystems.default');
+
+        $conversionDisks = array_filter([
+            ...app(ConversionRegistry::class)->disks(),
+            config('mediaman.conversions.disk'),
+        ]);
+
+        foreach (array_unique($conversionDisks) as $diskName) {
+            if ($diskName === $main) {
+                continue;
+            }
+
+            $this->probeDisk($diskName, "Conversion disk '$diskName'");
+        }
+
+        $responsiveDisk = config('mediaman.responsive_images.disk');
+
+        if ($responsiveDisk !== null && $responsiveDisk !== $main) {
+            $this->probeDisk($responsiveDisk, "Responsive disk '$responsiveDisk'");
+        }
+    }
+
+    /**
+     * Write a probe file to a disk and verify read-back integrity.
+     */
+    protected function probeDisk(string $diskName, string $label): void
+    {
         try {
-            $disk = Storage::disk($effective);
+            $disk = Storage::disk($diskName);
         } catch (Throwable $e) {
-            $this->statusLine('Probe (write/read/delete)', 'error', "disk '{$effective}' is not defined in filesystems.php");
+            $this->statusLine($label, 'error', "disk '$diskName' is not defined in filesystems.php");
 
             return;
         }
@@ -106,14 +186,14 @@ class DoctorCommand extends Command
             $disk->delete($probeFile);
 
             if ($readBack !== $probeContent) {
-                $this->statusLine('Probe (write/read/delete)', 'error', 'read-back content did not match (disk integrity issue)');
+                $this->statusLine($label, 'error', 'read-back content did not match (disk integrity issue)');
 
                 return;
             }
 
-            $this->statusLine('Probe (write/read/delete)', 'ok', 'OK');
+            $this->statusLine($label, 'ok', 'OK');
         } catch (Throwable $e) {
-            $this->statusLine('Probe (write/read/delete)', 'error', $e->getMessage());
+            $this->statusLine($label, 'error', $e->getMessage());
 
             // Best-effort cleanup if write succeeded but a later step failed.
             try {
@@ -134,7 +214,7 @@ class DoctorCommand extends Command
         $this->section('Public symlink');
 
         $diskName = config('mediaman.disk') ?? config('filesystems.default');
-        $diskConfig = config("filesystems.disks.{$diskName}");
+        $diskConfig = config("filesystems.disks.$diskName");
 
         if (! is_array($diskConfig)) {
             // Disk not defined — checkDisk() already reported this.
@@ -172,7 +252,7 @@ class DoctorCommand extends Command
             $this->statusLine(
                 'Status',
                 'info',
-                "no entry in filesystems.links targets '{$root}' — disk may be private, or run `artisan storage:link` after adding one"
+                "no entry in filesystems.links targets '$root' — disk may be private, or run `artisan storage:link` after adding one"
             );
 
             return;
@@ -182,14 +262,14 @@ class DoctorCommand extends Command
             if (is_link($linkPath)) {
                 $actual = readlink($linkPath) ?: '';
                 if ($this->normalizePath($actual) === $rootNorm) {
-                    $this->statusLine('Symlink', 'ok', "{$linkPath} → {$root}");
+                    $this->statusLine('Symlink', 'ok', "$linkPath → $root");
                 } else {
-                    $this->statusLine('Symlink', 'warn', "{$linkPath} exists but points to '{$actual}' (expected '{$root}')");
+                    $this->statusLine('Symlink', 'warn', "$linkPath exists but points to '$actual' (expected '$root')");
                 }
             } elseif (file_exists($linkPath)) {
-                $this->statusLine('Symlink', 'error', "{$linkPath} exists but is not a symlink (something is squatting on the path)");
+                $this->statusLine('Symlink', 'error', "$linkPath exists but is not a symlink (something is squatting on the path)");
             } else {
-                $this->statusLine('Symlink', 'warn', "{$linkPath} missing — run `php artisan storage:link`");
+                $this->statusLine('Symlink', 'warn', "$linkPath missing — run `php artisan storage:link`");
             }
         }
     }
@@ -217,6 +297,129 @@ class DoctorCommand extends Command
             $this->statusLine('Effective', 'ok', get_class($manager->driver));
         } catch (Throwable $e) {
             $this->statusLine('Effective', 'error', 'resolution failed: '.$e->getMessage());
+            $this->driverHint($e);
+
+            return;
+        }
+
+        // Real 1×1 PNG encode — Vips driver class instantiates without
+        // exercising FFI; bindings only load on the first decode/encode
+        // call. Without this probe doctor reports "ok" while real uploads
+        // would blow up. PNG is the universal fallback every driver
+        // supports, so a failure here is unambiguously a driver/FFI issue
+        // (not a codec gap).
+        try {
+            $manager->createImage(1, 1)->encodeUsingFormat(Format::PNG);
+            $this->statusLine('Probe', 'ok', 'driver encodes a 1×1 test image');
+        } catch (Throwable $e) {
+            $this->statusLine('Probe', 'error', 'driver loaded but failed first encode: '.$e->getMessage());
+            $this->driverHint($e);
+
+            return;
+        }
+
+        $this->sapiHint($manager);
+        $this->probeResponsiveFormats($manager);
+    }
+
+    /**
+     * Surface the SAPI/ini divergence gotcha. Drivers backed by FFI (vips)
+     * are configured per-SAPI; the SAPI doctor runs under may not be the
+     * one production serves under. The hint always shows the current SAPI
+     * + ffi.enable so operators can compare against whichever runtime
+     * actually handles requests.
+     */
+    protected function sapiHint(ImageManager $manager): void
+    {
+        if (! str_contains(get_class($manager->driver), 'Vips')) {
+            return;
+        }
+
+        $sapi = php_sapi_name();
+        $ffi = ini_get('ffi.enable') ?: 'unset';
+
+        $this->statusLine('Probe SAPI', 'info', "{$sapi} (ffi.enable={$ffi})");
+
+        $this->statusLine(
+            'Hint',
+            'info',
+            "vips uses PHP FFI, which is configured per-SAPI. This probe ran under '{$sapi}' — if uploads fail at runtime under a different SAPI (fpm-fcgi, cli-server via 'artisan serve', apache2handler, …) verify ffi.enable in THAT SAPI's php.ini. 'php --ini' (CLI) and '<?php phpinfo(); ?>' (web) show the loaded file per SAPI."
+        );
+    }
+
+    /**
+     * Surface an actionable hint for the known FFI-related failure modes —
+     * triggered by Intervention's misleading "libvips not installed" message
+     * (FFI off entirely) and by FFI-level errors thrown on the 1×1 probe.
+     * Both routes point at the same fix because FFI misconfiguration is the
+     * actual cause in every case we've seen.
+     */
+    protected function driverHint(Throwable $e): void
+    {
+        $message = $e->getMessage();
+        $looksLikeFfi = str_contains($message, 'libvips does not seem to be installed')
+            || str_contains($message, 'FFI')
+            || str_contains($message, 'ffi.enable');
+
+        if (! $looksLikeFfi) {
+            return;
+        }
+
+        $this->statusLine(
+            'Hint',
+            'info',
+            "intervention/image-driver-vips uses PHP FFI. Either set ffi.enable=true (loads bindings on demand), or set ffi.enable=preload AND preload the vips binding via an opcache.preload script — 'preload' alone without the binding script will still fail at runtime."
+        );
+    }
+
+    /**
+     * Probe each format declared in responsive_images.formats by attempting a
+     * tiny encode. Catches the silent-failure modes (driver lacks codec,
+     * libheif missing HEVC encoder plugin, etc.) before runtime hits them.
+     */
+    protected function probeResponsiveFormats(ImageManager $manager): void
+    {
+        $formats = config('mediaman.responsive_images.formats', []);
+
+        if (! is_array($formats) || $formats === []) {
+            return;
+        }
+
+        $map = [
+            'webp' => Format::WEBP,
+            'avif' => Format::AVIF,
+            'heic' => Format::HEIC,
+            'jpg' => Format::JPEG,
+            'jpeg' => Format::JPEG,
+            'png' => Format::PNG,
+            'gif' => Format::GIF,
+        ];
+
+        foreach ($formats as $format) {
+            $format = strtolower((string) $format);
+            $label = "Format probe ({$format})";
+
+            if (! isset($map[$format])) {
+                $this->statusLine($label, 'warn', 'unrecognized — variant will be skipped at runtime');
+
+                continue;
+            }
+
+            try {
+                $bytes = (string) $manager->createImage(10, 10)->fill('ff0000')->encodeUsingFormat($map[$format]);
+
+                if (strlen($bytes) === 0) {
+                    $hint = $format === 'heic'
+                        ? 'install libheif HEVC encoder plugin (e.g. libheif-plugin-x265)'
+                        : 'driver lacks codec support for this format';
+
+                    $this->statusLine($label, 'warn', "encoder returned zero bytes — {$hint}");
+                } else {
+                    $this->statusLine($label, 'ok', 'encodes ✓');
+                }
+            } catch (Throwable $e) {
+                $this->statusLine($label, 'warn', $e->getMessage());
+            }
         }
     }
 
@@ -225,7 +428,7 @@ class DoctorCommand extends Command
         $this->section('Queue');
 
         $connection = config('mediaman.queue') ?? config('queue.default');
-        $this->statusLine('Connection', 'info', "'{$connection}'");
+        $this->statusLine('Connection', 'info', "'$connection'");
 
         $autoGenerate = (bool) config('mediaman.responsive_images.auto_generate', false);
         $queued = (bool) config('mediaman.responsive_images.queue', true);
@@ -281,7 +484,7 @@ class DoctorCommand extends Command
             $this->statusLine(
                 'Responsive coverage',
                 'info',
-                number_format($withResponsive).' / '.number_format($total)." ({$pct}%)"
+                number_format($withResponsive).' / '.number_format($total)." ($pct%)"
             );
         } catch (Throwable $e) {
             $this->statusLine('Responsive coverage', 'warn', 'coverage query failed: '.$e->getMessage());

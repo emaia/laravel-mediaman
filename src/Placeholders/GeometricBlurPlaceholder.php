@@ -23,10 +23,6 @@ class GeometricBlurPlaceholder implements PlaceholderGenerator
                 return null;
             }
 
-            // resize() to N×N forces non-aspect-preserving downscale, so each
-            // pixel in the thumb is the area-weighted average of the matching
-            // block of the source — the heavy lifting is one C-level resample
-            // pass; the colorAt loop then reads N² pixels off the thumb.
             $thumb = $this->images
                 ->decode(file_get_contents($sourcePath))
                 ->resize(width: $gridSize, height: $gridSize);

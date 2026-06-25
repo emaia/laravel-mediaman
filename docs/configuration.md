@@ -15,6 +15,7 @@ The config file is organized in four blocks: essentials, validation/security def
 **Validation & security defaults**
 - [Allowed MIME types and file size](#allowed-mime-types-and-file-size)
 - [Disallowed extensions](#disallowed-extensions)
+- [SVG uploads](#svg-uploads)
 
 **Per-feature configuration**
 - [URL sources (for `fromUrl()`)](#url-sources-for-fromurl)
@@ -27,7 +28,7 @@ The config file is organized in four blocks: essentials, validation/security def
 **Customization**
 - [Custom models](#custom-models)
 - [Table names](#table-names)
-- [Pluggable generators](#pluggable-generators)
+- [Pluggable MediaResolver](#pluggable-mediaresolver)
 - [Disk accessibility checks](#disk-accessibility-checks)
 
 ---
@@ -117,9 +118,10 @@ A collection with this name is seeded on first migration and used as the fallbac
 ```php
 'allowed_mime_types' => ['image/jpeg', 'image/png', 'application/pdf'], // empty = allow all
 'max_file_size'      => 10 * 1024 * 1024,                                // 10 MB; 0 = unlimited
+'min_file_size'      => env('MEDIAMAN_MIN_FILE_SIZE', 1),                // bytes; 0 = allow empty uploads
 ```
 
-`allowed_mime_types` supports wildcards (`image/*`).
+`allowed_mime_types` supports wildcards (`image/*`). Out-of-bounds uploads (above `max_file_size` or below `min_file_size`) throw `FileSizeExceeded`. PHP-level upload failures (`upload_max_filesize` exceeded at the framework boundary, `partial`, `no_tmp_dir`) throw `UploadFailed` separately — see [Security → Minimum upload size](security.md#minimum-upload-size).
 
 ## Disallowed extensions
 
@@ -128,10 +130,25 @@ Block executable/server-side file extensions on upload (see [Security](security.
 ```php
 'block_disallowed_extensions' => true,
 'disallowed_extensions' => [
+    // Server-side execution (Apache/Nginx interpret these when configured)
     'php', 'phtml', 'phar', 'shtml', 'htaccess',
     'cgi', 'pl', 'asp', 'aspx', 'jsp', 'jspx',
+    // Defense in depth: interpreter scripts + Windows-side executables
+    'sh', 'bash', 'zsh', 'py', 'rb',
+    'exe', 'com', 'msi', 'scr', 'bat', 'cmd', 'vbs', 'ps1',
 ],
 ```
+
+## SVG uploads
+
+```php
+'svg' => [
+    'enabled'   => env('MEDIAMAN_SVG_ENABLED', false),   // disabled by default
+    'sanitizer' => null,                                 // FQCN of an Emaia\MediaMan\Security\SvgSanitizer
+],
+```
+
+Disabled by default — SVG carries XSS risk via embedded `<script>` / `<foreignObject>`. When enabled, every upload routes through the configured `SvgSanitizer` before landing on disk. See [Security → SVG uploads](security.md#svg-uploads) for adapter recommendations and failure modes.
 
 ---
 
@@ -173,16 +190,18 @@ Default expiration for `Media::getTemporaryUrl()` when no explicit expiration is
 
 ## URL generation
 
-Apply a CDN prefix and/or cache-busting query string to all generated URLs (see [API → DefaultUrlGenerator](api.md#urlgenerator)):
+Apply a CDN prefix and/or cache-busting strategy to all generated URLs (see [API → MediaResolver](api.md#mediaresolver)):
 
 ```php
 'url' => [
-    'version_query' => false, // append ?v={updated_at} for cache busting
-    'prefix'        => null,  // e.g. 'https://cdn.example.com'
+    'versioning' => false,  // false | 'timestamp' (appends ?v={updated_at})
+    'prefix'     => null,   // e.g. 'https://cdn.example.com'
 ],
 ```
 
 For absolute storage URLs (S3-style), the prefix correctly strips scheme+host before reapplying. Temporary signed URLs are **not** prefixed or version-tagged.
+
+> **Upgrading from v2:** the boolean `version_query` was renamed to the string enum `versioning` in v3.0. The legacy key is no longer read — rename `'version_query' => true` to `'versioning' => 'timestamp'`.
 
 ## Placeholder
 
@@ -241,20 +260,20 @@ Responsive images are **opt-in** — no variants are generated unless you call `
 ],
 ```
 
-| Option                                            | Default                        | Description                                                                                       |
-|---------------------------------------------------|--------------------------------|---------------------------------------------------------------------------------------------------|
-| `enabled`                                         | `true`                         | Kill-switch. When `false`, explicit `generateResponsive()` no-ops.                                |
-| `auto_generate`                                   | `false`                        | Automatically generate on every image upload.                                                     |
-| `queue`                                           | `true`                         | Queue generation jobs instead of processing inline.                                               |
-| `breakpoints`                                     | `[320, 640, 1024, 1366, 1920]` | Widths (in px) to generate.                                                                       |
-| `formats`                                         | `['webp']`                     | Output formats.                                                                                   |
-| `quality`                                         | `85`                           | JPEG/WebP quality (1–100).                                                                        |
-| `width_calculator`                                | `'breakpoint'`                 | `breakpoint` uses fixed widths; `file_size_optimized` selects widths based on file-size reduction |
-| `min_width`                                       | `320`                          | Images narrower than this won't generate a variant.                                               |
-| `max_width`                                       | `2560`                         | Widths above this are capped.                                                                     |
-| `file_size_optimized.reduction_factor`            | `0.7`                          | File-size reduction multiplier per iteration (0–1).                                               |
-| `file_size_optimized.min_width`                   | `20`                           | Stop iterating when calculated width falls below this (px).                                       |
-| `file_size_optimized.min_file_size_bytes`         | `10240`                        | Stop when predicted file size falls below this (bytes).                                           |
+| Option                                    | Default                        | Description                                                                                                                                                                                                                     |
+|-------------------------------------------|--------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `enabled`                                 | `true`                         | Kill-switch. When `false`, explicit `generateResponsive()` no-ops.                                                                                                                                                              |
+| `auto_generate`                           | `false`                        | Automatically generate on every image upload.                                                                                                                                                                                   |
+| `queue`                                   | `true`                         | Queue generation jobs instead of processing inline.                                                                                                                                                                             |
+| `breakpoints`                             | `[320, 640, 1024, 1366, 1920]` | Widths (in px) to generate.                                                                                                                                                                                                     |
+| `formats`                                 | `['webp']`                     | Output formats. Supported: `webp`, `avif`, `jpg`, `png`, `gif`, `heic`. Order determines `<source>` precedence in the rendered `<picture>`. Driver/codec support varies — run `php artisan mediaman:doctor` to surface gaps. |
+| `quality`                                 | `85`                           | Lossy encoder quality (1–100). Scalar applies to every lossy format, or pass an array keyed by format (`['avif' => 50, 'webp' => 85]`) — see [Responsive images → Per-format quality](responsive-images.md#per-format-quality). |
+| `width_calculator`                        | `'breakpoint'`                 | `breakpoint` uses fixed widths; `file_size_optimized` selects widths based on file-size reduction                                                                                                                               |
+| `min_width`                               | `320`                          | Images narrower than this won't generate a variant.                                                                                                                                                                             |
+| `max_width`                               | `2560`                         | Widths above this are capped.                                                                                                                                                                                                   |
+| `file_size_optimized.reduction_factor`    | `0.7`                          | File-size reduction multiplier per iteration (0–1).                                                                                                                                                                             |
+| `file_size_optimized.min_width`           | `20`                           | Stop iterating when calculated width falls below this (px).                                                                                                                                                                     |
+| `file_size_optimized.min_file_size_bytes` | `10240`                        | Stop when predicted file size falls below this (bytes).                                                                                                                                                                         |
 
 See [Responsive Images](responsive-images.md) for usage.
 
@@ -315,7 +334,7 @@ $table->uuid('id')->primary();          // was: bigIncrements('id')
 $table->foreignUuid('media_id');         // was: unsignedBigInteger('media_id')
 ```
 
-The obfuscated storage path works unchanged — `DefaultPathGenerator` builds the directory from `$media->getKey()`, and `HasUuids` generates the key before the row is saved (and before the file is stored).
+The obfuscated storage path works unchanged — `DefaultMediaResolver::directory()` builds the directory from `$media->getKey()`, and `HasUuids` generates the key before the row is saved (and before the file is stored).
 
 ### Soft deletes
 
@@ -352,27 +371,44 @@ Each table can be renamed if it conflicts with something in your app:
 ],
 ```
 
-## Pluggable generators
+## Pluggable MediaResolver
 
-Swap path, URL, and filename generation:
-
-```php
-'generators' => [
-    'path'       => \Emaia\MediaMan\Generators\DefaultPathGenerator::class,
-    'url'        => \Emaia\MediaMan\Generators\DefaultUrlGenerator::class,
-    'file_namer' => \Emaia\MediaMan\Generators\DefaultFileNamer::class,
-],
-```
-
-Or bind a custom implementation in any service provider:
+Path, URL, and filename generation live behind a single interface — `MediaResolver` — instead of the v2 trio (`PathGenerator` + `UrlGenerator` + `FileNamer`). One bind, one config key, one class to extend when you need to customize:
 
 ```php
-use Emaia\MediaMan\Generators\PathGenerator;
-
-$this->app->bind(PathGenerator::class, MyTenantPathGenerator::class);
+'resolver' => \Emaia\MediaMan\Resolvers\DefaultMediaResolver::class,
 ```
 
-See [API → Generators](api.md#generators) for the interfaces.
+Most customizations only touch one or two methods (tenant prefix on the directory, CDN URL strategy, custom conversion filename). Extend `DefaultMediaResolver` and override what you need; the rest stays default:
+
+```php
+namespace App\MediaMan;
+
+use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\Resolvers\DefaultMediaResolver;
+
+class TenantMediaResolver extends DefaultMediaResolver
+{
+    public function directory(Media $media): string
+    {
+        return 'tenants/'.tenant()->id.'/'.parent::directory($media);
+    }
+}
+```
+
+```php
+'resolver' => \App\MediaMan\TenantMediaResolver::class,
+```
+
+Or bind ad-hoc in any service provider:
+
+```php
+use Emaia\MediaMan\Resolvers\MediaResolver;
+
+$this->app->singleton(MediaResolver::class, TenantMediaResolver::class);
+```
+
+See [API → MediaResolver](api.md#mediaresolver) for the interface.
 
 ## Disk accessibility checks
 

@@ -15,10 +15,8 @@ use Emaia\MediaMan\Console\Commands\RotatePathsCommand;
 use Emaia\MediaMan\Console\Commands\StatsCommand;
 use Emaia\MediaMan\Downloaders\Downloader;
 use Emaia\MediaMan\Downloaders\HttpDownloader;
-use Emaia\MediaMan\Generators\FileNamer;
-use Emaia\MediaMan\Generators\PathGenerator;
-use Emaia\MediaMan\Generators\UrlGenerator;
 use Emaia\MediaMan\Placeholders\PlaceholderGenerator;
+use Emaia\MediaMan\Resolvers\MediaResolver;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\BreakpointWidthCalculator;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\FileSizeOptimizedWidthCalculator;
@@ -45,13 +43,11 @@ class MediaManServiceProvider extends ServiceProvider
 
         $this->app->bind(Downloader::class, HttpDownloader::class);
 
-        $this->app->singleton(PathGenerator::class, config('mediaman.generators.path'));
-        $this->app->singleton(UrlGenerator::class, config('mediaman.generators.url'));
-        $this->app->singleton(FileNamer::class, config('mediaman.generators.file_namer'));
-        // Resolve via closure so config('mediaman.placeholder.generator') is
-        // evaluated at first resolve time, not at register time — lets tests
-        // (and apps) swap the implementation via Config::set without forcing
-        // an instance() override.
+        // Lazy closures so swapping these via Config::set takes effect without rebinding.
+        $this->app->singleton(
+            MediaResolver::class,
+            fn ($app) => $app->make(config('mediaman.resolver'))
+        );
         $this->app->singleton(
             PlaceholderGenerator::class,
             fn ($app) => $app->make(config('mediaman.placeholder.generator'))
@@ -111,7 +107,7 @@ class MediaManServiceProvider extends ServiceProvider
                 'imagick' => ImageManager::usingDriver(ImagickDriver::class),
                 'gd' => ImageManager::usingDriver(GdDriver::class),
                 default => throw new InvalidArgumentException(
-                    "Unsupported image driver [{$driver}]. Supported: \"vips\", \"imagick\", \"gd\"."
+                    "Unsupported image driver [$driver]. Supported: \"vips\", \"imagick\", \"gd\"."
                 ),
             };
         });
@@ -187,8 +183,11 @@ class MediaManServiceProvider extends ServiceProvider
             $calculator = config('mediaman.responsive_images.width_calculator', 'breakpoint');
 
             return match ($calculator) {
+                'breakpoint' => $app->make('mediaman.width_calculator.breakpoint'),
                 'file_size_optimized' => $app->make('mediaman.width_calculator.file_size_optimized'),
-                default => $app->make('mediaman.width_calculator.breakpoint'),
+                default => throw new InvalidArgumentException(
+                    "Unknown responsive_images.width_calculator [$calculator]. Supported: 'breakpoint', 'file_size_optimized'."
+                ),
             };
         });
 

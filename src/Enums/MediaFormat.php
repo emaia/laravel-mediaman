@@ -2,6 +2,8 @@
 
 namespace Emaia\MediaMan\Enums;
 
+use Symfony\Component\Mime\MimeTypes;
+
 enum MediaFormat: string
 {
     case WEBP = 'webp';
@@ -16,9 +18,6 @@ enum MediaFormat: string
     case HEIF = 'heif';
     case SVG = 'svg';
 
-    /**
-     * Get the MIME type for this format.
-     */
     public function mimeType(): string
     {
         return match ($this) {
@@ -35,69 +34,55 @@ enum MediaFormat: string
         };
     }
 
-    /**
-     * Get formats supported for responsive image generation.
-     */
+    /** Formats supported as responsive variant outputs. */
     public static function responsiveFormats(): array
     {
-        return [self::AVIF, self::WEBP, self::JPG, self::JPEG, self::PNG, self::GIF];
+        return [self::AVIF, self::WEBP, self::HEIC, self::JPG, self::JPEG, self::PNG, self::GIF];
     }
 
-    /**
-     * Get formats in preferred order (modern first).
-     */
+    /** Responsive formats whose encoder takes a quality parameter (lossy). */
+    public static function lossyResponsiveFormats(): array
+    {
+        return [self::AVIF, self::WEBP, self::HEIC, self::JPG, self::JPEG];
+    }
+
+    /** Modern-first ordering driving `<source>` precedence in `<picture>` output. */
     public static function preferredOrder(): array
     {
-        return [self::AVIF, self::WEBP, self::JPG, self::JPEG, self::PNG];
+        return [self::AVIF, self::HEIC, self::WEBP, self::JPG, self::JPEG, self::PNG];
     }
 
-    /**
-     * Get all formats used in format detection.
-     */
+    /** Formats probed when reading existing variants from disk. */
     public static function detectableFormats(): array
     {
         return [self::WEBP, self::AVIF, self::PNG, self::JPG, self::GIF, self::BMP, self::TIFF, self::HEIC, self::HEIF];
     }
 
     /**
-     * Try to create from string value, returning null on failure.
+     * MIME types accepted by the image manipulation pipeline — derived from
+     * `detectableFormats()` so the allowlist stays in sync with the enum.
      */
+    public static function rasterMimeTypes(): array
+    {
+        return array_values(array_unique(array_map(
+            fn (self $format) => $format->mimeType(),
+            self::detectableFormats(),
+        )));
+    }
+
+    /** Case-insensitive variant of `tryFrom()`. */
     public static function tryFromValue(string $value): ?self
     {
         return self::tryFrom(strtolower($value));
     }
 
     /**
-     * Get file extension from a MIME type.
+     * Canonical extension for a MIME type via Symfony's MimeTypes registry.
+     * Returns null for unknown MIMEs so callers can fail loudly instead of
+     * writing files with a wrong-but-plausible extension (PR #31 family).
      */
-    public static function extensionFromMimeType(string $mimeType): string
+    public static function extensionFromMimeType(string $mimeType): ?string
     {
-        static $map = [
-            // Standard formats
-            'image/jpeg' => 'jpg',
-            'image/png' => 'png',
-            'image/gif' => 'gif',
-            'image/webp' => 'webp',
-            'image/bmp' => 'bmp',
-            'image/svg+xml' => 'svg',
-
-            // Extended formats supported by Intervention Image
-            'image/avif' => 'avif',
-            'image/tiff' => 'tiff',
-            'image/tif' => 'tif',
-            'image/jp2' => 'jp2',
-            'image/jpx' => 'jpx',
-            'image/jpm' => 'jpm',
-            'image/heic' => 'heic',
-            'image/heif' => 'heif',
-
-            // Alternative MIME types
-            'image/x-ms-bmp' => 'bmp',
-            'image/x-windows-bmp' => 'bmp',
-            'image/vnd.adobe.photoshop' => 'psd',
-            'image/x-photoshop' => 'psd',
-        ];
-
-        return $map[$mimeType] ?? 'jpg';
+        return MimeTypes::getDefault()->getExtensions($mimeType)[0] ?? null;
     }
 }

@@ -6,10 +6,18 @@ use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\BreakpointWidthCalculator;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\WidthCalculator;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Log;
 use Intervention\Image\ImageManager;
+use Intervention\Image\Interfaces\EncodedImageInterface;
+use Intervention\Image\Interfaces\ImageInterface;
 
 beforeEach(function () {
     $this->generator = app(ResponsiveImageGenerator::class);
+
+    // Disable global width clamps by default — individual tests opt-in
+    // when they're specifically validating clamp behavior.
+    config()->set('mediaman.responsive_images.min_width', 0);
+    config()->set('mediaman.responsive_images.max_width', 0);
 });
 
 it('does nothing for non-image media', function () {
@@ -121,4 +129,287 @@ it('uses the configured width calculator when widths option is omitted', functio
     $this->generator->generateResponsiveImages($media, ['formats' => ['jpg']]);
 
     expect($media->fresh()->getResponsiveImages()->pluck('width')->unique()->toArray())->toEqual([300]);
+});
+
+it('generates heic/heif responsive variants when the driver supports it', function () {
+    $file = UploadedFile::fake()->image('photo.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [320],
+        'formats' => ['heic', 'webp'],
+    ]);
+
+    $responsive = $media->fresh()->getResponsiveImages();
+    $formats = $responsive->pluck('format')->toArray();
+
+    expect($formats)->toContain('webp');
+
+    if (in_array('heic', $formats)) {
+        $heic = $responsive->firstWhere('format', 'heic');
+        expect((int) $heic->width)->toBe(320);
+        expect($heic->url)->toEndWith('.heic');
+    }
+});
+
+it('generates jpg variants when jpg format requested', function () {
+    $file = UploadedFile::fake()->image('photo.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [320],
+        'formats' => ['jpg'],
+    ]);
+
+    $responsive = $media->fresh()->getResponsiveImages();
+
+    expect($responsive)->toHaveCount(1)
+        ->and($responsive->first()->format)->toBe('jpg')
+        ->and($responsive->first()->url)->toEndWith('.jpg');
+});
+
+it('skips a format when the encoder returns zero bytes (e.g. imagick without libheif)', function () {
+    Log::spy();
+
+    $file = UploadedFile::fake()->image('photo.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    // Simulate a driver that "succeeds" with an empty payload — the silent-failure
+    // mode of imagick without libheif when asked to encode HEIC.
+    $emptyEncoded = Mockery::mock(EncodedImageInterface::class);
+    $emptyEncoded->shouldReceive('__toString')->andReturn('');
+
+    $image = Mockery::mock(ImageInterface::class);
+    $image->shouldReceive('width')->andReturn(800);
+    $image->shouldReceive('height')->andReturn(600);
+    $image->shouldReceive('scaleDown')->andReturnSelf();
+    $image->shouldReceive('encodeUsingFormat')->andReturn($emptyEncoded);
+    $image->shouldReceive('__clone');
+
+    $manager = Mockery::mock(ImageManager::class);
+    $manager->shouldReceive('decode')->andReturn($image);
+
+    $generator = new ResponsiveImageGenerator($manager, app(WidthCalculator::class));
+
+    $generator->generateResponsiveImages($media, [
+        'widths' => [320],
+        'formats' => ['heic'],
+    ]);
+
+    $formats = $media->fresh()->getResponsiveImages()->pluck('format')->toArray();
+
+    // Zero-byte HEIC was skipped — no garbage `.heic` file on disk, no entry in the
+    // responsive_images metadata.
+    expect($formats)->toBe([]);
+
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn ($message, $context) => str_contains($message, 'Skipping responsive format')
+            && ($context['format'] ?? null) === 'heic'
+            && str_contains($context['error'] ?? '', 'zero bytes'));
+});
+
+it('skips unknown formats with a warning instead of falling back to JPEG bytes', function () {
+    Log::spy();
+
+    $file = UploadedFile::fake()->image('photo.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [320],
+        'formats' => ['webp', 'bogus'],
+    ]);
+
+    $responsive = $media->fresh()->getResponsiveImages();
+    $formats = $responsive->pluck('format')->toArray();
+
+    // webp succeeded, bogus was skipped — disk never got a `bogus`-extension file
+    // carrying JPEG bytes (the regression this guards against).
+    expect($formats)->toBe(['webp']);
+
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn ($message, $context) => str_contains($message, 'Skipping responsive format')
+            && ($context['format'] ?? null) === 'bogus'
+            && str_contains($context['error'] ?? '', 'Unsupported responsive format'));
+});
+
+// --- Global min_width / max_width clamps ---
+
+it('drops widths below the global min_width clamp', function () {
+    config()->set('mediaman.responsive_images.min_width', 500);
+
+    $file = UploadedFile::fake()->image('photo.jpg', 1920, 1080);
+    $media = MediaUploader::source($file)->upload();
+
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [200, 400, 600, 1000],
+        'formats' => ['jpg'],
+    ]);
+
+    $widths = $media->fresh()->getResponsiveImages()->pluck('width')->sort()->values()->toArray();
+
+    expect($widths)->toEqual([600, 1000]);
+});
+
+it('drops widths above the global max_width clamp', function () {
+    config()->set('mediaman.responsive_images.max_width', 800);
+
+    $file = UploadedFile::fake()->image('photo.jpg', 1920, 1080);
+    $media = MediaUploader::source($file)->upload();
+
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [320, 640, 1024, 1920],
+        'formats' => ['jpg'],
+    ]);
+
+    $widths = $media->fresh()->getResponsiveImages()->pluck('width')->sort()->values()->toArray();
+
+    expect($widths)->toEqual([320, 640]);
+});
+
+it('applies both min and max clamps simultaneously', function () {
+    config()->set('mediaman.responsive_images.min_width', 400);
+    config()->set('mediaman.responsive_images.max_width', 1000);
+
+    $file = UploadedFile::fake()->image('photo.jpg', 1920, 1080);
+    $media = MediaUploader::source($file)->upload();
+
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [200, 500, 800, 1200, 1920],
+        'formats' => ['jpg'],
+    ]);
+
+    $widths = $media->fresh()->getResponsiveImages()->pluck('width')->sort()->values()->toArray();
+
+    expect($widths)->toEqual([500, 800]);
+});
+
+it('zero clamps mean no clamping', function () {
+    config()->set('mediaman.responsive_images.min_width', 0);
+    config()->set('mediaman.responsive_images.max_width', 0);
+
+    $file = UploadedFile::fake()->image('photo.jpg', 1920, 1080);
+    $media = MediaUploader::source($file)->upload();
+
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [320, 640, 1024, 1920],
+        'formats' => ['jpg'],
+    ]);
+
+    $widths = $media->fresh()->getResponsiveImages()->pluck('width')->sort()->values()->toArray();
+
+    expect($widths)->toEqual([320, 640, 1024, 1920]);
+});
+
+// --- Per-format quality ---
+
+it('accepts a scalar quality and applies it across every lossy format', function () {
+    $file = UploadedFile::fake()->image('photo.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [400],
+        'formats' => ['jpg', 'webp'],
+        'quality' => 80,
+    ]);
+
+    $formats = $media->fresh()->getResponsiveImages()->pluck('format')->sort()->values()->toArray();
+
+    expect($formats)->toEqual(['jpg', 'webp']);
+});
+
+it('accepts a per-format quality array', function () {
+    $file = UploadedFile::fake()->image('photo.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [400],
+        'formats' => ['jpg', 'webp'],
+        'quality' => ['jpg' => 70, 'webp' => 50],
+    ]);
+
+    $formats = $media->fresh()->getResponsiveImages()->pluck('format')->sort()->values()->toArray();
+
+    expect($formats)->toEqual(['jpg', 'webp']);
+});
+
+it('throws when per-format quality array misses a lossy format from formats', function () {
+    $file = UploadedFile::fake()->image('photo.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    expect(fn () => $this->generator->generateResponsiveImages($media, [
+        'widths' => [400],
+        'formats' => ['jpg', 'webp'],
+        'quality' => ['jpg' => 80], // missing webp
+    ]))
+        ->toThrow(InvalidArgumentException::class, 'missing entries for [webp]');
+});
+
+it('does not require entries for lossless formats (png/gif) in the quality array', function () {
+    $file = UploadedFile::fake()->image('photo.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [400],
+        'formats' => ['jpg', 'png'],
+        'quality' => ['jpg' => 80], // png intentionally omitted — encoder ignores quality
+    ]);
+
+    $formats = $media->fresh()->getResponsiveImages()->pluck('format')->sort()->values()->toArray();
+
+    expect($formats)->toEqual(['jpg', 'png']);
+});
+
+it('accepts extra quality keys for formats not in the formats list', function () {
+    $file = UploadedFile::fake()->image('photo.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [400],
+        'formats' => ['jpg'],
+        'quality' => ['jpg' => 80, 'webp' => 60, 'avif' => 50], // webp/avif unused
+    ]);
+
+    $formats = $media->fresh()->getResponsiveImages()->pluck('format')->toArray();
+
+    expect($formats)->toEqual(['jpg']);
+});
+
+it('uses the array form when configured at the config level (no per-call override)', function () {
+    config()->set('mediaman.responsive_images.formats', ['jpg', 'webp']);
+    config()->set('mediaman.responsive_images.quality', ['jpg' => 80, 'webp' => 60]);
+
+    $file = UploadedFile::fake()->image('photo.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    $this->generator->generateResponsiveImages($media, ['widths' => [400]]);
+
+    $formats = $media->fresh()->getResponsiveImages()->pluck('format')->sort()->values()->toArray();
+
+    expect($formats)->toEqual(['jpg', 'webp']);
+});
+
+it('throws when config-level quality array misses a lossy format from configured formats', function () {
+    config()->set('mediaman.responsive_images.formats', ['jpg', 'webp']);
+    config()->set('mediaman.responsive_images.quality', ['jpg' => 80]); // missing webp
+
+    $file = UploadedFile::fake()->image('photo.jpg', 800, 600);
+    $media = MediaUploader::source($file)->upload();
+
+    expect(fn () => $this->generator->generateResponsiveImages($media, ['widths' => [400]]))
+        ->toThrow(InvalidArgumentException::class, 'missing entries for [webp]');
+});
+
+it('MediaUploader::withQuality accepts both scalar and array shapes', function () {
+    $file = UploadedFile::fake()->image('photo.jpg', 800, 600);
+
+    $media = MediaUploader::source($file)
+        ->generateResponsive()
+        ->withFormats(['jpg', 'webp'])
+        ->withBreakpoints([400])
+        ->withQuality(['jpg' => 75, 'webp' => 55])
+        ->upload();
+
+    $formats = $media->fresh()->getResponsiveImages()->pluck('format')->sort()->values()->toArray();
+
+    expect($formats)->toEqual(['jpg', 'webp']);
 });

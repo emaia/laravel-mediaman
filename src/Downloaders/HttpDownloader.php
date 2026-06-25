@@ -36,7 +36,7 @@ class HttpDownloader implements Downloader
                     'sink' => $destinationPath,
                     'progress' => function (int $downloadTotal, int $downloadedBytes) use ($maxSize) {
                         if ($downloadedBytes > $maxSize) {
-                            throw new RuntimeException('Download exceeds maximum allowed size.');
+                            throw FileSizeExceeded::forSize($downloadedBytes, $maxSize);
                         }
                     },
                 ])

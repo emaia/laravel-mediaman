@@ -39,7 +39,7 @@ it('registers a conversion and generates it for a media item', function () {
 
     $out = captureGenerateConversionsOutput(['--conversion' => 'thumb', '--force' => true]);
 
-    expect($out)->toContain('Generate conversions', 'Conversions', 'thumb', 'Media items', 'Processed', '1');
+    expect($out)->toContain('Generate conversions', 'Conversions', 'thumb', 'Media items', 'Completed conversions', '1');
 
     $path = $media->fresh()->getPath('thumb');
     expect(Storage::disk(self::DEFAULT_DISK)->exists($path))->toBeTrue();
@@ -79,7 +79,7 @@ it('overwrites existing conversions with --force', function () {
 
     $out = captureGenerateConversionsOutput(['--conversion' => 'thumb', '--force' => true]);
 
-    expect($out)->toContain('Processed', '1');
+    expect($out)->toContain('Completed conversions', '1');
 
     $mtimeAfter = Storage::disk(self::DEFAULT_DISK)->lastModified($media->getPath('thumb'));
 
@@ -100,7 +100,7 @@ it('filters by --media with individual IDs', function () {
         '--media' => (string) $m1->id,
     ]);
 
-    expect($out)->toContain('Media items', 'Processed', '1');
+    expect($out)->toContain('Media items', 'Completed conversions', '1');
 });
 
 it('filters by --media with range syntax', function () {
@@ -118,7 +118,7 @@ it('filters by --media with range syntax', function () {
         '--media' => "{$m2->id}..{$m3->id}",
     ]);
 
-    expect($out)->toContain('Media items', 'Processed', '2');
+    expect($out)->toContain('Media items', 'Completed conversions', '2');
 });
 
 it('filters by --media with mixed IDs and ranges', function () {
@@ -136,7 +136,7 @@ it('filters by --media with mixed IDs and ranges', function () {
         '--media' => "{$m1->id},{$m2->id}..{$m3->id}",
     ]);
 
-    expect($out)->toContain('Media items', 'Processed', '3');
+    expect($out)->toContain('Media items', 'Completed conversions', '3');
 });
 
 it('shows message when no media items found', function () {
@@ -186,7 +186,7 @@ it('filters by collection name', function () {
         '--force' => true,
     ]);
 
-    expect($out)->toContain('Media items', 'Processed', '1');
+    expect($out)->toContain('Media items', 'Completed conversions', '1');
 });
 
 it('handles multiple conversion names', function () {
@@ -204,7 +204,7 @@ it('handles multiple conversion names', function () {
         '--force' => true,
     ]);
 
-    expect($out)->toContain('Conversions', 'thumb, cover', 'Processed', '1');
+    expect($out)->toContain('Conversions', 'thumb, cover', 'Completed conversions', '1');
 });
 
 it('fails with invalid --media range (from > to)', function () {

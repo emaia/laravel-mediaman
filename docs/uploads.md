@@ -7,6 +7,8 @@
 - [Fluent options](#fluent-options)
 - [From a Laravel disk](#from-a-laravel-disk)
 - [From base64 or a data URI](#from-base64-or-a-data-uri)
+- [From raw bytes (in-memory content)](#from-raw-bytes-in-memory-content)
+- [From a PHP stream](#from-a-php-stream)
 - [From a remote URL](#from-a-remote-url)
 - [Custom downloader](#custom-downloader)
 - [Generate responsive variants on upload](#generate-responsive-variants-on-upload)
@@ -22,6 +24,8 @@ $media = MediaUploader::source($request->file('file'))->upload();
 ```
 
 The file goes to the default disk and is bundled in the default collection (both configurable in `config/mediaman.php`). The filename is sanitized automatically.
+
+`upload()` is atomic: the database row, the file write, and the collection attachment run in a single transaction. If the write fails (it throws, or the disk driver returns `false`, which raises `MediaFileWriteFailed`) or the collection rejects the media, the row is rolled back and any partially written file is removed — no orphan row, no orphan file. Responsive variant generation and the `MediaUploaded` event run *after* the transaction commits; a responsive-generation failure is logged but does not undo the upload.
 
 ## From an HTTP request
 
@@ -93,6 +97,32 @@ $media = MediaUploader::fromBase64($data, 'photo.png', 'User Avatar')->upload();
 ```
 
 Payload size is checked **before** decoding to prevent memory exhaustion (`config('mediaman.base64.max_size_bytes')`, default 50 MB). Oversized payloads throw `FileSizeExceeded`; malformed data throws `InvalidBase64Data`.
+
+## From raw bytes (in-memory content)
+
+```php
+// Programmatic content (PDF generator, headless screenshot, webhook body)
+$media = MediaUploader::fromString($pdfBytes, 'invoice.pdf')->upload();
+
+// Optional custom display name (third argument)
+$media = MediaUploader::fromString($bytes, 'invoice.pdf', 'August Invoice')->upload();
+```
+
+MIME type is sniffed from content (via `finfo`), so the `$fileName` extension doesn't have to be accurate. The package-level `max_file_size` validation still applies during upload.
+
+## From a PHP stream
+
+```php
+$stream = fopen('php://temp', 'r+b');
+fwrite($stream, $generatedBytes);
+rewind($stream);
+
+$media = MediaUploader::fromStream($stream, 'report.xlsx')->upload();
+
+fclose($stream);   // caller owns the stream
+```
+
+Useful for SFTP wrappers, PSR-7 `StreamInterface::detach()`, or content piped from another process. `fromStream()` reads through the stream into a temp file but does **not** close it — the caller stays responsible for `fclose()`.
 
 ## From a remote URL
 
