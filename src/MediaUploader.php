@@ -3,7 +3,6 @@
 namespace Emaia\MediaMan;
 
 use Emaia\MediaMan\Downloaders\Downloader;
-use Emaia\MediaMan\Enums\MediaType;
 use Emaia\MediaMan\Events\MediaUploaded;
 use Emaia\MediaMan\Exceptions\DisallowedExtension;
 use Emaia\MediaMan\Exceptions\FileSizeExceeded;
@@ -689,7 +688,7 @@ class MediaUploader
             return;
         }
 
-        if (! config('mediaman.responsive_images.enabled', true) || ! $media->isOfType(MediaType::IMAGE)) {
+        if (! config('mediaman.responsive_images.enabled', true) || ! $media->isRasterImage()) {
             return;
         }
 

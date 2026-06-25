@@ -3,7 +3,6 @@
 namespace Emaia\MediaMan\ResponsiveImages;
 
 use Emaia\MediaMan\Enums\MediaFormat;
-use Emaia\MediaMan\Enums\MediaType;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Resolvers\MediaResolver;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\WidthCalculator;
@@ -26,7 +25,7 @@ class ResponsiveImageGenerator
 
     public function generateResponsiveImages(Media $media, array $options = []): void
     {
-        if (! $media->isOfType(MediaType::IMAGE)) {
+        if (! $media->isRasterImage()) {
             return;
         }
 

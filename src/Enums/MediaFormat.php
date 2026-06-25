@@ -52,6 +52,18 @@ enum MediaFormat: string
         return [self::WEBP, self::AVIF, self::PNG, self::JPG, self::GIF, self::BMP, self::TIFF, self::HEIC, self::HEIF];
     }
 
+    /**
+     * MIME types accepted by the image manipulation pipeline — derived from
+     * `detectableFormats()` so the allowlist stays in sync with the enum.
+     */
+    public static function rasterMimeTypes(): array
+    {
+        return array_values(array_unique(array_map(
+            fn (self $format) => $format->mimeType(),
+            self::detectableFormats(),
+        )));
+    }
+
     /** Case-insensitive variant of `tryFrom()`. */
     public static function tryFromValue(string $value): ?self
     {

@@ -187,6 +187,128 @@ it('does not treat plain XML as SVG (content marker discriminates <svg>)', funct
     expect($media)->toBeInstanceOf(Media::class);
 });
 
+// --- SVG bypass: conversions + responsive on vector media ---
+
+use Emaia\MediaMan\Jobs\GenerateResponsiveImages;
+use Emaia\MediaMan\Jobs\PerformConversions;
+use Emaia\MediaMan\Tests\Models\Subject;
+use Illuminate\Support\Facades\Bus;
+
+function svgMedia(): Media
+{
+    config()->set('mediaman.svg.enabled', true);
+    config()->set('mediaman.svg.sanitizer', StripScriptSanitizer::class);
+
+    $svg = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect/></svg>';
+
+    return MediaUploader::source(makeSvgUpload($svg))->upload();
+}
+
+it('isRasterImage returns false for SVG', function () {
+    $media = svgMedia();
+
+    expect($media->isRasterImage())->toBeFalse();
+});
+
+it('isRasterImage matches the MediaFormat::detectableFormats() allowlist', function (string $mime, bool $expected) {
+    $media = Media::factory()->create(['mime_type' => $mime]);
+
+    expect($media->isRasterImage())->toBe($expected);
+})->with([
+    'JPEG' => ['image/jpeg', true],
+    'PNG' => ['image/png', true],
+    'WEBP' => ['image/webp', true],
+    'AVIF' => ['image/avif', true],
+    'GIF' => ['image/gif', true],
+    'BMP' => ['image/bmp', true],
+    'TIFF' => ['image/tiff', true],
+    'HEIC' => ['image/heic', true],
+    'HEIF' => ['image/heif', true],
+    'SVG' => ['image/svg+xml', false],
+    'PSD (image/*)' => ['image/vnd.adobe.photoshop', false],
+    'ICO (image/*)' => ['image/x-icon', false],
+    'PDF' => ['application/pdf', false],
+    'plain text' => ['text/plain', false],
+]);
+
+it('Media::raster() scope filters to the same MIME set as isRasterImage()', function () {
+    foreach (['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/gif', 'image/bmp', 'image/tiff', 'image/heic', 'image/heif'] as $mime) {
+        Media::factory()->create(['mime_type' => $mime]);
+    }
+    foreach (['image/svg+xml', 'image/vnd.adobe.photoshop', 'application/pdf'] as $mime) {
+        Media::factory()->create(['mime_type' => $mime]);
+    }
+
+    $mimes = Media::query()->raster()->pluck('mime_type')->all();
+
+    expect($mimes)
+        ->toHaveCount(9)
+        ->not->toContain('image/svg+xml')
+        ->not->toContain('image/vnd.adobe.photoshop')
+        ->not->toContain('application/pdf');
+});
+
+it('does not dispatch PerformConversions when attaching SVG to a channel with conversions', function () {
+    Bus::fake();
+
+    $subject = Subject::create();
+    $subject->addMediaChannel('hero')
+        ->performConversions('thumbnail')
+        ->acceptsFile(fn (Media $m) => true);
+
+    $media = svgMedia();
+
+    $subject->attachMedia($media, 'hero');
+
+    Bus::assertNotDispatched(PerformConversions::class);
+});
+
+it('dispatches PerformConversions for JPEG even after SVG guard is in place', function () {
+    Bus::fake();
+
+    $subject = Subject::create();
+    $subject->addMediaChannel('hero')
+        ->performConversions('thumbnail')
+        ->acceptsFile(fn (Media $m) => true);
+
+    $jpg = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+
+    $subject->attachMedia($jpg, 'hero');
+
+    Bus::assertDispatched(PerformConversions::class);
+});
+
+it('does not generate responsive images for SVG when auto_generate is true', function () {
+    Bus::fake();
+    config()->set('mediaman.responsive_images.auto_generate', true);
+
+    $svg = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect/></svg>';
+
+    config()->set('mediaman.svg.enabled', true);
+    config()->set('mediaman.svg.sanitizer', StripScriptSanitizer::class);
+
+    $media = MediaUploader::source(makeSvgUpload($svg))->upload();
+
+    Bus::assertNotDispatched(GenerateResponsiveImages::class);
+    expect($media->fresh()->hasResponsiveImages())->toBeFalse();
+});
+
+it('does not generate responsive images for SVG when generateResponsive is chained', function () {
+    Bus::fake();
+
+    $svg = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect/></svg>';
+
+    config()->set('mediaman.svg.enabled', true);
+    config()->set('mediaman.svg.sanitizer', StripScriptSanitizer::class);
+
+    $media = MediaUploader::source(makeSvgUpload($svg))
+        ->generateResponsive()
+        ->upload();
+
+    Bus::assertNotDispatched(GenerateResponsiveImages::class);
+    expect($media->fresh()->hasResponsiveImages())->toBeFalse();
+});
+
 // --- PHP-level upload error handling ---
 
 use Emaia\MediaMan\Exceptions\UploadFailed;

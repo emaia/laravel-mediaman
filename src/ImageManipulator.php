@@ -3,7 +3,6 @@
 namespace Emaia\MediaMan;
 
 use Emaia\MediaMan\Enums\MediaFormat;
-use Emaia\MediaMan\Enums\MediaType;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Resolvers\MediaResolver;
 use Intervention\Image\EncodedImage;
@@ -37,7 +36,7 @@ class ImageManipulator
     {
         $report = ['completed' => [], 'failed' => []];
 
-        if (! $media->isOfType(MediaType::IMAGE)) {
+        if (! $media->isRasterImage()) {
             return $report;
         }
 

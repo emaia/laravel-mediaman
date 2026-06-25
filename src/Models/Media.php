@@ -17,6 +17,7 @@ use Emaia\MediaMan\Traits\ResponsiveImages;
 use Exception;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Contracts\Mail\Attachable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -222,6 +223,24 @@ class Media extends Model implements Attachable
         $typeValue = $type instanceof MediaType ? $type->value : $type;
 
         return $this->type === $typeValue;
+    }
+
+    /**
+     * True when the media is a raster image the image pipeline can process.
+     * Matches `MediaFormat::rasterMimeTypes()` so any `image/*` MIME outside
+     * the detectable-formats list (notably SVG) is rejected — preventing
+     * conversion/responsive jobs from queueing guaranteed-to-fail work.
+     */
+    public function isRasterImage(): bool
+    {
+        return $this->isOfType(MediaType::IMAGE)
+            && in_array($this->mime_type, MediaFormat::rasterMimeTypes(), true);
+    }
+
+    /** Restrict a query to media the image pipeline can decode (see {@see isRasterImage()}). */
+    public function scopeRaster(Builder $query): Builder
+    {
+        return $query->whereIn('mime_type', MediaFormat::rasterMimeTypes());
     }
 
     protected function detectFormatFromConversionName(string $conversion): ?string
