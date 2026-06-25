@@ -53,9 +53,7 @@ Release history: [CHANGELOG.md](CHANGELOG.md). Upgrade notes: [UPGRADING.md](UPG
 
 | Laravel | Package | PHP  |
 |---------|---------|------|
-| v12–v13 | 1.x–2.x | 8.3+ |
-
-`fromUrl()` uploads (introduced in 2.5.0) also require **ext-curl**.
+| v12–v13 | 2.x–3.x | 8.3+ |
 
 ## Quick install
 
