@@ -1,5 +1,6 @@
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/emaia/laravel-mediaman.svg?style=flat-square)](https://packagist.org/packages/emaia/laravel-mediaman)
 [![GitHub Tests Action Status](https://img.shields.io/github/actions/workflow/status/emaia/laravel-mediaman/ci.yml?branch=main&label=tests&style=flat-square)](https://github.com/emaia/laravel-mediaman/actions?query=workflow%3Aci+branch%3Amain)
+[![Coverage](https://img.shields.io/codecov/c/github/emaia/laravel-mediaman/main?style=flat-square&logo=codecov)](https://codecov.io/gh/emaia/laravel-mediaman)
 [![Total Downloads](https://img.shields.io/packagist/dt/emaia/laravel-mediaman.svg?style=flat-square)](https://packagist.org/packages/emaia/laravel-mediaman)
 
 # Laravel MediaMan
@@ -46,7 +47,7 @@ $post->attachMedia($media, 'featured-image-channel');
 | [**Recipes**](docs/recipes.md)                     | PDF/video thumbnails, image optimization, ZIP downloads, multi-file uploads       |
 | [**API reference**](docs/api.md)                   | Public surface by class/trait                                                     |
 
-Release history: [CHANGELOG.md](CHANGELOG.md).
+Release history: [CHANGELOG.md](CHANGELOG.md). Upgrade notes: [UPGRADING.md](UPGRADING.md).
 
 ## Requirements
 

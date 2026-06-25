@@ -11,7 +11,7 @@ MediaMan dispatches Laravel events at key points in the media lifecycle. Listen 
 
 | Event                         | Dispatched when                                                                | Payload                                       |
 |-------------------------------|--------------------------------------------------------------------------------|-----------------------------------------------|
-| `MediaUploaded`               | A file is uploaded via `MediaUploader`                                         | `$event->media`                               |
+| `MediaUploaded`               | A file is uploaded via `MediaUploader` (after the transaction commits)         | `$event->media`                               |
 | `MediaDeleted`                | A media record is deleted                                                      | `$event->media`                               |
 | `MediaPrunedFromCollection`   | `enforceMaxItems()` auto-detaches older media from a capped collection         | `$event->collection`, `$event->detachedMediaIds` |
 | `ConversionCompleted`         | At least one image conversion succeeds (queued job, partial-batch)             | `$event->media`, `$event->conversions` (the successful ones) |
@@ -19,6 +19,8 @@ MediaMan dispatches Laravel events at key points in the media lifecycle. Listen 
 | `ResponsiveImagesGenerated`   | Responsive variants finish (queued job)                                        | `$event->media`, `$event->options`            |
 
 All event classes live under `Emaia\MediaMan\Events`.
+
+`MediaUploaded` is dispatched **after** the upload transaction commits — listeners can safely query the media row, dispatch jobs that touch it, or fan out to other services. Responsive variant generation runs immediately before the event fires; depending on `responsive_images.queue`, the variants may already be on disk (inline mode) or still queued in a worker job (queued mode, the default). Listeners that strictly need the variants to be present should check `$media->hasResponsiveImages()` and react when they appear, or hook into `ResponsiveImagesGenerated` instead.
 
 ## Register listeners
 
