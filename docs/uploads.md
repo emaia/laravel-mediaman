@@ -7,6 +7,8 @@
 - [Fluent options](#fluent-options)
 - [From a Laravel disk](#from-a-laravel-disk)
 - [From base64 or a data URI](#from-base64-or-a-data-uri)
+- [From raw bytes (in-memory content)](#from-raw-bytes-in-memory-content)
+- [From a PHP stream](#from-a-php-stream)
 - [From a remote URL](#from-a-remote-url)
 - [Custom downloader](#custom-downloader)
 - [Generate responsive variants on upload](#generate-responsive-variants-on-upload)

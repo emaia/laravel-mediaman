@@ -4,6 +4,7 @@
 
 - [Available events](#available-events)
 - [Register listeners](#register-listeners)
+- [Conversion failures](#conversion-failures)
 
 MediaMan dispatches Laravel events at key points in the media lifecycle. Listen with standard `Event::listen()` calls or via `EventServiceProvider`.
 

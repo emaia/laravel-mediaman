@@ -9,7 +9,6 @@
 - [ZIP download of multiple media](#zip-download-of-multiple-media)
 - [Multi-file form upload](#multi-file-form-upload)
 - [Best-effort (partial) attach](#best-effort-partial-attach)
-- [String or stream upload](#string-or-stream-upload)
 
 Common needs that MediaMan deliberately doesn't ship out-of-the-box — here's how to bolt them onto the existing event/queue/custom-properties flow.
 
@@ -338,46 +337,3 @@ foreach ($mediaIds as $id) {
 ```
 
 **Trade-offs:** One `attachMedia` call (and, for aggregate channels, one short transaction + row lock) per item instead of one for the whole batch — fine for ingestion, and you get a precise per-item report. For all-or-nothing interactive flows, pass the whole array to a single `attachMedia([...])` and let the batch roll back as a unit.
-
----
-
-## String or stream upload
-
-**Use case:** Persist programmatically generated data (a CSV string, a base64 payload from a job result, a stream from another API) as a Media without an `UploadedFile` instance.
-
-**Approach:** Write to a temp file, then funnel through `fromDisk()`.
-
-```php
-use Emaia\MediaMan\MediaUploader;
-use Illuminate\Support\Facades\Storage;
-
-// From a string
-function uploadFromString(string $content, string $filename): \Emaia\MediaMan\Models\Media
-{
-    Storage::disk('local')->put('tmp/'.$filename, $content);
-
-    $media = MediaUploader::fromDisk('tmp/'.$filename, 'local')
-        ->useFileName($filename)
-        ->upload();
-
-    Storage::disk('local')->delete('tmp/'.$filename);
-
-    return $media;
-}
-
-// From a stream
-function uploadFromStream($stream, string $filename): \Emaia\MediaMan\Models\Media
-{
-    Storage::disk('local')->writeStream('tmp/'.$filename, $stream);
-
-    $media = MediaUploader::fromDisk('tmp/'.$filename, 'local')
-        ->useFileName($filename)
-        ->upload();
-
-    Storage::disk('local')->delete('tmp/'.$filename);
-
-    return $media;
-}
-```
-
-**Trade-offs:** Two extra disk operations vs. a hypothetical native API. For small payloads the overhead is negligible; for huge streams, look at chunked uploads via `Storage::disk()->writeStream()` directly into a custom `MediaUploader` subclass.

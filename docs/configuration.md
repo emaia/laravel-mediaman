@@ -15,6 +15,7 @@ The config file is organized in four blocks: essentials, validation/security def
 **Validation & security defaults**
 - [Allowed MIME types and file size](#allowed-mime-types-and-file-size)
 - [Disallowed extensions](#disallowed-extensions)
+- [SVG uploads](#svg-uploads)
 
 **Per-feature configuration**
 - [URL sources (for `fromUrl()`)](#url-sources-for-fromurl)
@@ -117,9 +118,10 @@ A collection with this name is seeded on first migration and used as the fallbac
 ```php
 'allowed_mime_types' => ['image/jpeg', 'image/png', 'application/pdf'], // empty = allow all
 'max_file_size'      => 10 * 1024 * 1024,                                // 10 MB; 0 = unlimited
+'min_file_size'      => env('MEDIAMAN_MIN_FILE_SIZE', 1),                // bytes; 0 = allow empty uploads
 ```
 
-`allowed_mime_types` supports wildcards (`image/*`).
+`allowed_mime_types` supports wildcards (`image/*`). Out-of-bounds uploads (above `max_file_size` or below `min_file_size`) throw `FileSizeExceeded`. PHP-level upload failures (`upload_max_filesize` exceeded at the framework boundary, `partial`, `no_tmp_dir`) throw `UploadFailed` separately — see [Security → Minimum upload size](security.md#minimum-upload-size).
 
 ## Disallowed extensions
 
@@ -128,10 +130,25 @@ Block executable/server-side file extensions on upload (see [Security](security.
 ```php
 'block_disallowed_extensions' => true,
 'disallowed_extensions' => [
+    // Server-side execution (Apache/Nginx interpret these when configured)
     'php', 'phtml', 'phar', 'shtml', 'htaccess',
     'cgi', 'pl', 'asp', 'aspx', 'jsp', 'jspx',
+    // Defense in depth: interpreter scripts + Windows-side executables
+    'sh', 'bash', 'zsh', 'py', 'rb',
+    'exe', 'com', 'msi', 'scr', 'bat', 'cmd', 'vbs', 'ps1',
 ],
 ```
+
+## SVG uploads
+
+```php
+'svg' => [
+    'enabled'   => env('MEDIAMAN_SVG_ENABLED', false),   // disabled by default
+    'sanitizer' => null,                                 // FQCN of an Emaia\MediaMan\Security\SvgSanitizer
+],
+```
+
+Disabled by default — SVG carries XSS risk via embedded `<script>` / `<foreignObject>`. When enabled, every upload routes through the configured `SvgSanitizer` before landing on disk. See [Security → SVG uploads](security.md#svg-uploads) for adapter recommendations and failure modes.
 
 ---
 
@@ -249,7 +266,7 @@ Responsive images are **opt-in** — no variants are generated unless you call `
 | `auto_generate`                           | `false`                        | Automatically generate on every image upload.                                                                                                                                                                                   |
 | `queue`                                   | `true`                         | Queue generation jobs instead of processing inline.                                                                                                                                                                             |
 | `breakpoints`                             | `[320, 640, 1024, 1366, 1920]` | Widths (in px) to generate.                                                                                                                                                                                                     |
-| `formats`                                 | `['webp']`                     | Output formats.                                                                                                                                                                                                                 |
+| `formats`                                 | `['webp']`                     | Output formats. Supported: `webp`, `avif`, `jpg`, `png`, `gif`, `heic`. Order determines `<source>` precedence in the rendered `<picture>`. Driver/codec support varies — run `php artisan mediaman:doctor` to surface gaps. |
 | `quality`                                 | `85`                           | Lossy encoder quality (1–100). Scalar applies to every lossy format, or pass an array keyed by format (`['avif' => 50, 'webp' => 85]`) — see [Responsive images → Per-format quality](responsive-images.md#per-format-quality). |
 | `width_calculator`                        | `'breakpoint'`                 | `breakpoint` uses fixed widths; `file_size_optimized` selects widths based on file-size reduction                                                                                                                               |
 | `min_width`                               | `320`                          | Images narrower than this won't generate a variant.                                                                                                                                                                             |

@@ -3,6 +3,7 @@
 [← Back to README](../README.md)
 
 - [Enabling](#enabling)
+- [Verifying driver/codec support](#verifying-drivercodec-support)
 - [Generating for existing media](#generating-for-existing-media)
 - [Inspecting variants](#inspecting-variants)
 - [Getting a URL](#getting-a-url)
