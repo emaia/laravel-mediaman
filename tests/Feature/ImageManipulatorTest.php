@@ -2,10 +2,15 @@
 
 use Emaia\MediaMan\ConversionRegistry;
 use Emaia\MediaMan\Exceptions\InvalidConversion;
+use Emaia\MediaMan\Facades\Conversion;
 use Emaia\MediaMan\ImageManipulator;
+use Emaia\MediaMan\MediaUploader;
 use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\Resolvers\MediaResolver;
+use Illuminate\Http\UploadedFile;
 use Intervention\Image\Drivers\Gd\Driver;
 use Intervention\Image\Encoders\WebpEncoder;
+use Intervention\Image\Format;
 use Intervention\Image\Image;
 use Intervention\Image\ImageManager;
 
@@ -237,4 +242,32 @@ it('will skip conversions if the converted image already exists', function () {
 
     // The closure still runs (encode happens before exists check), but writes are skipped
     expect($invocations)->toBe(2);
+});
+
+it('preserves the source MIME format when the closure returns Image without explicit encode', function () {
+    Conversion::register('thumb', fn (Image $img) => $img->cover(50, 50));
+
+    // WEBP source — drivers handle implicit `encode()` inconsistently for
+    // non-JPEG formats. The fix passes the source MIME so the output
+    // round-trips deterministically.
+    $webpBytes = (string) (new ImageManager(new Driver))
+        ->createImage(200, 200)
+        ->encodeUsingFormat(Format::WEBP);
+
+    $tmp = tempnam(sys_get_temp_dir(), 'mm_src_');
+    file_put_contents($tmp, $webpBytes);
+    $file = new UploadedFile($tmp, 'photo.webp', 'image/webp', null, true);
+
+    $media = MediaUploader::source($file)->upload();
+
+    app(ImageManipulator::class)->manipulate($media, ['thumb']);
+
+    // The conversion file on disk should have a .webp extension matching
+    // the source — not .jpg / .png / etc.
+    $disk = $media->fresh()->conversionFilesystem('thumb');
+    $dir = app(MediaResolver::class)->pathForConversion($media, 'thumb');
+    $files = $disk->files($dir);
+
+    expect($files)->toHaveCount(1)
+        ->and($files[0])->toEndWith('.webp');
 });

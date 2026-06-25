@@ -88,7 +88,13 @@ class ImageManipulator
         }
 
         if ($image instanceof Image) {
-            $encoded = $image->encode();
+            // Pass the source MIME explicitly. Drivers handle the no-format
+            // case inconsistently: notably vips+AVIF encodes to HEIC by
+            // default because libheif picks HEVC as the default HEIF codec,
+            // breaking the round-trip on both filename extension and
+            // downstream browser support. Letting Intervention pick when
+            // we already know the source format is asking for surprises.
+            $encoded = $image->encodeUsingMediaType($media->mime_type);
             $extension = $this->getExtensionFromMimeType($encoded->mediaType());
             $path = $this->getConversionPathWithExtension($media, $conversion, $extension);
 
