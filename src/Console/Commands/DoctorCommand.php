@@ -8,6 +8,7 @@ use Emaia\MediaMan\Models\Media;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Intervention\Image\Format;
 use Intervention\Image\ImageManager;
 use Throwable;
 
@@ -296,6 +297,129 @@ class DoctorCommand extends Command
             $this->statusLine('Effective', 'ok', get_class($manager->driver));
         } catch (Throwable $e) {
             $this->statusLine('Effective', 'error', 'resolution failed: '.$e->getMessage());
+            $this->driverHint($e);
+
+            return;
+        }
+
+        // Real 1×1 PNG encode — Vips driver class instantiates without
+        // exercising FFI; bindings only load on the first decode/encode
+        // call. Without this probe doctor reports "ok" while real uploads
+        // would blow up. PNG is the universal fallback every driver
+        // supports, so a failure here is unambiguously a driver/FFI issue
+        // (not a codec gap).
+        try {
+            $manager->createImage(1, 1)->encodeUsingFormat(Format::PNG);
+            $this->statusLine('Probe', 'ok', 'driver encodes a 1×1 test image');
+        } catch (Throwable $e) {
+            $this->statusLine('Probe', 'error', 'driver loaded but failed first encode: '.$e->getMessage());
+            $this->driverHint($e);
+
+            return;
+        }
+
+        $this->sapiHint($manager);
+        $this->probeResponsiveFormats($manager);
+    }
+
+    /**
+     * Surface the SAPI/ini divergence gotcha. Drivers backed by FFI (vips)
+     * are configured per-SAPI; the SAPI doctor runs under may not be the
+     * one production serves under. The hint always shows the current SAPI
+     * + ffi.enable so operators can compare against whichever runtime
+     * actually handles requests.
+     */
+    protected function sapiHint(ImageManager $manager): void
+    {
+        if (! str_contains(get_class($manager->driver), 'Vips')) {
+            return;
+        }
+
+        $sapi = php_sapi_name();
+        $ffi = ini_get('ffi.enable') ?: 'unset';
+
+        $this->statusLine('Probe SAPI', 'info', "{$sapi} (ffi.enable={$ffi})");
+
+        $this->statusLine(
+            'Hint',
+            'info',
+            "vips uses PHP FFI, which is configured per-SAPI. This probe ran under '{$sapi}' — if uploads fail at runtime under a different SAPI (fpm-fcgi, cli-server via 'artisan serve', apache2handler, …) verify ffi.enable in THAT SAPI's php.ini. 'php --ini' (CLI) and '<?php phpinfo(); ?>' (web) show the loaded file per SAPI."
+        );
+    }
+
+    /**
+     * Surface an actionable hint for the known FFI-related failure modes —
+     * triggered by Intervention's misleading "libvips not installed" message
+     * (FFI off entirely) and by FFI-level errors thrown on the 1×1 probe.
+     * Both routes point at the same fix because FFI misconfiguration is the
+     * actual cause in every case we've seen.
+     */
+    protected function driverHint(Throwable $e): void
+    {
+        $message = $e->getMessage();
+        $looksLikeFfi = str_contains($message, 'libvips does not seem to be installed')
+            || str_contains($message, 'FFI')
+            || str_contains($message, 'ffi.enable');
+
+        if (! $looksLikeFfi) {
+            return;
+        }
+
+        $this->statusLine(
+            'Hint',
+            'info',
+            "intervention/image-driver-vips uses PHP FFI. Either set ffi.enable=true (loads bindings on demand), or set ffi.enable=preload AND preload the vips binding via an opcache.preload script — 'preload' alone without the binding script will still fail at runtime."
+        );
+    }
+
+    /**
+     * Probe each format declared in responsive_images.formats by attempting a
+     * tiny encode. Catches the silent-failure modes (driver lacks codec,
+     * libheif missing HEVC encoder plugin, etc.) before runtime hits them.
+     */
+    protected function probeResponsiveFormats(ImageManager $manager): void
+    {
+        $formats = config('mediaman.responsive_images.formats', []);
+
+        if (! is_array($formats) || $formats === []) {
+            return;
+        }
+
+        $map = [
+            'webp' => Format::WEBP,
+            'avif' => Format::AVIF,
+            'heic' => Format::HEIC,
+            'jpg' => Format::JPEG,
+            'jpeg' => Format::JPEG,
+            'png' => Format::PNG,
+            'gif' => Format::GIF,
+        ];
+
+        foreach ($formats as $format) {
+            $format = strtolower((string) $format);
+            $label = "Format probe ({$format})";
+
+            if (! isset($map[$format])) {
+                $this->statusLine($label, 'warn', 'unrecognized — variant will be skipped at runtime');
+
+                continue;
+            }
+
+            try {
+                $bytes = (string) $manager->createImage(10, 10)->fill('ff0000')->encodeUsingFormat($map[$format]);
+
+                if (strlen($bytes) === 0) {
+                    $hint = $format === 'heic'
+                        ? 'install libheif HEVC encoder plugin (e.g. libheif-plugin-x265)'
+                        : 'driver lacks codec support for this format';
+
+                    $this->statusLine($label, 'warn', "encoder returned zero bytes — {$hint}");
+                } else {
+                    $this->statusLine($label, 'ok', 'encodes ✓');
+                }
+            } catch (Throwable $e) {
+                $this->statusLine($label, 'warn', $e->getMessage());
+            }
         }
     }
 
