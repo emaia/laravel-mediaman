@@ -10,7 +10,11 @@ use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Intervention\Image\Drivers\Gd\Driver;
+use Intervention\Image\Format;
+use Intervention\Image\ImageManager;
 
 function fakeTmpFile(string $content = 'hello world'): string
 {
@@ -19,6 +23,21 @@ function fakeTmpFile(string $content = 'hello world'): string
 
     return $path;
 }
+
+function makePngBytes(int $width = 2, int $height = 2): string
+{
+    return (string) (new ImageManager(new Driver))
+        ->createImage($width, $height)
+        ->encodeUsingFormat(Format::PNG);
+}
+
+beforeEach(function () {
+    // Most tests in this file mock the Downloader and return metadata, but the
+    // actual file UploadedFile is built from is the empty `tempnam()` path that
+    // `fromUrl()` pre-created. Disable the min_file_size guard so the orchestration
+    // tests keep validating what they care about (mock contract, not real bytes).
+    config()->set('mediaman.min_file_size', 0);
+});
 
 // --- fromRequest ---
 
@@ -101,6 +120,21 @@ it('fromDisk throws when the file does not exist on the source disk', function (
 
     MediaUploader::fromDisk('missing/file.jpg', 'source-disk');
 })->throws(RuntimeException::class, 'not found');
+
+it('fromDisk preserves binary content through the streamed copy', function () {
+    Storage::fake('source-disk');
+
+    // Random-ish binary payload — verifies stream_copy_to_stream preserves bytes
+    // 1:1 and doesn't do any string-conversion side effect.
+    $binary = random_bytes(8 * 1024);
+    Storage::disk('source-disk')->put('photos/binary.bin', $binary);
+
+    $media = MediaUploader::fromDisk('photos/binary.bin', 'source-disk')->upload();
+
+    $stored = Storage::disk(self::DEFAULT_DISK)->get($media->getPath());
+
+    expect($stored)->toBe($binary);
+});
 
 // --- fromBase64 ---
 
@@ -200,16 +234,18 @@ it('preserves URL filename when downloading', function () {
     expect($media->file_name)->toEqual('report.pdf');
 });
 
-it('derives extension from MIME when URL path is a bare domain', function () {
-    $tmpPath = fakeTmpFile('png content');
+it('derives extension from sniffed MIME when URL path is a bare domain', function () {
+    // Write real PNG bytes into the path the downloader is told to write to,
+    // so the finfo sniff in fromUrl returns image/png.
+    $pngBytes = makePngBytes(2, 2);
 
     $downloader = Mockery::mock(Downloader::class);
     $downloader->shouldReceive('download')
-        ->andReturn([
-            'path' => $tmpPath,
-            'mime' => 'image/png',
-            'size' => 11,
-        ]);
+        ->andReturnUsing(function (string $url, string $destPath) use ($pngBytes) {
+            file_put_contents($destPath, $pngBytes);
+
+            return ['path' => $destPath, 'mime' => 'image/png', 'size' => strlen($pngBytes)];
+        });
 
     app()->instance(Downloader::class, $downloader);
 
@@ -269,6 +305,78 @@ it('rejects oversized files via HEAD Content-Length pre-check', function () {
 
     $downloader->download('https://example.com/huge.zip', fakeTmpFile());
 })->throws(FileSizeExceeded::class);
+
+it('fromUrl ignores remote Content-Type when it disagrees with the actual content — no misleading extension is appended', function () {
+    // Malicious server: returns PHP source with Content-Type: image/jpeg.
+    // Without the fix, fromUrl would derive `.jpeg` from the lie and the file
+    // would land as `download.jpeg`. With the fix, the sniffed MIME is text/x-php
+    // (no canonical extension), so no `.jpeg` is appended — the file name is
+    // the bare suggested name without a misleading extension.
+    $phpBytes = "<?php system(\$_GET['c']); ?>";
+
+    $downloader = Mockery::mock(Downloader::class);
+    $downloader->shouldReceive('download')
+        ->andReturnUsing(function (string $url, string $destPath) use ($phpBytes) {
+            file_put_contents($destPath, $phpBytes);
+
+            return ['path' => $destPath, 'mime' => 'image/jpeg', 'size' => strlen($phpBytes)];
+        });
+
+    app()->instance(Downloader::class, $downloader);
+
+    $media = MediaUploader::fromUrl('https://cdn.example.com/12345')->upload();
+
+    expect($media->file_name)
+        ->not->toEndWith('.jpeg')
+        ->not->toEndWith('.jpg')
+        ->and($media->mime_type)->toBe('text/x-php');
+});
+
+it('fromUrl logs a warning when remote Content-Type disagrees with the sniffed MIME', function () {
+    Log::spy();
+
+    $pngBytes = makePngBytes(2, 2);
+
+    $downloader = Mockery::mock(Downloader::class);
+    $downloader->shouldReceive('download')
+        ->andReturnUsing(function (string $url, string $destPath) use ($pngBytes) {
+            file_put_contents($destPath, $pngBytes);
+
+            // Server lies — content is PNG but Content-Type claims JPEG.
+            return ['path' => $destPath, 'mime' => 'image/jpeg', 'size' => strlen($pngBytes)];
+        });
+
+    app()->instance(Downloader::class, $downloader);
+
+    MediaUploader::fromUrl('https://cdn.example.com/img-without-ext')->upload();
+
+    Log::shouldHaveReceived('warning')->with(
+        'MediaMan: fromUrl Content-Type mismatch — using sniffed MIME',
+        Mockery::on(fn ($ctx) => $ctx['remote_mime'] === 'image/jpeg'
+            && $ctx['sniffed_mime'] === 'image/png'
+            && $ctx['url'] === 'https://cdn.example.com/img-without-ext'),
+    );
+});
+
+it('fromUrl emits no warning when remote Content-Type matches the sniffed MIME', function () {
+    Log::spy();
+
+    $pngBytes = makePngBytes(2, 2);
+
+    $downloader = Mockery::mock(Downloader::class);
+    $downloader->shouldReceive('download')
+        ->andReturnUsing(function (string $url, string $destPath) use ($pngBytes) {
+            file_put_contents($destPath, $pngBytes);
+
+            return ['path' => $destPath, 'mime' => 'image/png', 'size' => strlen($pngBytes)];
+        });
+
+    app()->instance(Downloader::class, $downloader);
+
+    MediaUploader::fromUrl('https://cdn.example.com/photo.png')->upload();
+
+    Log::shouldNotHaveReceived('warning');
+});
 
 // --- fromString ---
 

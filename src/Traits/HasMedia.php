@@ -166,6 +166,10 @@ trait HasMedia
                 $mediaInstances = $model::findMany($idsToDispatch);
 
                 $mediaInstances->each(function ($mediaInstance) use ($conversions) {
+                    if (! $mediaInstance->isRasterImage()) {
+                        return;
+                    }
+
                     PerformConversions::dispatch($mediaInstance, $conversions);
                 });
             }

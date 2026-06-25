@@ -3,7 +3,6 @@
 namespace Emaia\MediaMan;
 
 use Emaia\MediaMan\Enums\MediaFormat;
-use Emaia\MediaMan\Enums\MediaType;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Resolvers\MediaResolver;
 use Intervention\Image\EncodedImage;
@@ -37,7 +36,7 @@ class ImageManipulator
     {
         $report = ['completed' => [], 'failed' => []];
 
-        if (! $media->isOfType(MediaType::IMAGE)) {
+        if (! $media->isRasterImage()) {
             return $report;
         }
 
@@ -88,7 +87,13 @@ class ImageManipulator
         }
 
         if ($image instanceof Image) {
-            $encoded = $image->encode();
+            // Pass the source MIME explicitly. Drivers handle the no-format
+            // case inconsistently: notably vips+AVIF encodes to HEIC by
+            // default because libheif picks HEVC as the default HEIF codec,
+            // breaking the round-trip on both filename extension and
+            // downstream browser support. Letting Intervention pick when
+            // we already know the source format is asking for surprises.
+            $encoded = $image->encodeUsingMediaType($media->mime_type);
             $extension = $this->getExtensionFromMimeType($encoded->mediaType());
             $path = $this->getConversionPathWithExtension($media, $conversion, $extension);
 
@@ -109,8 +114,21 @@ class ImageManipulator
         return $directory.'/'.$fileName;
     }
 
+    /**
+     * Throws on unknown MIME types so the per-conversion try/catch in `manipulate()`
+     * captures it as a per-conversion failure rather than writing the encoded
+     * bytes with a wrong-but-plausible extension (PR #31 family).
+     */
     protected function getExtensionFromMimeType(string $mimeType): string
     {
-        return MediaFormat::extensionFromMimeType($mimeType);
+        $extension = MediaFormat::extensionFromMimeType($mimeType);
+
+        if ($extension === null) {
+            throw new \RuntimeException(
+                "Cannot resolve a file extension for MIME type [$mimeType] — refusing to write the conversion."
+            );
+        }
+
+        return $extension;
     }
 }

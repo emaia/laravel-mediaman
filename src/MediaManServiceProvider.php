@@ -183,8 +183,11 @@ class MediaManServiceProvider extends ServiceProvider
             $calculator = config('mediaman.responsive_images.width_calculator', 'breakpoint');
 
             return match ($calculator) {
+                'breakpoint' => $app->make('mediaman.width_calculator.breakpoint'),
                 'file_size_optimized' => $app->make('mediaman.width_calculator.file_size_optimized'),
-                default => $app->make('mediaman.width_calculator.breakpoint'),
+                default => throw new InvalidArgumentException(
+                    "Unknown responsive_images.width_calculator [$calculator]. Supported: 'breakpoint', 'file_size_optimized'."
+                ),
             };
         });
 

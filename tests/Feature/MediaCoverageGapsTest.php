@@ -31,6 +31,33 @@ it('returns 0 KB for zero-sized files', function () {
     expect($media->friendly_size)->toEqual('0 KB');
 });
 
+it('does not mutate the size attribute across repeated friendly_size reads', function () {
+    $media = Media::factory()->make(['size' => 5 * 1024 * 1024]);
+    $originalSize = $media->size;
+
+    // Each read previously divided $this->size by 1024 in a loop, corrupting
+    // the underlying attribute on every serialization.
+    $first = $media->friendly_size;
+    $second = $media->friendly_size;
+    $third = $media->friendly_size;
+
+    expect($first)->toEqual('5 MB')
+        ->and($second)->toEqual($first)
+        ->and($third)->toEqual($first)
+        ->and($media->size)->toBe($originalSize);
+});
+
+it('does not corrupt size when serialized to array (appends path)', function () {
+    $media = Media::factory()->make(['size' => 5 * 1024 * 1024]);
+    $originalSize = $media->size;
+
+    $media->toArray();
+    $media->toArray();
+    $media->toArray();
+
+    expect($media->size)->toBe($originalSize);
+});
+
 it('exposes media_url and media_uri attributes', function () {
     $file = UploadedFile::fake()->image('test.jpg', 100, 100);
     $media = MediaUploader::source($file)->upload();

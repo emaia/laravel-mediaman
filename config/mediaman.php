@@ -72,8 +72,38 @@ return [
     'block_disallowed_extensions' => true,
 
     'disallowed_extensions' => [
+        // Server-side execution (Apache/Nginx interpret these when configured)
         'php', 'phtml', 'phar', 'shtml', 'htaccess',
         'cgi', 'pl', 'asp', 'aspx', 'jsp', 'jspx',
+        // Defense in depth: interpreter scripts + Windows-side executables
+        // (not a server-execution risk, but harmless to deny by default)
+        'sh', 'bash', 'zsh', 'py', 'rb',
+        'exe', 'com', 'msi', 'scr', 'bat', 'cmd', 'vbs', 'ps1',
+    ],
+
+    /*
+    | Minimum upload size in bytes. Uploads below the threshold are rejected
+    | as `FileSizeExceeded` (same exception family as max_file_size). Set to 0
+    | to allow zero-byte uploads (placeholder records, late binding, etc.).
+    | Default of 1 rejects empty files — the common "ghost record" failure mode.
+    */
+
+    'min_file_size' => env('MEDIAMAN_MIN_FILE_SIZE', 1),
+
+    /*
+    | SVG uploads carry the XSS risk of embedded `<script>` / `<foreignObject>`
+    | / event handlers when served same-origin. Disabled by default.
+    |
+    | Set `enabled = true` and configure a `sanitizer` (a class implementing
+    | `Emaia\MediaMan\Security\SvgSanitizer`) to accept SVGs. The package does
+    | NOT ship a default sanitizer — XSS surface is your app's threat model
+    | to own. See docs/security.md → SVG uploads for a copy-paste adapter
+    | using enshrined/svg-sanitize.
+    */
+
+    'svg' => [
+        'enabled' => env('MEDIAMAN_SVG_ENABLED', false),
+        'sanitizer' => null,
     ],
 
     /*
@@ -304,8 +334,10 @@ return [
         'breakpoints' => [320, 640, 1024, 1366, 1920],
 
         /*
-        | Hard clamp applied to every generated width regardless of strategy.
-        | Variants narrower than `min_width` or wider than `max_width` are dropped.
+        | Hard clamp applied to every generated width regardless of which
+        | calculator produced it. Variants narrower than `min_width` or wider
+        | than `max_width` are dropped before encoding. Set either to 0 to
+        | disable that side of the clamp.
         */
 
         'min_width' => 320,

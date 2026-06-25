@@ -17,6 +17,7 @@ use Emaia\MediaMan\Traits\ResponsiveImages;
 use Exception;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Contracts\Mail\Attachable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -224,6 +225,24 @@ class Media extends Model implements Attachable
         return $this->type === $typeValue;
     }
 
+    /**
+     * True when the media is a raster image the image pipeline can process.
+     * Matches `MediaFormat::rasterMimeTypes()` so any `image/*` MIME outside
+     * the detectable-formats list (notably SVG) is rejected — preventing
+     * conversion/responsive jobs from queueing guaranteed-to-fail work.
+     */
+    public function isRasterImage(): bool
+    {
+        return $this->isOfType(MediaType::IMAGE)
+            && in_array($this->mime_type, MediaFormat::rasterMimeTypes(), true);
+    }
+
+    /** Restrict a query to media the image pipeline can decode (see {@see isRasterImage()}). */
+    public function scopeRaster(Builder $query): Builder
+    {
+        return $query->whereIn('mime_type', MediaFormat::rasterMimeTypes());
+    }
+
     protected function detectFormatFromConversionName(string $conversion): ?string
     {
         $conversion = strtolower($conversion);
@@ -361,7 +380,7 @@ class Media extends Model implements Attachable
         return MediaFactory::new();
     }
 
-    public function getExtensionFromMimeType(string $mimeType): string
+    public function getExtensionFromMimeType(string $mimeType): ?string
     {
         return MediaFormat::extensionFromMimeType($mimeType);
     }
@@ -390,11 +409,15 @@ class Media extends Model implements Attachable
             return '0 '.$units[1];
         }
 
-        for ($i = 0; $this->size > 1024; $i++) {
-            $this->size /= 1024;
+        // Local copy — never mutate `$this->size` (model attribute persisted in DB
+        // and serialized every time `friendly_size` is appended).
+        $bytes = (float) $this->size;
+
+        for ($i = 0; $bytes > 1024; $i++) {
+            $bytes /= 1024;
         }
 
-        return round($this->size, 2).' '.$units[$i];
+        return round($bytes, 2).' '.$units[$i];
     }
 
     /** Absolutized resolver URL — routes through getUrl() so url.prefix and url.versioning apply. */

@@ -2,6 +2,7 @@
 
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\BreakpointWidthCalculator;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\FileSizeOptimizedWidthCalculator;
+use Emaia\MediaMan\ResponsiveImages\WidthCalculator\WidthCalculator;
 use Intervention\Image\ImageManager;
 
 beforeEach(function () {
@@ -153,4 +154,29 @@ it('stops when predicted new width falls below min_width', function () {
     $widths = $calculator->calculateWidths(500000, 1500, 1000);
 
     expect($widths->toArray())->toEqual([1500]);
+});
+
+// --- Container binding strict validation ---
+
+it('throws for unknown width_calculator config values', function () {
+    config()->set('mediaman.responsive_images.width_calculator', 'breakpiont'); // typo
+
+    app()->forgetInstance(WidthCalculator::class);
+
+    expect(fn () => app(WidthCalculator::class))
+        ->toThrow(InvalidArgumentException::class, 'Unknown responsive_images.width_calculator [breakpiont]');
+});
+
+it('resolves breakpoint calculator when configured', function () {
+    config()->set('mediaman.responsive_images.width_calculator', 'breakpoint');
+    app()->forgetInstance(WidthCalculator::class);
+
+    expect(app(WidthCalculator::class))->toBeInstanceOf(BreakpointWidthCalculator::class);
+});
+
+it('resolves file_size_optimized calculator when configured', function () {
+    config()->set('mediaman.responsive_images.width_calculator', 'file_size_optimized');
+    app()->forgetInstance(WidthCalculator::class);
+
+    expect(app(WidthCalculator::class))->toBeInstanceOf(FileSizeOptimizedWidthCalculator::class);
 });

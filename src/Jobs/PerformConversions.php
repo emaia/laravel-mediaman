@@ -40,6 +40,10 @@ class PerformConversions implements ShouldQueue
 
     public function handle(ImageManipulator $manipulator): void
     {
+        if (! $this->media->isRasterImage()) {
+            return;
+        }
+
         $report = $manipulator->manipulate($this->media, $this->conversions);
 
         foreach ($report['failed'] as $failure) {

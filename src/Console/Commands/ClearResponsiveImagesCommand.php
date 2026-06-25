@@ -22,7 +22,7 @@ class ClearResponsiveImagesCommand extends Command
 
     public function handle(): int
     {
-        $query = Media::query()->where('mime_type', 'like', 'image/%');
+        $query = Media::query()->raster();
 
         if ($collection = $this->option('collection')) {
             $query->whereHas('collections', function ($q) use ($collection) {

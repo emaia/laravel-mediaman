@@ -3,17 +3,18 @@
 namespace Emaia\MediaMan;
 
 use Emaia\MediaMan\Downloaders\Downloader;
-use Emaia\MediaMan\Enums\MediaFormat;
-use Emaia\MediaMan\Enums\MediaType;
 use Emaia\MediaMan\Events\MediaUploaded;
 use Emaia\MediaMan\Exceptions\DisallowedExtension;
 use Emaia\MediaMan\Exceptions\FileSizeExceeded;
 use Emaia\MediaMan\Exceptions\InvalidBase64Data;
 use Emaia\MediaMan\Exceptions\MediaFileWriteFailed;
 use Emaia\MediaMan\Exceptions\MimeTypeNotAllowed;
+use Emaia\MediaMan\Exceptions\SvgNotAllowed;
+use Emaia\MediaMan\Exceptions\UploadFailed;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Placeholders\PlaceholderGenerator;
 use Emaia\MediaMan\Resolvers\MediaResolver;
+use Emaia\MediaMan\Security\SvgSanitizer;
 use Emaia\MediaMan\Support\UrlGuard;
 use Emaia\MediaMan\Traits\ResolvesModels;
 use Illuminate\Http\Request;
@@ -22,6 +23,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Intervention\Image\ImageManager;
+use Symfony\Component\Mime\MimeTypes;
 
 class MediaUploader
 {
@@ -82,8 +84,9 @@ class MediaUploader
     /**
      * Create an uploader from a file on an existing filesystem disk.
      *
-     * TODO: use readStream/writeStream to avoid loading the entire file
-     * into memory at once (relevant for very large files on cloud disks).
+     * Streams the source through `readStream()` → `stream_copy_to_stream()`
+     * so memory stays constant regardless of file size (matters for video,
+     * datasets, large archives on cloud disks).
      */
     public static function fromDisk(string $path, string $disk): MediaUploader
     {
@@ -96,7 +99,28 @@ class MediaUploader
         $tmpPath = tempnam(sys_get_temp_dir(), 'mediaman_');
 
         try {
-            file_put_contents($tmpPath, $filesystem->get($path));
+            $source = $filesystem->readStream($path);
+
+            if (! is_resource($source)) {
+                throw new \RuntimeException("Failed to open read stream for [$path] on disk [$disk].");
+            }
+
+            $target = fopen($tmpPath, 'wb');
+
+            if ($target === false) {
+                fclose($source);
+
+                throw new \RuntimeException("Failed to open temp file [$tmpPath] for writing.");
+            }
+
+            try {
+                if (stream_copy_to_stream($source, $target) === false) {
+                    throw new \RuntimeException("Failed to copy [$path] from disk [$disk] to temp.");
+                }
+            } finally {
+                fclose($target);
+                fclose($source);
+            }
 
             $uploadedFile = new UploadedFile(
                 $tmpPath,
@@ -176,6 +200,12 @@ class MediaUploader
 
     /**
      * Create an uploader from a remote URL.
+     *
+     * The remote `Content-Type` is treated as untrusted — extension derivation
+     * and the UploadedFile's recorded MIME come from a finfo sniff of the bytes
+     * that actually landed on disk, not from the server's header. Mismatches
+     * are surfaced via `Log::warning` so operators have an audit trail without
+     * breaking benign cases where a server mislabels by accident.
      */
     public static function fromUrl(string $url): MediaUploader
     {
@@ -191,6 +221,17 @@ class MediaUploader
             $downloader = app(Downloader::class);
             $result = $downloader->download($downloadUrl, $tmpPath, $resolved);
 
+            $sniffedMime = self::detectMimeFromFile($tmpPath);
+            $remoteMime = $result['mime'];
+
+            if ($remoteMime !== $sniffedMime) {
+                Log::warning('MediaMan: fromUrl Content-Type mismatch — using sniffed MIME', [
+                    'url' => $url,
+                    'remote_mime' => $remoteMime,
+                    'sniffed_mime' => $sniffedMime,
+                ]);
+            }
+
             $suggestedName = basename(parse_url($url, PHP_URL_PATH) ?: '');
 
             if ($suggestedName === '') {
@@ -198,7 +239,7 @@ class MediaUploader
             }
 
             if (pathinfo($suggestedName, PATHINFO_EXTENSION) === '') {
-                $ext = self::extensionForMime($result['mime']);
+                $ext = self::extensionForMime($sniffedMime);
 
                 if ($ext !== '') {
                     $suggestedName .= '.'.$ext;
@@ -208,7 +249,7 @@ class MediaUploader
             $uploadedFile = new UploadedFile(
                 $tmpPath,
                 $suggestedName,
-                $result['mime'],
+                $sniffedMime,
                 null,
                 true
             );
@@ -321,19 +362,10 @@ class MediaUploader
         return is_string($mimeType) ? $mimeType : 'application/octet-stream';
     }
 
-    /**
-     * Pick a file extension for a MIME type. Uses the format map for images
-     * (authoritative) and falls back to the MIME subtype for other types.
-     */
+    /** Canonical extension for a MIME type via Symfony's MimeTypes registry. */
     private static function extensionForMime(string $mimeType): string
     {
-        if (str_starts_with($mimeType, 'image/')) {
-            return MediaFormat::extensionFromMimeType($mimeType);
-        }
-
-        $slash = strrpos($mimeType, '/');
-
-        return $slash !== false ? substr($mimeType, $slash + 1) : '';
+        return MimeTypes::getDefault()->getExtensions($mimeType)[0] ?? '';
     }
 
     /**
@@ -497,9 +529,11 @@ class MediaUploader
      */
     public function upload(): Media
     {
+        $this->validateUploadIntegrity();
         $this->validateExtension();
         $this->validateMimeType();
         $this->validateFileSize();
+        $this->sanitizeOrRejectSvg();
 
         $media = DB::transaction(function () {
             $media = $this->persistMediaModel();
@@ -654,7 +688,7 @@ class MediaUploader
             return;
         }
 
-        if (! config('mediaman.responsive_images.enabled', true) || ! $media->isOfType(MediaType::IMAGE)) {
+        if (! config('mediaman.responsive_images.enabled', true) || ! $media->isRasterImage()) {
             return;
         }
 
@@ -758,19 +792,131 @@ class MediaUploader
         throw MimeTypeNotAllowed::forMimeType($mimeType);
     }
 
+    /**
+     * SVG carries an XSS risk (`<script>`, `<foreignObject>`, event handlers)
+     * when served same-origin. Disabled by default; when `mediaman.svg.enabled`
+     * is true, the upload is routed through the app-supplied
+     * `Emaia\MediaMan\Security\SvgSanitizer` implementation
+     * (`mediaman.svg.sanitizer`) and the cleaned markup is what lands on disk.
+     *
+     * @throws SvgNotAllowed
+     */
+    protected function sanitizeOrRejectSvg(): void
+    {
+        if (! $this->looksLikeSvg()) {
+            return;
+        }
+
+        if (! config('mediaman.svg.enabled', false)) {
+            throw SvgNotAllowed::disabled();
+        }
+
+        $sanitizerClass = config('mediaman.svg.sanitizer');
+
+        if ($sanitizerClass === null) {
+            throw SvgNotAllowed::noSanitizerConfigured();
+        }
+
+        /** @var SvgSanitizer $sanitizer */
+        $sanitizer = app($sanitizerClass);
+
+        $path = $this->file->getPathname();
+        $original = file_get_contents($path);
+
+        if ($original === false) {
+            throw SvgNotAllowed::sanitizationFailed("unable to read SVG temp file at [$path].");
+        }
+
+        $clean = $sanitizer->sanitize($original);
+
+        if ($clean === null) {
+            throw SvgNotAllowed::sanitizationFailed('sanitizer rejected the SVG markup as invalid.');
+        }
+
+        if (file_put_contents($path, $clean) === false) {
+            throw SvgNotAllowed::sanitizationFailed("unable to write sanitized SVG back to [$path].");
+        }
+    }
+
+    /**
+     * 3-way SVG detection: canonical MIME → filename extension → content marker.
+     *
+     * Belt-and-suspenders: outdated `finfo` magic databases sometimes return
+     * `text/xml` for SVGs that start with `<?xml ...?>`, which would bypass
+     * the MIME check alone. The extension check catches the typical `.svg`
+     * upload regardless of sniff; the content marker covers arbitrary-extension
+     * uploads carrying SVG markup. Reads only the first 1KB.
+     */
+    protected function looksLikeSvg(): bool
+    {
+        if ($this->file->getMimeType() === 'image/svg+xml') {
+            return true;
+        }
+
+        if (strtolower(pathinfo($this->fileName, PATHINFO_EXTENSION)) === 'svg') {
+            return true;
+        }
+
+        $head = @file_get_contents($this->file->getPathname(), false, null, 0, 1024);
+
+        if ($head === false) {
+            return false;
+        }
+
+        // Strip BOM + leading whitespace + optional XML declaration.
+        $head = preg_replace('/^\xEF\xBB\xBF/', '', $head) ?? $head;
+        $head = ltrim($head);
+
+        if (str_starts_with($head, '<?xml')) {
+            $end = strpos($head, '?>');
+
+            if ($end !== false) {
+                $head = ltrim(substr($head, $end + 2));
+            }
+        }
+
+        return str_starts_with($head, '<svg');
+    }
+
     /** @throws FileSizeExceeded */
     protected function validateFileSize(): void
     {
+        $actualBytes = (int) $this->file->getSize();
+
+        $minBytes = (int) config('mediaman.min_file_size', 1);
+
+        if ($minBytes > 0 && $actualBytes < $minBytes) {
+            throw FileSizeExceeded::belowMinimum($actualBytes, $minBytes);
+        }
+
         $maxBytes = $this->maxFileSize ?? (int) config('mediaman.max_file_size', 0);
 
         if ($maxBytes <= 0) {
             return;
         }
 
-        $actualBytes = (int) $this->file->getSize();
-
         if ($actualBytes > $maxBytes) {
             throw FileSizeExceeded::forSize($actualBytes, $maxBytes);
+        }
+    }
+
+    /**
+     * Surface PHP-level upload errors with the actual cause instead of
+     * letting downstream size/MIME checks mask them with misleading
+     * diagnostics. A file that hit `upload_max_filesize` arrives as a
+     * 0-byte `UploadedFile` with `isValid() === false` and `getError()`
+     * set to `UPLOAD_ERR_INI_SIZE` — reporting "below min file size"
+     * for that case blames the symptom (0 bytes), not the cause.
+     *
+     * @throws UploadFailed
+     */
+    protected function validateUploadIntegrity(): void
+    {
+        if (! $this->file->isValid()) {
+            throw UploadFailed::fromPhpUpload(
+                $this->file->getError(),
+                $this->file->getErrorMessage(),
+            );
         }
     }
 
