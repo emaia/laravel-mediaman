@@ -89,6 +89,18 @@ Missing entries fail loud at generation time (`InvalidArgumentException`) so a t
 
 Config defaults live under `config('mediaman.responsive_images')` — see [Configuration → Responsive images](configuration.md#responsive-images).
 
+## Verifying driver/codec support
+
+Whether a given format actually encodes is a function of the active image driver and the codecs it can reach. AVIF, HEIC and WebP each have driver/library prerequisites that aren't visible from PHP land — a misconfigured stack silently writes zero-byte variants or skips them at runtime.
+
+Run `php artisan mediaman:doctor` to surface this upfront. The **Image driver** section probes each format listed in `responsive_images.formats` with a 10×10 encode and reports `ok`, `warn` (with a targeted hint), or the driver's exception. Common gaps:
+
+- **HEIC on imagick/vips**: needs `libheif` *and* an HEVC encoder plugin (e.g. `libheif-plugin-x265`). Without the plugin the encoder returns zero bytes — the probe catches this and tells you which package to install.
+- **AVIF on GD**: GD has no AVIF encoder. The probe surfaces the exception so you know to swap drivers or drop the format.
+- **Vips + PHP FFI**: Vips loads its bindings via PHP FFI on the first encode, configured per-SAPI. The probe runs a 1×1 PNG encode to force the FFI binding, then prints the current SAPI + `ffi.enable` value with a hint to verify the same setting under whichever SAPI production serves under (CLI vs `fpm-fcgi` vs `cli-server` from `artisan serve`).
+
+The doctor output is the canonical guide — each warn/error carries the actionable next step.
+
 ## Generating for existing media
 
 ```php
