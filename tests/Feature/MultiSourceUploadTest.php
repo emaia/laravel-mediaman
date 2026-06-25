@@ -20,6 +20,14 @@ function fakeTmpFile(string $content = 'hello world'): string
     return $path;
 }
 
+beforeEach(function () {
+    // Most tests in this file mock the Downloader and return metadata, but the
+    // actual file UploadedFile is built from is the empty `tempnam()` path that
+    // `fromUrl()` pre-created. Disable the min_file_size guard so the orchestration
+    // tests keep validating what they care about (mock contract, not real bytes).
+    config()->set('mediaman.min_file_size', 0);
+});
+
 // --- fromRequest ---
 
 it('fromRequest creates a Media from the default request field', function () {

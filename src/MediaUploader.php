@@ -752,13 +752,19 @@ class MediaUploader
     /** @throws FileSizeExceeded */
     protected function validateFileSize(): void
     {
+        $actualBytes = (int) $this->file->getSize();
+
+        $minBytes = (int) config('mediaman.min_file_size', 1);
+
+        if ($minBytes > 0 && $actualBytes < $minBytes) {
+            throw FileSizeExceeded::belowMinimum($actualBytes, $minBytes);
+        }
+
         $maxBytes = $this->maxFileSize ?? (int) config('mediaman.max_file_size', 0);
 
         if ($maxBytes <= 0) {
             return;
         }
-
-        $actualBytes = (int) $this->file->getSize();
 
         if ($actualBytes > $maxBytes) {
             throw FileSizeExceeded::forSize($actualBytes, $maxBytes);

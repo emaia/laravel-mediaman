@@ -77,6 +77,15 @@ return [
     ],
 
     /*
+    | Minimum upload size in bytes. Uploads below the threshold are rejected
+    | as `FileSizeExceeded` (same exception family as max_file_size). Set to 0
+    | to allow zero-byte uploads (placeholder records, late binding, etc.).
+    | Default of 1 rejects empty files — the common "ghost record" failure mode.
+    */
+
+    'min_file_size' => env('MEDIAMAN_MIN_FILE_SIZE', 1),
+
+    /*
     | Settings for `MediaUploader::fromUrl()` — downloading from remote URLs.
     */
 
