@@ -11,6 +11,13 @@ class HttpDownloader implements Downloader
 {
     public function download(string $url, string $destinationPath, ?array $resolved = null): array
     {
+        if (! extension_loaded('curl')) {
+            throw new RuntimeException(
+                'MediaUploader::fromUrl() requires the PHP ext-curl extension. '
+                .'Install/enable it, or use another upload source (fromRequest, fromDisk, fromBase64, fromStream, fromString).'
+            );
+        }
+
         $timeout = (int) config('mediaman.url_sources.timeout_seconds', 30);
         $maxSize = (int) config('mediaman.url_sources.max_size_bytes', 100 * 1024 * 1024);
         $verifySsl = config('mediaman.url_sources.verify_ssl', true);
