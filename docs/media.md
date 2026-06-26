@@ -230,7 +230,7 @@ When a Media instance is deleted, its file is removed from disk and all associat
 ## Cross-references
 
 - [Uploads](uploads.md) — how to create a Media record
-- [Models & associations](models.md) — attach Media to models via `HasMedia`
+- [Models & Channels](models.md) — attach Media to models via `HasMedia`
 - [Collections](collections.md) — group Media into reusable bundles
 - [Conversions](conversions.md) — register image transformations applied to Media
 - [Responsive images](responsive-images.md) — variants generated from Media

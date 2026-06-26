@@ -12,14 +12,14 @@
 
 A `MediaCollection` is a virtual group of media — useful for organizing assets independently of the models that consume them. Collections are stored in `mediaman_collections` and the many-to-many relationship lives in `mediaman_collection_media`.
 
-> Collections are **not** the same as channels. Channels are per-model tags carried in `mediaman_mediables` and they have an order column; collections are reusable groups without ordering. See [Models → Channels vs collections](models.md#channels-vs-collections).
+> Collections are **not** the same as channels. Channels are per-model tags carried in `mediaman_mediables` and they have an order column; collections are reusable groups without ordering. See [Models & Channels → Channels vs collections](models.md#channels-vs-collections).
 
 ## Create a collection
 
 Collections are created on the fly when uploading:
 
 ```php
-$media = MediaUploader::source($request->file('file'))
+$media = MediaUploader::fromRequest() // default field 'file'
     ->useCollection('My Collection')
     ->upload();
 ```
