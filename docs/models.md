@@ -1,4 +1,4 @@
-# Models & associations
+# Models & Channels
 
 [← Back to README](../README.md)
 

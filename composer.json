@@ -27,7 +27,6 @@
         "illuminate/database": "^12.0|^13.0",
         "illuminate/validation": "^12.0|^13.0",
         "intervention/image": "^4.0",
-        "ext-curl": "*",
         "ext-fileinfo": "*"
     },
     "require-dev": {
@@ -51,6 +50,7 @@
         }
     },
     "suggest": {
+        "ext-curl": "Required by MediaUploader::fromUrl() for IP-pinned SSRF protection. Other upload sources don't need it.",
         "intervention/image-driver-vips": "Higher-throughput image processing via libvips — set MEDIAMAN_DRIVER=vips (or rely on auto-detection) after installing the package and ext-vips."
     },
     "extra": {

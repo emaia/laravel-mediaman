@@ -5,16 +5,16 @@
 - [Requirements](#requirements)
 - [Install via Composer](#install-via-composer)
 - [Publish assets and migrate](#publish-assets-and-migrate)
-- [Upgrading existing installations](#upgrading-existing-installations)
+- [Upgrading from an earlier version](#upgrading-from-an-earlier-version)
 - [Next steps](#next-steps)
 
 ## Requirements
 
 | Laravel | Package | PHP  |
 |---------|---------|------|
-| v12–v13 | 1.x–2.x | 8.3+ |
+| v12–v13 | 2.x–3.x | 8.3+ |
 
-`fromUrl()` uploads (introduced in 2.5.0) also require the **ext-curl** PHP extension. It's declared in `composer.json` and Composer will refuse to install on systems without it.
+`fromUrl()` uploads require the **ext-curl** PHP extension.
 
 ## Install via Composer
 
@@ -47,36 +47,15 @@ php artisan mediaman:publish-config
 php artisan mediaman:publish-migration
 ```
 
-## Upgrading existing installations
+## Upgrading from an earlier version
 
-Releases that add new columns to `mediaman_collections` or `mediaman_mediables` ship the schema inside the `create_mediaman_tables` stub for **fresh installs**. Existing installations must add new columns manually via a custom migration before upgrading.
-
-### v2.7.0 → adds to `mediaman_collections`
-
-```php
-Schema::table('mediaman_collections', function (Blueprint $table) {
-    $table->integer('max_items')->nullable()->after('name');
-    $table->json('allowed_mime_types')->nullable()->after('max_items');
-    $table->string('fallback_url')->nullable()->after('allowed_mime_types');
-    $table->string('fallback_path')->nullable()->after('fallback_url');
-});
-```
-
-### v2.8.0 → adds to `mediaman_mediables`
-
-```php
-Schema::table('mediaman_mediables', function (Blueprint $table) {
-    $table->integer('order_column')->nullable()->index();
-});
-```
-
-### v2.13.0 → LQIP placeholder payload changed (no schema change)
-
-The LQIP placeholder stored in `custom_properties.placeholder` changed from a tiny JPEG data URI to an SVG wrapper data URI (zero CLS, works inside `<picture>`). The schema is unchanged, but media uploaded with v2.11 / v2.12 still hold the old JPEG payload. Re-upload affected media to refresh the placeholder; non-refreshed records keep rendering the JPEG inline as a degraded fallback.
+See [UPGRADING.md](../UPGRADING.md) for v2.x → v3.0 instructions, including the catch-up sections for older v2 installs (v2.0 – v2.12 schema additions, v2.13 – v2.17 console/queue/responsive flag changes).
 
 ## Next steps
 
 - Run `php artisan mediaman:doctor` to verify the install — schema, disk, image driver, codecs, queue and security defaults all probed in one shot. See [Commands → Doctor](commands.md#doctor-health-check).
 - [Configuration](configuration.md) — disk, queue, image driver, custom models, responsive images
+- [Conversions](conversions.md) — register global image transformations applied per channel
+- [Models & Channels](models.md) — `HasMedia` trait, channels, ordering, fallbacks
+- [Responsive images](responsive-images.md) — multi-format variants and `<picture>` / `srcset` HTML
 - [Uploads](uploads.md) — `MediaUploader` and its source variants
-- [Models & associations](models.md) — `HasMedia` trait, channels, ordering, fallbacks

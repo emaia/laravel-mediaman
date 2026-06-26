@@ -231,11 +231,11 @@ The combination — solid color → SVG blur → responsive image — gives thre
 
 The default `BlurredSvgPlaceholder` works for most apps, but the package ships two lightweight alternatives. Swap via `mediaman.placeholder.generator`:
 
-| Generator | Payload (typical) | Visual character | Best for |
-|---|---|---|---|
-| `BlurredSvgPlaceholder` (default) | ~3 KB | Photographic blur (real thumbnail of the source, smoothed) | Editorial / blog / portfolio — quality of the preview matters |
-| `GeometricBlurPlaceholder` | ~2 KB (grid=4), ~6–8 KB (grid=8) | Stylized geometric blocks — you can see where the bright and dark regions live, but it never looks "photographic" | Performance-focused apps that still want a visible hint of composition; CSP-strict environments (no embedded binary) |
-| `DominantColorPlaceholder` | ~150 B | Flat solid color (area-weighted average) | Galleries / grids with many thumbnails; bandwidth-sensitive contexts; fallback for when the LQIP isn't worth its own payload |
+| Generator                         | Payload (typical)                | Visual character                                                                                                  | Best for                                                                                                                     |
+|-----------------------------------|----------------------------------|-------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------|
+| `BlurredSvgPlaceholder` (default) | ~3 KB                            | Photographic blur (real thumbnail of the source, smoothed)                                                        | Editorial / blog / portfolio — quality of the preview matters                                                                |
+| `GeometricBlurPlaceholder`        | ~2 KB (grid=4), ~6–8 KB (grid=8) | Stylized geometric blocks — you can see where the bright and dark regions live, but it never looks "photographic" | Performance-focused apps that still want a visible hint of composition; CSP-strict environments (no embedded binary)         |
+| `DominantColorPlaceholder`        | ~150 B                           | Flat solid color (area-weighted average)                                                                          | Galleries / grids with many thumbnails; bandwidth-sensitive contexts; fallback for when the LQIP isn't worth its own payload |
 
 All three return the same `data:image/svg+xml,…` URI shape, so the rendering pipeline (`getPictureHtml` / `getSimpleImgHtml` / `getUrlOrPlaceholder`) is generator-agnostic.
 

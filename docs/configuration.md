@@ -23,6 +23,7 @@ The config file is organized in four blocks: essentials, validation/security def
 - [Temporary URLs](#temporary-urls)
 - [URL generation](#url-generation)
 - [Placeholder](#placeholder)
+- [Conversions disk](#conversions-disk)
 - [Responsive images](#responsive-images)
 
 **Customization**
@@ -30,6 +31,9 @@ The config file is organized in four blocks: essentials, validation/security def
 - [Table names](#table-names)
 - [Pluggable MediaResolver](#pluggable-mediaresolver)
 - [Disk accessibility checks](#disk-accessibility-checks)
+
+**Reference**
+- [Configuration reference (all keys)](#configuration-reference-all-keys)
 
 ---
 
@@ -74,11 +78,11 @@ MediaMan uses [intervention/image](https://github.com/Intervention/image) under 
 'driver' => env('MEDIAMAN_DRIVER'), // null = auto-detect, 'vips', 'imagick', or 'gd'
 ```
 
-| Driver    | PHP extension | Composer package                       | Notes                                                                         |
-|-----------|---------------|----------------------------------------|-------------------------------------------------------------------------------|
-| `vips`    | ext-vips      | `intervention/image-driver-vips` (suggest) | Highest throughput via libvips. Install the package and load the extension.   |
-| `imagick` | ext-imagick   | bundled with intervention/image        | Higher quality than gd, full color-space support.                             |
-| `gd`      | ext-gd        | bundled with intervention/image        | Lightest, bundled in most PHP installations — the safe universal fallback.    |
+| Driver    | PHP extension | Composer package                           | Notes                                                                       |
+|-----------|---------------|--------------------------------------------|-----------------------------------------------------------------------------|
+| `vips`    | ext-vips      | `intervention/image-driver-vips` (suggest) | Highest throughput via libvips. Install the package and load the extension. |
+| `imagick` | ext-imagick   | bundled with intervention/image            | Higher quality than gd, full color-space support.                           |
+| `gd`      | ext-gd        | bundled with intervention/image            | Lightest, bundled in most PHP installations — the safe universal fallback.  |
 
 Auto-detection picks `vips` only when **all three** gates pass: `ext-vips` is loaded, `Intervention\Image\Drivers\Vips\Driver` resolves (i.e. the Composer package is installed), and a runtime probe (`new VipsDriver`) succeeds — the driver itself checks that libvips is reachable. Any failure falls through to imagick, then gd, silently. An explicit `MEDIAMAN_DRIVER=vips` with a broken libvips bubbles the original `MissingDependencyException` instead of falling back; we don't silence what the user asked for directly. An invalid driver name throws `InvalidArgumentException` at runtime.
 
@@ -201,8 +205,6 @@ Apply a CDN prefix and/or cache-busting strategy to all generated URLs (see [API
 
 For absolute storage URLs (S3-style), the prefix correctly strips scheme+host before reapplying. Temporary signed URLs are **not** prefixed or version-tagged.
 
-> **Upgrading from v2:** the boolean `version_query` was renamed to the string enum `versioning` in v3.0. The legacy key is no longer read — rename `'version_query' => true` to `'versioning' => 'timestamp'`.
-
 ## Placeholder
 
 Low-quality image placeholder (LQIP) — a tiny blurred JPEG generated synchronously on image upload, stored as a base64 data URI in `custom_properties.placeholder`. See [Media → Placeholder](media.md#placeholder-for-pending-conversions) for usage.
@@ -235,6 +237,20 @@ When off, `Media::getPlaceholder()` returns `null`, `getUrlOrPlaceholder()` beha
 
 **Per-generator tuning is scoped to its own sub-block.** `mediaman.placeholder.blurred_svg.{width, blur, quality}` only applies when the active `generator` is `BlurredSvgPlaceholder`; `mediaman.placeholder.geometric_blur.{grid_size, blur_std_deviation}` only applies to `GeometricBlurPlaceholder`. Swapping generators ignores knobs that don't belong to them — no silent reuse, no namespace collisions.
 
+## Conversions disk
+
+Default disk for conversion variants. When set, every `Conversion::register()` writes its output here unless the registration overrides it with its own `disk:` argument.
+
+```php
+'conversions' => [
+    'disk' => env('MEDIAMAN_CONVERSIONS_DISK'),
+],
+```
+
+Resolution order, most specific wins: per-conversion `disk:` argument → this config default → media's own disk. Typical use case: keep originals on a durable cloud disk (S3, GCS) while serving the hot, read-heavy variants from a faster local disk — without repeating `disk: 'X'` on every registration.
+
+See [Conversions → Conversion disk](conversions.md#conversion-disk) for the full resolution rules and per-registration overrides.
+
 ## Responsive images
 
 Responsive images are **opt-in** — no variants are generated unless you call `generateResponsive()` on an upload or set `auto_generate=true` here.
@@ -244,6 +260,7 @@ Responsive images are **opt-in** — no variants are generated unless you call `
     'enabled'          => env('MEDIAMAN_RESPONSIVE_ENABLED', true),
     'auto_generate'    => env('MEDIAMAN_RESPONSIVE_AUTO_GENERATE', false),
     'queue'            => env('MEDIAMAN_RESPONSIVE_QUEUE', true),
+    'disk'             => env('MEDIAMAN_RESPONSIVE_DISK'),
     'breakpoints'      => [320, 640, 1024, 1366, 1920],
     'formats'          => ['webp'],
     'quality'          => 85,
@@ -265,8 +282,9 @@ Responsive images are **opt-in** — no variants are generated unless you call `
 | `enabled`                                 | `true`                         | Kill-switch. When `false`, explicit `generateResponsive()` no-ops.                                                                                                                                                              |
 | `auto_generate`                           | `false`                        | Automatically generate on every image upload.                                                                                                                                                                                   |
 | `queue`                                   | `true`                         | Queue generation jobs instead of processing inline.                                                                                                                                                                             |
+| `disk`                                    | `null` (media's own disk)      | Disk for generated responsive variants. Same hot/cold tiering as `conversions.disk`. See [Responsive images → Responsive disk](responsive-images.md#responsive-disk).                                                           |
 | `breakpoints`                             | `[320, 640, 1024, 1366, 1920]` | Widths (in px) to generate.                                                                                                                                                                                                     |
-| `formats`                                 | `['webp']`                     | Output formats. Supported: `webp`, `avif`, `jpg`, `png`, `gif`, `heic`. Order determines `<source>` precedence in the rendered `<picture>`. Driver/codec support varies — run `php artisan mediaman:doctor` to surface gaps. |
+| `formats`                                 | `['webp']`                     | Output formats. Supported: `webp`, `avif`, `jpg`, `png`, `gif`, `heic`. Order determines `<source>` precedence in the rendered `<picture>`. Driver/codec support varies — run `php artisan mediaman:doctor` to surface gaps.    |
 | `quality`                                 | `85`                           | Lossy encoder quality (1–100). Scalar applies to every lossy format, or pass an array keyed by format (`['avif' => 50, 'webp' => 85]`) — see [Responsive images → Per-format quality](responsive-images.md#per-format-quality). |
 | `width_calculator`                        | `'breakpoint'`                 | `breakpoint` uses fixed widths; `file_size_optimized` selects widths based on file-size reduction                                                                                                                               |
 | `min_width`                               | `320`                          | Images narrower than this won't generate a variant.                                                                                                                                                                             |
@@ -422,3 +440,61 @@ When you change a Media's `disk` or `file_name`, MediaMan moves/renames the unde
 **Cons:** adds a round-trip per mutation (small but measurable on cloud disks).
 
 Leave off by default; flip on if you've been bitten by silent disk failures.
+
+---
+
+## Configuration reference (all keys)
+
+Every key from `config/mediaman.php` in a single table. The prose sections above explain context, trade-offs, and worked examples — this table is the Ctrl-F surface. Long defaults (`disallowed_extensions`, etc.) are abbreviated; see the dedicated section for the full value.
+
+| Key                                                         | Type                                  | Default                                        | Env var                             | Section                                                               |
+|-------------------------------------------------------------|---------------------------------------|------------------------------------------------|-------------------------------------|-----------------------------------------------------------------------|
+| `disk`                                                      | `string\|null`                        | `null` (Laravel default)                       | `MEDIAMAN_DISK`                     | [Storage disk](#storage-disk)                                         |
+| `driver`                                                    | `string\|null`                        | `null` (auto: vips → imagick → gd)             | `MEDIAMAN_DRIVER`                   | [Image driver](#image-driver)                                         |
+| `queue`                                                     | `string\|null`                        | `null` (Laravel default)                       | `MEDIAMAN_QUEUE`                    | [Queue](#queue)                                                       |
+| `collection`                                                | `string`                              | `'Default'`                                    | —                                   | [Default collection](#default-collection)                             |
+| `allowed_mime_types`                                        | `array`                               | `[]` (allow all)                               | —                                   | [Allowed MIME types and file size](#allowed-mime-types-and-file-size) |
+| `max_file_size`                                             | `int`                                 | `0` (unlimited)                                | `MEDIAMAN_MAX_FILE_SIZE`            | [Allowed MIME types and file size](#allowed-mime-types-and-file-size) |
+| `min_file_size`                                             | `int`                                 | `1` (block empty)                              | `MEDIAMAN_MIN_FILE_SIZE`            | [Allowed MIME types and file size](#allowed-mime-types-and-file-size) |
+| `block_disallowed_extensions`                               | `bool`                                | `true`                                         | —                                   | [Disallowed extensions](#disallowed-extensions)                       |
+| `disallowed_extensions`                                     | `string[]`                            | `['php', 'phtml', …]` (17 entries)             | —                                   | [Disallowed extensions](#disallowed-extensions)                       |
+| `svg.enabled`                                               | `bool`                                | `false`                                        | `MEDIAMAN_SVG_ENABLED`              | [SVG uploads](#svg-uploads)                                           |
+| `svg.sanitizer`                                             | `class-string\|null`                  | `null`                                         | —                                   | [SVG uploads](#svg-uploads)                                           |
+| `url_sources.allow_private_hosts`                           | `bool`                                | `false`                                        | `MEDIAMAN_ALLOW_PRIVATE_HOSTS`      | [URL sources](#url-sources-for-fromurl)                               |
+| `url_sources.timeout_seconds`                               | `int`                                 | `30`                                           | —                                   | [URL sources](#url-sources-for-fromurl)                               |
+| `url_sources.max_size_bytes`                                | `int`                                 | `104857600` (100 MB)                           | —                                   | [URL sources](#url-sources-for-fromurl)                               |
+| `url_sources.verify_ssl`                                    | `bool`                                | `true`                                         | `MEDIAMAN_VERIFY_SSL`               | [URL sources](#url-sources-for-fromurl)                               |
+| `url_sources.user_agent`                                    | `string`                              | `'MediaMan/2.x'`                               | —                                   | [URL sources](#url-sources-for-fromurl)                               |
+| `base64.max_size_bytes`                                     | `int`                                 | `52428800` (50 MB)                             | —                                   | [Base64 uploads](#base64-uploads)                                     |
+| `temporary_url.default_lifetime_minutes`                    | `int`                                 | `5`                                            | —                                   | [Temporary URLs](#temporary-urls)                                     |
+| `url.versioning`                                            | `false\|'timestamp'`                  | `false`                                        | `MEDIAMAN_URL_VERSIONING`           | [URL generation](#url-generation)                                     |
+| `url.prefix`                                                | `string\|null`                        | `null`                                         | `MEDIAMAN_URL_PREFIX`               | [URL generation](#url-generation)                                     |
+| `placeholder.enabled`                                       | `bool`                                | `false`                                        | `MEDIAMAN_PLACEHOLDER_ENABLED`      | [Placeholder](#placeholder)                                           |
+| `placeholder.generator`                                     | `class-string`                        | `BlurredSvgPlaceholder::class`                 | —                                   | [Placeholder](#placeholder)                                           |
+| `placeholder.blurred_svg.width`                             | `int`                                 | `32`                                           | —                                   | [Placeholder](#placeholder)                                           |
+| `placeholder.blurred_svg.blur`                              | `int`                                 | `20`                                           | —                                   | [Placeholder](#placeholder)                                           |
+| `placeholder.blurred_svg.quality`                           | `int`                                 | `40`                                           | —                                   | [Placeholder](#placeholder)                                           |
+| `placeholder.geometric_blur.grid_size`                      | `int`                                 | `4`                                            | —                                   | [Placeholder](#placeholder)                                           |
+| `placeholder.geometric_blur.blur_std_deviation`             | `int`                                 | `20`                                           | —                                   | [Placeholder](#placeholder)                                           |
+| `conversions.disk`                                          | `string\|null`                        | `null` (media's own disk)                      | `MEDIAMAN_CONVERSIONS_DISK`         | [Conversions disk](#conversions-disk)                                 |
+| `responsive_images.enabled`                                 | `bool`                                | `true`                                         | `MEDIAMAN_RESPONSIVE_ENABLED`       | [Responsive images](#responsive-images)                               |
+| `responsive_images.auto_generate`                           | `bool`                                | `false`                                        | `MEDIAMAN_RESPONSIVE_AUTO_GENERATE` | [Responsive images](#responsive-images)                               |
+| `responsive_images.queue`                                   | `bool`                                | `true`                                         | `MEDIAMAN_RESPONSIVE_QUEUE`         | [Responsive images](#responsive-images)                               |
+| `responsive_images.disk`                                    | `string\|null`                        | `null` (media's own disk)                      | `MEDIAMAN_RESPONSIVE_DISK`          | [Responsive images](#responsive-images)                               |
+| `responsive_images.formats`                                 | `string[]`                            | `['webp']`                                     | —                                   | [Responsive images](#responsive-images)                               |
+| `responsive_images.quality`                                 | `int\|array<string, int>`             | `85`                                           | —                                   | [Responsive images](#responsive-images)                               |
+| `responsive_images.width_calculator`                        | `'breakpoint'\|'file_size_optimized'` | `'breakpoint'`                                 | —                                   | [Responsive images](#responsive-images)                               |
+| `responsive_images.breakpoints`                             | `int[]`                               | `[320, 640, 1024, 1366, 1920]`                 | —                                   | [Responsive images](#responsive-images)                               |
+| `responsive_images.min_width`                               | `int`                                 | `320`                                          | —                                   | [Responsive images](#responsive-images)                               |
+| `responsive_images.max_width`                               | `int`                                 | `2560`                                         | —                                   | [Responsive images](#responsive-images)                               |
+| `responsive_images.file_size_optimized.reduction_factor`    | `float`                               | `0.7`                                          | —                                   | [Responsive images](#responsive-images)                               |
+| `responsive_images.file_size_optimized.min_width`           | `int`                                 | `20`                                           | —                                   | [Responsive images](#responsive-images)                               |
+| `responsive_images.file_size_optimized.min_file_size_bytes` | `int`                                 | `10240`                                        | —                                   | [Responsive images](#responsive-images)                               |
+| `models.media`                                              | `class-string<Media>`                 | `Emaia\MediaMan\Models\Media::class`           | —                                   | [Custom models](#custom-models)                                       |
+| `models.collection`                                         | `class-string<MediaCollection>`       | `Emaia\MediaMan\Models\MediaCollection::class` | —                                   | [Custom models](#custom-models)                                       |
+| `tables.media`                                              | `string`                              | `'mediaman_media'`                             | —                                   | [Table names](#table-names)                                           |
+| `tables.collections`                                        | `string`                              | `'mediaman_collections'`                       | —                                   | [Table names](#table-names)                                           |
+| `tables.collection_media`                                   | `string`                              | `'mediaman_collection_media'`                  | —                                   | [Table names](#table-names)                                           |
+| `tables.mediables`                                          | `string`                              | `'mediaman_mediables'`                         | —                                   | [Table names](#table-names)                                           |
+| `resolver`                                                  | `class-string<MediaResolver>`         | `DefaultMediaResolver::class`                  | —                                   | [Pluggable MediaResolver](#pluggable-mediaresolver)                   |
+| `check_disk_accessibility`                                  | `bool`                                | `false`                                        | `MEDIAMAN_CHECK_DISK_ACCESSIBILITY` | [Disk accessibility checks](#disk-accessibility-checks)               |

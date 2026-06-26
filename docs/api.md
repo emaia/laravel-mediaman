@@ -221,7 +221,7 @@ Public surface of the package, organized by class/trait. Each entry links back t
 
 ## HasMedia trait
 
-`Emaia\MediaMan\Traits\HasMedia` — see [Models](models.md).
+`Emaia\MediaMan\Traits\HasMedia` — see [Models & Channels](models.md).
 
 ### Relationship
 
