@@ -4,6 +4,21 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.1] — 2026-06-26
+
+Maintenance patch: documentation sweep and a friendlier dependency story for `MediaUploader::fromUrl()`.
+
+### Changed
+
+- `ext-curl` moved from `require` to `suggest` in `composer.json`. Calling `MediaUploader::fromUrl()` on a system without ext-curl now throws a clear `RuntimeException` listing alternative upload sources, instead of a fatal undefined-constant error. Other sources (`fromRequest`, `fromDisk`, `fromBase64`, `fromStream`, `fromString`) install and run without ext-curl.
+- README Core concepts pluralized (`Channels`, `Conversions`); docs table entry renamed from "Models & associations" to **Models & Channels**, with page H1 and cross-refs updated.
+- `docs/installation.md` upgrade section collapsed to a pointer to `UPGRADING.md`; requirements table fixed (`1.x–2.x` → `2.x–3.x`); Next steps now includes Conversions and Responsive images.
+- `docs/configuration.md` now documents `conversions.disk` and `responsive_images.disk`, and ends with a new **Configuration reference (all keys)** appendix covering every key in `config/mediaman.php`.
+
+### Added
+
+- `UPGRADING.md` gains a "v2.0 – v2.12 catch-up" section with the v2.7 and v2.8 schema additions; the v2.13 LQIP payload note moved into the existing "v2.13 – v2.17 catch-up".
+
 ## [3.0.0] — 2026-06-25
 
 Consolidates the API surface accumulated since v2, lands the audit findings from a full security pass, and adds operational tooling so adopters can verify their stack before the first upload.
