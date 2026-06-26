@@ -167,8 +167,10 @@ Constructors don't need a return type. PHP's `resource` pseudo-type has no nativ
 - Push feature branch, open PR on GitHub
 - Branch naming: descriptive kebab-case (e.g. `security-extensions`)
 - PR title matches commit subject convention; body summarizes changes
-- Review required; merge manually (do not squash-merge from the CLI)
-- Remote merge (GitHub UI) squashes the branch into a single commit on `main`
+- Review required; merge from the GitHub UI (not the CLI)
+- Remote merge (GitHub UI):
+    - **Default: squash-merge** — for PRs where iterative review/fixup commits should collapse into a single clean commit reflecting the deliverable
+    - **Merge commit (no squash)** — for PRs that bundle multiple isolated changes that each deserve their own commit in history
 - Ask to confirm the message is correct before pushing
 - **PR body template** — `## Summary` (bullet points) + `## Test plan`. The Test plan combines automated checks
   with a manual smoke section covering what tests can't verify (visual, browser-specific behavior, real
@@ -191,15 +193,20 @@ Constructors don't need a return type. PHP's `resource` pseudo-type has no nativ
 ### Tag and Release
 
 - Tags are created on `main` after the PR is merged remotely
-- Versioning follows `2.X.Y` semver:
-    - Patch (`2.1.1`): bugfixes
-    - Minor (`2.2.0`): new features
-- Annotated tag: `git tag -a 2.2.0 -m "2.2.0"`
-- Release created via `gh release create 2.2.0 --title "2.2.0" --notes-file /tmp/release-notes.md`
-- Release notes format:
-    - Markdown title with feature name (e.g. `## Responsive image picture HTML`)
-    - One-sentence summary
-    - Section per feature with code examples
-    - `**Full Changelog**: https://github.com/emaia/laravel-mediaman/compare/v2.1.0...v2.2.0` at the end
-- CHANGELOG.md is updated automatically by the release workflow; do not edit manually
+- Tags are **v-prefixed** (`vX.Y.Z`, not `X.Y.Z`)
+- Versioning follows semver:
+    - Patch (`vX.Y.Z+1`): bugfixes
+    - Minor (`vX.Y+1.0`): new features
+- **Cut the CHANGELOG before tagging.** In a separate commit, rename `## [Unreleased]` → `## [X.Y.Z] — YYYY-MM-DD` in `CHANGELOG.md` and add a fresh empty `## [Unreleased]` above. Push the cut commit BEFORE pushing the tag, otherwise the release workflow fails extracting notes.
+- Annotated tag + push:
+    ```bash
+    git tag -a vX.Y.Z -m "vX.Y.Z"
+    git push origin vX.Y.Z
+    ```
+- The release workflow (`.github/workflows/release.yml`) runs on `v*` tag push and creates the GitHub Release automatically from the matching CHANGELOG section. **Do not pre-create with `gh release create`** — `softprops/action-gh-release` collides with manually created releases.
+- CHANGELOG entry format:
+    - Title: `## [X.Y.Z] — YYYY-MM-DD`
+    - One-sentence summary right under
+    - Keep a Changelog sub-sections: `### Added`, `### Changed`, `### Fixed`, `### Removed`. For feature releases, prose H3 sections with code examples are also OK (see `[3.0.0]`)
+    - `**Full Changelog**: https://github.com/emaia/laravel-mediaman/compare/vX.Y.Z-1...vX.Y.Z` at the end
 - Ask to confirm the message is correct before pushing
