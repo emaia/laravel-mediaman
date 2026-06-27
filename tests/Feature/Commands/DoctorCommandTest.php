@@ -336,3 +336,117 @@ it('reports responsive coverage when records have responsive_images persisted', 
         ->toContain('Responsive coverage')
         ->toContain('1 / 2 (50%)');
 });
+
+// ─── Security section ────────────────────────────────────────────────
+
+it('reports MIME allow-list size when whitelisted types are configured', function () {
+    Config::set('mediaman.allowed_mime_types', ['image/jpeg', 'image/png', 'application/pdf']);
+
+    $out = captureDoctorOutput();
+
+    expect($out)
+        ->toContain('MIME allow-list')
+        ->toContain('3 MIME type(s) whitelisted');
+});
+
+it('warns when SVG uploads are enabled', function () {
+    Config::set('mediaman.svg.enabled', true);
+
+    $out = captureDoctorOutput();
+
+    expect($out)
+        ->toContain('SVG uploads')
+        ->toContain('enabled — uploads sanitized');
+});
+
+it('warns when the extension blocklist is disabled', function () {
+    Config::set('mediaman.block_disallowed_extensions', false);
+
+    $out = captureDoctorOutput();
+
+    expect($out)
+        ->toContain('Extension blocklist')
+        ->toContain('server-executable extensions can land');
+});
+
+// ─── Variant disks ──────────────────────────────────────────────────
+
+it('probes a distinct conversion-default disk when it differs from the main disk', function () {
+    Config::set('filesystems.disks.conv-default', ['driver' => 'local', 'root' => storage_path('framework/testing/conv-default')]);
+    Config::set('mediaman.conversions.disk', 'conv-default');
+
+    $out = captureDoctorOutput();
+
+    expect($out)->toContain("Conversion disk 'conv-default'");
+});
+
+it('probes a distinct responsive-images disk when it differs from the main disk', function () {
+    Config::set('filesystems.disks.resp-disk', ['driver' => 'local', 'root' => storage_path('framework/testing/resp-disk')]);
+    Config::set('mediaman.responsive_images.disk', 'resp-disk');
+
+    $out = captureDoctorOutput();
+
+    expect($out)->toContain("Responsive disk 'resp-disk'");
+});
+
+// ─── Public symlink: remaining branches ─────────────────────────────
+
+it('skips the symlink check when the local disk has no root configured', function () {
+    Config::set('filesystems.disks.no-root', ['driver' => 'local']);
+    Config::set('mediaman.disk', 'no-root');
+
+    $this->artisan('mediaman:doctor')
+        ->expectsOutputToContain('skipped (disk root not configured)');
+});
+
+it('reports the no-matching-links message when filesystems.links has no entry for the disk root', function () {
+    $rootDir = sys_get_temp_dir().'/mediaman-doctor-orphan-'.bin2hex(random_bytes(4));
+    mkdir($rootDir, 0o755, true);
+
+    Config::set('filesystems.disks.orphan', ['driver' => 'local', 'root' => $rootDir]);
+    Config::set('filesystems.links', []);
+    Config::set('mediaman.disk', 'orphan');
+
+    $out = captureDoctorOutput();
+
+    expect($out)->toContain('no entry in filesystems.links targets');
+
+    @rmdir($rootDir);
+});
+
+it('warns when an existing symlink points to a path other than the disk root', function () {
+    $rootDir = sys_get_temp_dir().'/mediaman-doctor-root-'.bin2hex(random_bytes(4));
+    $otherDir = sys_get_temp_dir().'/mediaman-doctor-other-'.bin2hex(random_bytes(4));
+    $linkPath = sys_get_temp_dir().'/mediaman-doctor-mismatch-'.bin2hex(random_bytes(4));
+
+    mkdir($rootDir, 0o755, true);
+    mkdir($otherDir, 0o755, true);
+
+    if (! @symlink($otherDir, $linkPath)) {
+        @rmdir($rootDir);
+        @rmdir($otherDir);
+        $this->markTestSkipped('symlink() unavailable on this host');
+    }
+
+    Config::set('filesystems.disks.mismatch', ['driver' => 'local', 'root' => $rootDir]);
+    Config::set('filesystems.links', [$linkPath => $rootDir]);
+    Config::set('mediaman.disk', 'mismatch');
+
+    $out = captureDoctorOutput();
+
+    expect($out)->toContain('exists but points to');
+
+    removeLinkOrPath($linkPath);
+    @rmdir($rootDir);
+    @rmdir($otherDir);
+});
+
+// ─── Inventory query failure ────────────────────────────────────────
+
+it('reports an error when the media inventory query fails', function () {
+    Schema::dropIfExists('mediaman_media');
+
+    $this->artisan('mediaman:doctor')
+        ->expectsOutputToContain('query failed')
+        ->assertExitCode(1);
+});

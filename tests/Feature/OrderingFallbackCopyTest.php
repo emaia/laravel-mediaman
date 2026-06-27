@@ -1,5 +1,6 @@
 <?php
 
+use Emaia\MediaMan\Exceptions\InvalidCopyTarget;
 use Emaia\MediaMan\MediaUploader;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Tests\Models\Subject;
@@ -235,3 +236,15 @@ it('Media::copy copies to a different disk via fallback', function () {
     expect(Storage::disk(self::DEFAULT_DISK)->exists($copy->getPath()))->toBeTrue()
         ->and($copy->disk)->toEqual(self::DEFAULT_DISK);
 });
+
+it('Media::copy throws InvalidCopyTarget when the target does not use HasMedia', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+
+    $media->copy(new stdClass);
+})->throws(InvalidCopyTarget::class, 'Target model must use the HasMedia trait.');
+
+it('Media::attachTo throws InvalidCopyTarget when the target does not use HasMedia', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+
+    $media->attachTo(new stdClass);
+})->throws(InvalidCopyTarget::class, 'Target model must use the HasMedia trait.');
