@@ -38,7 +38,10 @@ The fastest path is the one-shot `mediaman:publish` command — it publishes bot
 php artisan mediaman:publish
 php artisan storage:link
 php artisan migrate
+php artisan mediaman:doctor
 ```
+
+New uploads use Laravel's `public` disk by default, so `storage:link` makes `getUrl()` work without additional filesystem configuration. If the application needs private storage, S3, a CDN, or a dedicated media disk, configure `MEDIAMAN_DISK` before the first upload; the selected disk is persisted on every media record and changing the default later does not move existing files.
 
 If you need to publish them separately (e.g. only re-publishing the config after a package update), the individual commands are still available:
 
@@ -49,7 +52,7 @@ php artisan mediaman:publish-migration
 
 ## Upgrading from an earlier version
 
-See [UPGRADING.md](../UPGRADING.md) for v2.x → v3.0 instructions, including the catch-up sections for older v2 installs (v2.0 – v2.12 schema additions, v2.13 – v2.17 console/queue/responsive flag changes).
+See [UPGRADING.md](../UPGRADING.md) for v2.x → v3.0 instructions and the v3.0.2 public-disk default note, including the catch-up sections for older v2 installs (v2.0 – v2.12 schema additions, v2.13 – v2.17 console/queue/responsive flag changes).
 
 ## Next steps
 

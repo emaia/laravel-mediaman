@@ -39,7 +39,11 @@ The config file is organized in four blocks: essentials, validation/security def
 
 ## Storage disk
 
-`config('mediaman.disk')` falls back to `config('filesystems.default')` when null — set it explicitly to dedicate a separate disk to MediaMan, or leave it null to inherit Laravel's default. To wire up a separate disk:
+MediaMan stores new uploads on Laravel's `public` disk by default. With Laravel's standard `public/storage` symlink (`php artisan storage:link`), `getUrl()` works immediately even though Laravel's own default filesystem disk is the private `local` disk.
+
+Choose a different disk before the first upload when media should be private, remote, or isolated from other public files. The disk name is persisted on every media record; changing `MEDIAMAN_DISK` later affects only new uploads and does not migrate existing files. Setting the value to `null` explicitly restores the fallback to `config('filesystems.default')`.
+
+To wire up a dedicated public disk:
 
 ```php
 // config/filesystems.php
@@ -69,6 +73,8 @@ php artisan storage:link
 ```
 
 MediaMan supports all of Laravel's storage drivers (Local, S3, SFTP, FTP, Dropbox, etc.).
+
+For private disks, use `getTemporaryUrl()`, `toResponse()` / `toInlineResponse()`, or an authenticated custom `MediaResolver` instead of exposing the file with `getUrl()`.
 
 ## Image driver
 
@@ -449,7 +455,7 @@ Every key from `config/mediaman.php` in a single table. The prose sections above
 
 | Key                                                         | Type                                  | Default                                        | Env var                             | Section                                                               |
 |-------------------------------------------------------------|---------------------------------------|------------------------------------------------|-------------------------------------|-----------------------------------------------------------------------|
-| `disk`                                                      | `string\|null`                        | `null` (Laravel default)                       | `MEDIAMAN_DISK`                     | [Storage disk](#storage-disk)                                         |
+| `disk`                                                      | `string\|null`                        | `'public'`                                     | `MEDIAMAN_DISK`                     | [Storage disk](#storage-disk)                                         |
 | `driver`                                                    | `string\|null`                        | `null` (auto: vips → imagick → gd)             | `MEDIAMAN_DRIVER`                   | [Image driver](#image-driver)                                         |
 | `queue`                                                     | `string\|null`                        | `null` (Laravel default)                       | `MEDIAMAN_QUEUE`                    | [Queue](#queue)                                                       |
 | `collection`                                                | `string`                              | `'Default'`                                    | —                                   | [Default collection](#default-collection)                             |

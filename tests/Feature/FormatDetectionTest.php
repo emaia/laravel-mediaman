@@ -3,12 +3,14 @@
 namespace Emaia\MediaMan\Tests\Feature;
 
 use Emaia\MediaMan\Facades\Conversion;
+use Emaia\MediaMan\ImageManipulator;
 use Emaia\MediaMan\MediaUploader;
 use Emaia\MediaMan\Tests\TestCase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Intervention\Image\Format;
 use Intervention\Image\Image;
+use Intervention\Image\ImageManager;
 use PHPUnit\Framework\Attributes\Test;
 
 class FormatDetectionTest extends TestCase
@@ -97,6 +99,36 @@ class FormatDetectionTest extends TestCase
         // Assert
         $this->assertStringEndsWith('.jpg', $url);
         $this->assertStringContainsString('/conversions/original_format/', $url);
+    }
+
+    #[Test]
+    public function it_predicts_the_canonical_source_mime_extension_before_an_automatic_conversion_exists()
+    {
+        config(['mediaman.driver' => 'gd']);
+        app()->forgetInstance(ImageManager::class);
+        app()->forgetInstance(ImageManipulator::class);
+
+        $media = MediaUploader::source(
+            UploadedFile::fake()->image('test.jfif', 400, 400)
+        )->upload();
+
+        $conversionPath = $media->getDirectory().'/conversions/original_format/test.jpg';
+
+        $this->assertSame('image/jpeg', $media->mime_type);
+        $this->assertStringEndsWith('.jfif', $media->getUrl());
+        $this->assertSame($conversionPath, $media->getPath('original_format'));
+        $this->assertStringEndsWith('.jpg', $media->getUrl('original_format'));
+        $this->assertFalse($media->filesystem()->exists($conversionPath));
+
+        $report = app(ImageManipulator::class)->manipulate(
+            $media,
+            ['original_format'],
+            onlyIfMissing: false,
+        );
+
+        $this->assertSame(['completed' => ['original_format'], 'failed' => []], $report);
+        $this->assertTrue($media->filesystem()->exists($conversionPath));
+        $this->assertSame($conversionPath, $media->getPath('original_format'));
     }
 
     #[Test]

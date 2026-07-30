@@ -409,7 +409,10 @@ it('reports the no-matching-links message when filesystems.links has no entry fo
 
     $out = captureDoctorOutput();
 
-    expect($out)->toContain('no entry in filesystems.links targets');
+    expect($out)
+        ->toContain('no entry in filesystems.links targets')
+        ->toContain('getUrl() will not expose local files')
+        ->toContain('⚠');
 
     @rmdir($rootDir);
 });
