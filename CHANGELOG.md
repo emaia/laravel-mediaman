@@ -4,10 +4,16 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.2] — 2026-07-30
+
+Restores a working public-disk default for fresh Laravel installations and keeps queued conversion URLs aligned with their canonical output extension.
+
 ### Fixed
 
 - New uploads now default to Laravel's `public` disk, making the documented `storage:link` installation flow produce working `getUrl()` values on standard Laravel 12/13 applications. Explicit disk configuration and the opt-in `null` fallback to `filesystems.default` remain supported.
 - Automatic conversions now derive their predicted extension from the source MIME when registry, conversion-name, and existing-file detection do not resolve it. URLs generated before queued conversions exist now match the canonical file eventually written, including `.jfif` uploads encoded as JPEG `.jpg` files.
+
+**Full Changelog**: https://github.com/emaia/laravel-mediaman/compare/v3.0.1...v3.0.2
 
 ## [3.0.1] — 2026-06-26
 
