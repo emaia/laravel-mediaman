@@ -8,11 +8,12 @@ use Emaia\MediaMan\Resolvers\DefaultMediaResolver;
 return [
 
     /*
-    | Default disk for new uploads. When null, falls back to Laravel's
-    | own default filesystem disk (see config/filesystems.php).
+    | Default disk for new uploads. Laravel's public disk works with the
+    | standard `php artisan storage:link` setup. Configure a different disk
+    | before uploading when media should live on private or remote storage.
     */
 
-    'disk' => env('MEDIAMAN_DISK'),
+    'disk' => env('MEDIAMAN_DISK', 'public'),
 
     /*
     | Image processing driver for intervention/image. Supported values:

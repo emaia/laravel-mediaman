@@ -62,6 +62,7 @@ composer require emaia/laravel-mediaman
 php artisan mediaman:publish
 php artisan storage:link
 php artisan migrate
+php artisan mediaman:doctor
 ```
 
 See [Installation](docs/installation.md) for the full setup, including the upgrade path for existing installations.

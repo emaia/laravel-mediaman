@@ -1,6 +1,7 @@
 <?php
 
 use Emaia\MediaMan\MediaUploader;
+use Emaia\MediaMan\Models\Media;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Storage;
@@ -41,6 +42,24 @@ it('auto-detects the image driver when config is null', function () {
 
 // --- Disk fallback ---
 
+it('ships public as the default disk for a standard Laravel installation', function () {
+    $packageConfig = require dirname(__DIR__, 2).'/config/mediaman.php';
+
+    Storage::fake('local');
+    Storage::fake('public');
+
+    Config::set('filesystems.default', 'local');
+    Config::set('mediaman.disk', $packageConfig['disk']);
+
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+
+    expect($packageConfig['disk'])->toBe('public')
+        ->and($media->disk)->toBe('public')
+        ->and(Storage::disk('public')->exists($media->getPath()))->toBeTrue()
+        ->and(Storage::disk('local')->exists($media->getPath()))->toBeFalse()
+        ->and($media->getUrl())->toContain('/storage/');
+});
+
 it('falls back to filesystems.default when mediaman.disk is null', function () {
     Storage::fake('fallback-disk');
 
@@ -49,7 +68,8 @@ it('falls back to filesystems.default when mediaman.disk is null', function () {
 
     $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
 
-    expect($media->disk)->toEqual('fallback-disk');
+    expect($media->disk)->toEqual('fallback-disk')
+        ->and(Media::factory()->make()->disk)->toEqual('fallback-disk');
 });
 
 it('honors mediaman.disk when explicitly set even if filesystems.default differs', function () {

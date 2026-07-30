@@ -80,8 +80,19 @@ When a conversion changes format (e.g., converting JPG to WebP), MediaMan figure
 1. **Pre-computed at registration time** (reflection-based)
 2. **From the conversion name** — e.g., `thumb_webp` is detected as WebP
 3. **Fallback by file existence** — checks each known image format
+4. **From the source MIME** — predicts the canonical extension used by automatic encoding before a queued conversion exists (`image/jpeg` → `.jpg`, including `.jfif` uploads)
 
 This means `$media->getUrl('thumb')` produces the correct extension whether the conversion outputs the original format or transcodes to WebP/AVIF/etc.
+
+When a conversion deliberately fixes its output format, encode it explicitly so the URL is deterministic before the queued file exists:
+
+```php
+use Intervention\Image\Format;
+
+Conversion::register('thumb', fn (Image $image) => $image
+    ->cover(64, 64)
+    ->encodeUsingFormat(Format::JPEG));
+```
 
 ## Customize storage layout
 

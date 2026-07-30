@@ -177,7 +177,7 @@ class Media extends Model implements Attachable
                 return null;
             }
 
-            // Three-stage fallback: registry → conversion name → existing file.
+            // Four-stage fallback: registry → conversion name → existing file → source MIME.
             $detectedFormat = $conversionRegistry->getFormat($conversion);
 
             if ($detectedFormat) {
@@ -202,6 +202,18 @@ class Media extends Model implements Attachable
                 return $existingFormat;
             }
 
+            // ImageManipulator preserves the source MIME when a conversion
+            // returns an unencoded Image. Use the same canonical extension so
+            // URLs generated before the queued conversion exists match the
+            // file that will eventually be written (e.g. JFIF → JPEG → .jpg).
+            $sourceFormat = MediaFormat::extensionFromMimeType($this->mime_type);
+
+            if ($sourceFormat) {
+                $this->conversionFormatCache[$conversion] = $sourceFormat;
+
+                return $sourceFormat;
+            }
+
         } catch (Exception $e) {
             Log::warning('MediaMan: Failed to detect conversion format', [
                 'media_id' => $this->id,
@@ -212,7 +224,6 @@ class Media extends Model implements Attachable
             return null;
         }
 
-        // Cache the null result so the three-stage probe doesn't re-run.
         $this->conversionFormatCache[$conversion] = null;
 
         return null;

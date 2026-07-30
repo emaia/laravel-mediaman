@@ -14,7 +14,7 @@ class MediaFactory extends Factory
         return [
             'name' => fake()->word(),
             'file_name' => 'file-name.png',
-            'disk' => config('mediaman.disk'),
+            'disk' => config('mediaman.disk') ?? config('filesystems.default'),
             'mime_type' => 'image/png',
             'size' => fake()->randomNumber(4),
         ];

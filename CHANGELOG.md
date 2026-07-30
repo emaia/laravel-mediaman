@@ -4,6 +4,11 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- New uploads now default to Laravel's `public` disk, making the documented `storage:link` installation flow produce working `getUrl()` values on standard Laravel 12/13 applications. Explicit disk configuration and the opt-in `null` fallback to `filesystems.default` remain supported.
+- Automatic conversions now derive their predicted extension from the source MIME when registry, conversion-name, and existing-file detection do not resolve it. URLs generated before queued conversions exist now match the canonical file eventually written, including `.jfif` uploads encoded as JPEG `.jpg` files.
+
 ## [3.0.1] — 2026-06-26
 
 Maintenance patch: documentation sweep and a friendlier dependency story for `MediaUploader::fromUrl()`.

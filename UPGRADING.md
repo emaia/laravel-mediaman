@@ -6,6 +6,24 @@ For non-breaking additions, see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
+## From v3.0.1 to v3.0.2
+
+MediaMan now defaults new uploads to Laravel's `public` disk so the documented `php artisan storage:link` installation flow produces working `getUrl()` values on a standard Laravel 12/13 application. Laravel's own default disk is `local`, rooted at `storage/app/private`, and is not exposed by that symlink.
+
+If `config/mediaman.php` is already published, update its disk entry or set the environment variable explicitly:
+
+```php
+'disk' => env('MEDIAMAN_DISK', 'public'),
+```
+
+```dotenv
+MEDIAMAN_DISK=public
+```
+
+The setting affects new uploads only. Existing records retain their persisted `disk`, and existing files are not moved automatically. Applications that intentionally inherit a private or remote `filesystems.default` should keep that behavior explicitly by setting `mediaman.disk` to `null`, then serve private media through temporary URLs or authenticated responses.
+
+---
+
 ## From v2.18 to v3.0
 
 v3.0 consolidates the API surface and trims debt accumulated since v2. The changes below are the only required code edits for an app already running v2.18.

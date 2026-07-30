@@ -251,8 +251,8 @@ class DoctorCommand extends Command
         if (empty($matching)) {
             $this->statusLine(
                 'Status',
-                'info',
-                "no entry in filesystems.links targets '$root' — disk may be private, or run `artisan storage:link` after adding one"
+                'warn',
+                "no entry in filesystems.links targets '$root' — getUrl() will not expose local files; configure a public link or use temporary/authenticated responses"
             );
 
             return;
