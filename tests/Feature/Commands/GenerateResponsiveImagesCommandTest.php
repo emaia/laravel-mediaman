@@ -6,6 +6,7 @@ use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Queue;
 use Symfony\Component\Console\Output\BufferedOutput;
 
@@ -127,5 +128,13 @@ it('fails with invalid --media range', function () {
         '--media' => '5..1',
     ])
         ->expectsOutputToContain('Invalid --media value')
+        ->assertExitCode(1);
+});
+
+it('fails before dispatching work when responsive versioning config is invalid', function () {
+    Config::set('mediaman.responsive_images.versioning', 'timestamp');
+
+    $this->artisan('mediaman:generate-responsive', ['--queue' => true])
+        ->expectsOutputToContain("versioning must be false or 'generation'")
         ->assertExitCode(1);
 });

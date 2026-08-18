@@ -82,3 +82,11 @@ it('honors mediaman.disk when explicitly set even if filesystems.default differs
 
     expect($media->disk)->toEqual('explicit-disk');
 });
+
+it('ships backward-compatible responsive generation defaults', function () {
+    $packageConfig = require dirname(__DIR__, 2).'/config/mediaman.php';
+
+    expect($packageConfig['responsive_images']['versioning'])->toBeFalse()
+        ->and($packageConfig['responsive_images']['version_retention_days'])->toBe(7)
+        ->and($packageConfig['responsive_images']['generation_timeout_minutes'])->toBe(1440);
+});

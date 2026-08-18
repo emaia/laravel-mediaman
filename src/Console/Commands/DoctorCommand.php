@@ -5,6 +5,7 @@ namespace Emaia\MediaMan\Console\Commands;
 use Emaia\MediaMan\Console\Concerns\CommandOutputStyle;
 use Emaia\MediaMan\ConversionRegistry;
 use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveGenerationConfig;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
@@ -118,6 +119,28 @@ class DoctorCommand extends Command
             $this->statusLine('Published', 'ok', "at $relative");
         } else {
             $this->statusLine('Published', 'info', 'no (using package defaults — run `php artisan mediaman:publish-config` to customize)');
+        }
+
+        try {
+            $generationConfig = ResponsiveGenerationConfig::fromConfig();
+
+            $this->statusLine(
+                'Responsive versioning',
+                'info',
+                $generationConfig->isVersioned() ? 'generation' : 'disabled (legacy paths)'
+            );
+            $this->statusLine('Generation retention', 'info', $generationConfig->retentionDays.' day(s)');
+            $this->statusLine('In-progress timeout', 'info', $generationConfig->generationTimeoutMinutes.' minute(s)');
+
+            if ($generationConfig->isVersioned()) {
+                $this->statusLine(
+                    'Generation pruning',
+                    'warn',
+                    'schedule `mediaman:prune-responsive-generations --force` after rollout'
+                );
+            }
+        } catch (\InvalidArgumentException $e) {
+            $this->statusLine('Responsive versioning', 'error', $e->getMessage());
         }
     }
 

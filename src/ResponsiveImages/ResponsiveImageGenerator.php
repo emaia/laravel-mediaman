@@ -26,6 +26,8 @@ class ResponsiveImageGenerator
 
     public function generateResponsiveImages(Media $media, array $options = []): void
     {
+        ResponsiveGenerationConfig::fromConfig();
+
         if (! $media->isRasterImage()) {
             return;
         }

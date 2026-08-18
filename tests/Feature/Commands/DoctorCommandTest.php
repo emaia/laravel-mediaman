@@ -36,6 +36,29 @@ it('reports a healthy pipeline on a fresh install', function () {
         ->assertExitCode(0);
 });
 
+it('reports responsive generation configuration', function () {
+    Config::set('mediaman.responsive_images.versioning', 'generation');
+    Config::set('mediaman.responsive_images.version_retention_days', '3');
+    Config::set('mediaman.responsive_images.generation_timeout_minutes', '90');
+
+    $out = captureDoctorOutput();
+
+    expect($out)
+        ->toContain('Responsive versioning')
+        ->toContain('generation')
+        ->toContain('3 day(s)')
+        ->toContain('90 minute(s)')
+        ->toContain('prune-responsive-generations');
+});
+
+it('fails doctor for invalid responsive generation configuration', function () {
+    Config::set('mediaman.responsive_images.versioning', 'timestamp');
+
+    $this->artisan('mediaman:doctor')
+        ->expectsOutputToContain("versioning must be false or 'generation'")
+        ->assertExitCode(1);
+});
+
 it('shows the effective image driver class', function () {
     $this->artisan('mediaman:doctor')
         ->expectsOutputToContain('Intervention\Image\Drivers\\')

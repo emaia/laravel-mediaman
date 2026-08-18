@@ -54,6 +54,12 @@ class Media extends Model implements Attachable
 
     const string PROPERTY_RESPONSIVE_IMAGES = 'responsive_images';
 
+    const string PROPERTY_RESPONSIVE_GENERATION = 'responsive_generation';
+
+    const string PROPERTY_RESPONSIVE_GENERATION_DISK = 'responsive_generation_disk';
+
+    const string PROPERTY_RESPONSIVE_GENERATION_EPOCH = 'responsive_generation_epoch';
+
     const string PROPERTY_IMAGE_META = 'image_meta';
 
     protected $fillable = [

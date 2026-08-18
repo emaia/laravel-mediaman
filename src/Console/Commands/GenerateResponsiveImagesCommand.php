@@ -6,6 +6,7 @@ use Emaia\MediaMan\Console\Concerns\CommandOutputStyle;
 use Emaia\MediaMan\Console\Concerns\ParsesMediaIds;
 use Emaia\MediaMan\Jobs\GenerateResponsiveImages;
 use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveGenerationConfig;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Illuminate\Console\Command;
 
@@ -24,6 +25,14 @@ class GenerateResponsiveImagesCommand extends Command
 
     public function handle(): int
     {
+        try {
+            ResponsiveGenerationConfig::fromConfig();
+        } catch (\InvalidArgumentException $e) {
+            $this->error($e->getMessage());
+
+            return self::FAILURE;
+        }
+
         $query = Media::query()->raster();
 
         if ($mediaOption = $this->option('media')) {
