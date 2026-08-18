@@ -40,7 +40,7 @@ use Throwable;
  * @property string $disk
  * @property string $type
  * @property float|int $size
- * @property array $custom_properties
+ * @property array|null $custom_properties
  */
 class Media extends Model implements Attachable
 {
@@ -708,17 +708,22 @@ class Media extends Model implements Attachable
 
     public function hasCustomProperty(string $propertyName): bool
     {
-        return Arr::has($this->custom_properties, $propertyName);
+        return is_array($this->custom_properties)
+            && Arr::has($this->custom_properties, $propertyName);
     }
 
     public function getCustomProperty(string $propertyName, mixed $default = null): mixed
     {
-        return Arr::get($this->custom_properties, $propertyName, $default);
+        return Arr::get(
+            is_array($this->custom_properties) ? $this->custom_properties : [],
+            $propertyName,
+            $default,
+        );
     }
 
     public function setCustomProperty(string $name, mixed $value): self
     {
-        $customProperties = $this->custom_properties;
+        $customProperties = is_array($this->custom_properties) ? $this->custom_properties : [];
 
         Arr::set($customProperties, $name, $value);
 
@@ -818,7 +823,7 @@ class Media extends Model implements Attachable
 
     public function forgetCustomProperty(string $name): self
     {
-        $customProperties = $this->custom_properties;
+        $customProperties = is_array($this->custom_properties) ? $this->custom_properties : [];
 
         Arr::forget($customProperties, $name);
 

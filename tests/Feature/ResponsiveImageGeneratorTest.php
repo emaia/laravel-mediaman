@@ -1,12 +1,16 @@
 <?php
 
+use Emaia\MediaMan\Exceptions\MediaFileWriteFailed;
 use Emaia\MediaMan\MediaUploader;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\BreakpointWidthCalculator;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\WidthCalculator;
+use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Intervention\Image\ImageManager;
 use Intervention\Image\Interfaces\EncodedImageInterface;
 use Intervention\Image\Interfaces\ImageInterface;
@@ -166,6 +170,149 @@ it('generates jpg variants when jpg format requested', function () {
     expect($responsive)->toHaveCount(1)
         ->and($responsive->first()->format)->toBe('jpg')
         ->and($responsive->first()->url)->toEndWith('.jpg');
+});
+
+it('preserves the exact legacy path when generation versioning is disabled', function () {
+    Config::set('mediaman.responsive_images.versioning', false);
+
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 800, 600))->upload();
+
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [320],
+        'formats' => ['jpg'],
+    ]);
+
+    $fresh = $media->fresh();
+    $item = $fresh->getResponsiveImages()->first();
+
+    expect($item->path)->toBe($media->getDirectory().'/responsive/photo_320w.jpg')
+        ->and($fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION))->toBeFalse()
+        ->and($fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION_DISK))->toBeFalse();
+});
+
+it('publishes every variant beneath one generation directory', function () {
+    Config::set('mediaman.responsive_images.versioning', 'generation');
+
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 800, 600))->upload();
+
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [320, 640],
+        'formats' => ['jpg', 'webp'],
+    ]);
+
+    $fresh = $media->fresh();
+    $generation = $fresh->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION);
+    $paths = $fresh->getResponsiveImages()->pluck('path');
+
+    expect($generation)->toMatch('/^[0-9A-HJKMNP-TV-Z]{26}$/')
+        ->and($fresh->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION_DISK))->toBe($media->responsiveDisk())
+        ->and($paths)->toHaveCount(4)
+        ->and($paths->every(fn ($path) => str_contains($path, "/responsive/$generation/")))->toBeTrue()
+        ->and($paths->every(fn ($path) => Storage::disk($media->responsiveDisk())->exists($path)))->toBeTrue()
+        ->and(Storage::disk($media->responsiveDisk())->exists(
+            $media->getDirectory()."/responsive/$generation/".ResponsiveImageGenerator::IN_PROGRESS_MARKER
+        ))->toBeFalse();
+});
+
+it('keeps the previous generation readable after regeneration', function () {
+    Config::set('mediaman.responsive_images.versioning', 'generation');
+
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 800, 600))->upload();
+    $options = ['widths' => [320], 'formats' => ['jpg']];
+
+    $this->generator->generateResponsiveImages($media, $options);
+    $first = $media->fresh();
+    $firstGeneration = $first->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION);
+    $firstPath = $first->getResponsiveImages()->first()->path;
+
+    $this->generator->generateResponsiveImages($media, $options);
+    $second = $media->fresh();
+    $secondGeneration = $second->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION);
+
+    expect($secondGeneration)->not->toBe($firstGeneration)
+        ->and($second->getResponsiveImages()->first()->path)->toContain("/responsive/$secondGeneration/")
+        ->and(Storage::disk($media->responsiveDisk())->exists($firstPath))->toBeTrue();
+});
+
+it('merges the manifest into fresh custom properties without saving unrelated dirty attributes', function () {
+    Config::set('mediaman.responsive_images.versioning', 'generation');
+
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 800, 600))->upload();
+    $originalName = $media->name;
+    $concurrent = $media->fresh();
+    $concurrent->setCustomProperty('application_state', ['current' => true])->save();
+    $media->name = 'unsaved dirty name';
+
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [320],
+        'formats' => ['jpg'],
+    ]);
+
+    $fresh = $media->fresh();
+
+    expect($fresh->name)->toBe($originalName)
+        ->and($fresh->getCustomProperty('application_state'))->toBe(['current' => true])
+        ->and($fresh->hasResponsiveImages())->toBeTrue()
+        ->and($media->name)->toBe($originalName);
+});
+
+it('publishes safely for legacy rows with null custom properties', function () {
+    Config::set('mediaman.responsive_images.versioning', 'generation');
+
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 800, 600))->upload();
+    $media->newQuery()->whereKey($media->getKey())->update(['custom_properties' => null]);
+    $media->refresh();
+
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [320],
+        'formats' => ['jpg'],
+    ]);
+
+    expect($media->fresh()->hasResponsiveImages())->toBeTrue();
+});
+
+it('preserves the active generation when a replacement produces no variants', function () {
+    Config::set('mediaman.responsive_images.versioning', 'generation');
+
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 800, 600))->upload();
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [320],
+        'formats' => ['jpg'],
+    ]);
+    $active = $media->fresh();
+    $activeGeneration = $active->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION);
+    $activePath = $active->getResponsiveImages()->first()->path;
+
+    expect(fn () => $this->generator->generateResponsiveImages($media, [
+        'widths' => [320],
+        'formats' => ['bogus'],
+    ]))->toThrow(RuntimeException::class, 'produced no variants');
+
+    $fresh = $media->fresh();
+    $directories = Storage::disk($media->responsiveDisk())->directories($media->getDirectory().'/responsive');
+
+    expect($fresh->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION))->toBe($activeGeneration)
+        ->and($fresh->getResponsiveImages()->first()->path)->toBe($activePath)
+        ->and($directories)->toBe([$media->getDirectory()."/responsive/$activeGeneration"]);
+});
+
+it('does not publish a variant when the filesystem returns false', function () {
+    Config::set('mediaman.responsive_images.versioning', 'generation');
+
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 800, 600))->upload();
+    Config::set('mediaman.responsive_images.disk', 'failing-responsive');
+
+    $filesystem = Mockery::mock(Filesystem::class);
+    $filesystem->shouldReceive('put')->twice()->andReturn(true, false);
+    $filesystem->shouldReceive('deleteDirectory')->once()->andReturn(true);
+    Storage::set('failing-responsive', $filesystem);
+
+    expect(fn () => $this->generator->generateResponsiveImages($media, [
+        'widths' => [320],
+        'formats' => ['jpg'],
+    ]))->toThrow(MediaFileWriteFailed::class);
+
+    expect($media->fresh()->hasResponsiveImages())->toBeFalse();
 });
 
 it('skips a format when the encoder returns zero bytes (e.g. imagick without libheif)', function () {

@@ -3,17 +3,28 @@
 namespace Emaia\MediaMan\ResponsiveImages;
 
 use Emaia\MediaMan\Enums\MediaFormat;
+use Emaia\MediaMan\Exceptions\MediaFileWriteFailed;
+use Emaia\MediaMan\Exceptions\ResponsiveFormatNotSupported;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Resolvers\MediaResolver;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\WidthCalculator;
+use Illuminate\Contracts\Filesystem\Filesystem;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Intervention\Image\Exceptions\ImageException;
 use Intervention\Image\Format;
 use Intervention\Image\ImageManager;
 use Intervention\Image\Interfaces\ImageInterface;
 use InvalidArgumentException;
+use RuntimeException;
+use Throwable;
 
 class ResponsiveImageGenerator
 {
+    public const string IN_PROGRESS_MARKER = '.mediaman-in-progress';
+
     protected ImageManager $imageManager;
 
     protected WidthCalculator $widthCalculator;
@@ -26,7 +37,7 @@ class ResponsiveImageGenerator
 
     public function generateResponsiveImages(Media $media, array $options = []): void
     {
-        ResponsiveGenerationConfig::fromConfig();
+        $generationConfig = ResponsiveGenerationConfig::fromConfig();
 
         if (! $media->isRasterImage()) {
             return;
@@ -72,43 +83,97 @@ class ResponsiveImageGenerator
             return true;
         });
 
-        $responsiveData = [];
         $originalImage = $this->imageManager->decode($originalBytes);
+        $widths = $widths->filter(fn ($width) => $width <= $originalImage->width());
 
-        foreach ($widths as $targetWidth) {
-            // Skip if target width is larger than original
-            if ($targetWidth > $originalImage->width()) {
-                continue;
-            }
-
-            foreach ($formats as $format) {
-                try {
-                    $responsiveData[] = $this->generateSingleResponsiveImage(
-                        $media,
-                        clone $originalImage,
-                        $targetWidth,
-                        $format,
-                        $this->resolveQuality($format, $quality)
-                    );
-                } catch (\Throwable $e) {
-                    Log::warning('MediaMan: Skipping responsive format — driver does not support encoding', [
-                        'mediaId' => $media->id,
-                        'format' => $format,
-                        'width' => $targetWidth,
-                        'error' => $e->getMessage(),
-                    ]);
-
-                    continue;
-                }
-            }
+        if ($widths->isEmpty() && $generationConfig->isVersioned()) {
+            return;
         }
 
-        $media->setCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES, $responsiveData);
-        $media->save();
+        $resolver = app(MediaResolver::class);
+        $baseDirectory = $resolver->pathForResponsive($media);
+        $generation = $generationConfig->isVersioned()
+            ? strtoupper((string) Str::ulid())
+            : null;
+        $outputDirectory = $generation === null
+            ? $baseDirectory
+            : $baseDirectory.'/'.$generation;
+        $responsiveDisk = $media->responsiveDisk();
+        $responsiveFilesystem = Storage::disk($responsiveDisk);
+        $snapshot = [
+            'file_name' => $media->file_name,
+            'disk' => $media->disk,
+            'responsive_disk' => $responsiveDisk,
+            'base_directory' => $baseDirectory,
+            'epoch' => (int) $media->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION_EPOCH, 0),
+        ];
+        $responsiveData = [];
+
+        try {
+            if ($generation !== null) {
+                $markerPath = $outputDirectory.'/'.self::IN_PROGRESS_MARKER;
+                $marker = json_encode([
+                    'media_key' => $media->getKey(),
+                    'generation' => $generation,
+                    'started_at' => now()->toIso8601String(),
+                ], JSON_THROW_ON_ERROR);
+
+                if (! $responsiveFilesystem->put($markerPath, $marker)) {
+                    throw MediaFileWriteFailed::forPath($markerPath, $responsiveDisk);
+                }
+            }
+
+            foreach ($widths as $targetWidth) {
+                foreach ($formats as $format) {
+                    try {
+                        $responsiveData[] = $this->generateSingleResponsiveImage(
+                            $media,
+                            clone $originalImage,
+                            $targetWidth,
+                            $format,
+                            $this->resolveQuality($format, $quality),
+                            $outputDirectory,
+                            $responsiveDisk,
+                        );
+                    } catch (ImageException|ResponsiveFormatNotSupported|InvalidArgumentException $e) {
+                        Log::warning('MediaMan: Skipping responsive format — driver does not support encoding', [
+                            'mediaId' => $media->id,
+                            'format' => $format,
+                            'width' => $targetWidth,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+                }
+            }
+
+            if ($responsiveData === [] && $generation !== null) {
+                throw new RuntimeException("Responsive generation [$generation] produced no variants.");
+            }
+
+            $published = $this->publishManifest($media, $responsiveData, $generation, $snapshot);
+            $media->setRawAttributes($published->getAttributes(), true);
+
+            if ($generation !== null) {
+                $this->removeMarker($responsiveFilesystem, $outputDirectory.'/'.self::IN_PROGRESS_MARKER);
+            }
+        } catch (Throwable $e) {
+            if ($generation !== null) {
+                $this->cleanupUnpublishedGeneration($media, $generation, $outputDirectory, $responsiveDisk);
+            }
+
+            throw $e;
+        }
     }
 
-    protected function generateSingleResponsiveImage(Media $media, ImageInterface $image, int $targetWidth, string $format, int $quality): array
-    {
+    protected function generateSingleResponsiveImage(
+        Media $media,
+        ImageInterface $image,
+        int $targetWidth,
+        string $format,
+        int $quality,
+        string $directory,
+        string $disk,
+    ): array {
         $image->scaleDown($targetWidth, null);
 
         $encodedImage = match ($format) {
@@ -124,17 +189,18 @@ class ResponsiveImageGenerator
         $size = strlen((string) $encodedImage);
 
         if ($size === 0) {
-            throw new \RuntimeException(
+            throw new ResponsiveFormatNotSupported(
                 "Encoder for [$format] returned zero bytes — the driver likely lacks support (e.g. imagick without libheif for HEIC)."
             );
         }
 
-        $directory = app(MediaResolver::class)->pathForResponsive($media);
         $fileName = app(MediaResolver::class)->responsiveFileName($media->file_name, $targetWidth, $format);
         $path = $directory.'/'.$fileName;
+        $filesystem = Storage::disk($disk);
 
-        $filesystem = $media->responsiveFilesystem();
-        $filesystem->put($path, $encodedImage->toStream());
+        if (! $filesystem->put($path, $encodedImage->toStream())) {
+            throw MediaFileWriteFailed::forPath($path, $disk);
+        }
 
         return [
             'width' => $targetWidth,
@@ -144,6 +210,117 @@ class ResponsiveImageGenerator
             'url' => $filesystem->url($path),
             'size' => $size,
         ];
+    }
+
+    /**
+     * @param  array<int, array{width: int, height: int, format: string, path: string, url: string, size: int}>  $responsiveData
+     * @param  array{file_name: string, disk: string, responsive_disk: string, base_directory: string, epoch: int}  $snapshot
+     */
+    protected function publishManifest(Media $media, array $responsiveData, ?string $generation, array $snapshot): Media
+    {
+        return DB::connection($media->getConnectionName())->transaction(function () use (
+            $media,
+            $responsiveData,
+            $generation,
+            $snapshot,
+        ): Media {
+            /** @var Media|null $fresh */
+            $fresh = $media->newQuery()->whereKey($media->getKey())->lockForUpdate()->first();
+
+            if ($fresh === null) {
+                throw new RuntimeException("Media [{$media->getKey()}] no longer exists.");
+            }
+
+            $resolver = app(MediaResolver::class);
+            $freshEpoch = (int) $fresh->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION_EPOCH, 0);
+
+            if (
+                $fresh->file_name !== $snapshot['file_name']
+                || $fresh->disk !== $snapshot['disk']
+                || $fresh->responsiveDisk() !== $snapshot['responsive_disk']
+                || $resolver->pathForResponsive($fresh) !== $snapshot['base_directory']
+                || $freshEpoch !== $snapshot['epoch']
+            ) {
+                throw new RuntimeException("Media [{$media->getKey()}] changed while responsive images were being generated.");
+            }
+
+            $filesystem = Storage::disk($snapshot['responsive_disk']);
+
+            foreach ($responsiveData as $item) {
+                if (! $filesystem->exists($item['path'])) {
+                    throw new RuntimeException("Responsive image [{$item['path']}] disappeared before publication.");
+                }
+            }
+
+            $properties = is_array($fresh->custom_properties) ? $fresh->custom_properties : [];
+            $properties[Media::PROPERTY_RESPONSIVE_IMAGES] = $responsiveData;
+
+            if ($generation === null) {
+                unset(
+                    $properties[Media::PROPERTY_RESPONSIVE_GENERATION],
+                    $properties[Media::PROPERTY_RESPONSIVE_GENERATION_DISK],
+                );
+            } else {
+                $properties[Media::PROPERTY_RESPONSIVE_GENERATION] = $generation;
+                $properties[Media::PROPERTY_RESPONSIVE_GENERATION_DISK] = $snapshot['responsive_disk'];
+            }
+
+            $fresh->custom_properties = $properties;
+            $fresh->save();
+
+            return $fresh;
+        });
+    }
+
+    protected function cleanupUnpublishedGeneration(Media $media, string $generation, string $directory, string $disk): void
+    {
+        try {
+            /** @var Media|null $fresh */
+            $fresh = $media->newQuery()->whereKey($media->getKey())->first();
+
+            if ($fresh?->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION) === $generation) {
+                return;
+            }
+        } catch (Throwable $e) {
+            Log::warning('MediaMan: Could not verify failed responsive generation state; retaining files', [
+                'mediaId' => $media->getKey(),
+                'generation' => $generation,
+                'error' => $e->getMessage(),
+            ]);
+
+            return;
+        }
+
+        try {
+            if (! Storage::disk($disk)->deleteDirectory($directory)) {
+                Log::warning('MediaMan: Failed to clean unpublished responsive generation', [
+                    'mediaId' => $media->getKey(),
+                    'generation' => $generation,
+                    'disk' => $disk,
+                ]);
+            }
+        } catch (Throwable $e) {
+            Log::warning('MediaMan: Failed to clean unpublished responsive generation', [
+                'mediaId' => $media->getKey(),
+                'generation' => $generation,
+                'disk' => $disk,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    protected function removeMarker(Filesystem $filesystem, string $path): void
+    {
+        try {
+            if (! $filesystem->delete($path)) {
+                Log::warning('MediaMan: Failed to remove responsive generation marker', ['path' => $path]);
+            }
+        } catch (Throwable $e) {
+            Log::warning('MediaMan: Failed to remove responsive generation marker', [
+                'path' => $path,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
