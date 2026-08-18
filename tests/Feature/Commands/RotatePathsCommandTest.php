@@ -2,9 +2,11 @@
 
 use Emaia\MediaMan\MediaUploader;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
+use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Storage;
+use Symfony\Component\Uid\Ulid;
 
 function rotatePathsKeyPair(): array
 {
@@ -46,7 +48,8 @@ it('reports planned moves in dry-run mode without touching disk', function () {
         ->assertExitCode(0);
 
     // File still at the old location after dry-run
-    expect(Storage::disk($media->disk)->exists($oldDir))->toBeTrue();
+    expect(Storage::disk($media->disk)->exists($oldDir))->toBeTrue()
+        ->and($media->fresh()->getCustomProperty('responsive_generation_epoch', 0))->toBe(0);
 });
 
 it('actually moves files when --force is passed', function () {
@@ -68,6 +71,8 @@ it('actually moves files when --force is passed', function () {
 
     expect(Storage::disk($media->disk)->exists($oldDir))->toBeFalse();
     expect(Storage::disk($media->disk)->exists($newDir.'/'.$media->file_name))->toBeTrue();
+    expect($media->fresh()->hasCustomProperty('responsive_rotating'))->toBeFalse()
+        ->and($media->fresh()->getCustomProperty('responsive_generation_epoch'))->toBe(1);
 });
 
 it('skips media whose files are already at the new path', function () {
@@ -96,7 +101,7 @@ it('flags media with both old and new directories present as conflict', function
     $this->artisan('mediaman:rotate-paths', ['--old-key' => $oldKey, '--force' => true])
         ->expectsOutputToContain('Manual review required')
         ->expectsOutputToContain('Conflicts')
-        ->assertExitCode(0);
+        ->assertExitCode(1);
 
     // Nothing was moved
     expect(Storage::disk($media->disk)->exists($media->getDirectory()))->toBeTrue();
@@ -206,9 +211,58 @@ it('blocks rotation when an immutable responsive generation is active', function
     $newDir = expectedDirFor($media->id, $newKey);
 
     $this->artisan('mediaman:rotate-paths', ['--old-key' => $oldKey, '--force' => true])
-        ->expectsOutputToContain('active versioned responsive generation blocks path rotation')
+        ->expectsOutputToContain('versioning is enabled')
         ->assertExitCode(1);
 
     expect(Storage::disk($media->disk)->exists($oldDir))->toBeTrue()
         ->and(Storage::disk($media->disk)->exists($newDir))->toBeFalse();
+});
+
+it('blocks rotation while a first responsive generation is in progress', function () {
+    [$oldKey, $newKey] = rotatePathsKeyPair();
+
+    Config::set('app.key', $oldKey);
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+    $oldDir = $media->getDirectory();
+    Storage::disk($media->disk)->put(
+        $oldDir.'/responsive/'.Ulid::generate(now()->subDay()).'/'.ResponsiveImageGenerator::IN_PROGRESS_MARKER,
+        'marker',
+    );
+
+    Config::set('app.key', $newKey);
+
+    $this->artisan('mediaman:rotate-paths', ['--old-key' => $oldKey, '--force' => true])
+        ->expectsOutputToContain('responsive generation or copy is in progress')
+        ->assertExitCode(1);
+
+    expect(Storage::disk($media->disk)->exists($oldDir))->toBeTrue();
+});
+
+it('does not delete the source directory when a filesystem move returns false', function () {
+    [$oldKey, $newKey] = rotatePathsKeyPair();
+
+    Config::set('app.key', $oldKey);
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+    $oldDir = $media->getDirectory();
+    Config::set('app.key', $newKey);
+    $newDir = expectedDirFor($media->id, $newKey);
+    $realFilesystem = Storage::disk($media->disk);
+    $filesystem = Mockery::mock(Filesystem::class);
+    $filesystem->shouldReceive('allFiles')->with($oldDir.'/responsive')->andReturn([]);
+    $filesystem->shouldReceive('exists')->with($oldDir)->andReturn(true);
+    $filesystem->shouldReceive('exists')->with($newDir)->andReturn(false);
+    $filesystem->shouldReceive('allFiles')->with($oldDir)->andReturn([$oldDir.'/'.$media->file_name]);
+    $filesystem->shouldReceive('move')->once()->andReturn(false);
+    $filesystem->shouldNotReceive('deleteDirectory');
+    Storage::set($media->disk, $filesystem);
+
+    try {
+        $this->artisan('mediaman:rotate-paths', ['--old-key' => $oldKey, '--force' => true])
+            ->expectsOutputToContain('failed to move')
+            ->assertExitCode(1);
+    } finally {
+        Storage::set($media->disk, $realFilesystem);
+    }
+
+    expect($media->fresh()->hasCustomProperty('responsive_rotating'))->toBeFalse();
 });

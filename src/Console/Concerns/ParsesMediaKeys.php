@@ -34,12 +34,20 @@ trait ParsesMediaKeys
 
                 for ($key = $from; $key <= $to; $key++) {
                     $keys[(string) $key] = true;
+
+                    if (count($keys) > $maxRangeSize) {
+                        return [];
+                    }
                 }
 
                 continue;
             }
 
             $keys[$part] = true;
+
+            if (count($keys) > $maxRangeSize) {
+                return [];
+            }
         }
 
         return array_keys($keys);

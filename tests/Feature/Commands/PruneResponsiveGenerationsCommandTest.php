@@ -3,6 +3,7 @@
 use Emaia\MediaMan\MediaUploader;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
+use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Storage;
@@ -47,6 +48,32 @@ it('deletes an eligible inactive generation with force', function () {
     expect(Storage::disk('default')->exists($directory))->toBeFalse();
 });
 
+it('claims a generation in the database while deleting it', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+    $generation = oldResponsiveGeneration();
+    $base = $media->getDirectory().'/responsive';
+    $directory = "$base/$generation";
+    $filesystem = Mockery::mock(Filesystem::class);
+    $filesystem->shouldReceive('directories')->with($base)->andReturn([$directory]);
+    $filesystem->shouldReceive('files')->with($directory)->andReturn([]);
+    $filesystem->shouldReceive('deleteDirectory')->with($directory)->once()->andReturnUsing(function () use ($media, $generation) {
+        $claims = $media->fresh()->getCustomProperty(Media::PROPERTY_RESPONSIVE_PRUNING);
+
+        expect($claims)->toBeArray()->toHaveKey($generation);
+
+        return true;
+    });
+    Storage::set('prune-claim', $filesystem);
+
+    $this->artisan('mediaman:prune-responsive-generations', [
+        '--disk' => 'prune-claim',
+        '--older-than' => '0',
+        '--force' => true,
+    ])->assertExitCode(0);
+
+    expect($media->fresh()->hasCustomProperty(Media::PROPERTY_RESPONSIVE_PRUNING))->toBeFalse();
+});
+
 it('protects generations referenced by the active property and manifest', function () {
     $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
     $explicit = oldResponsiveGeneration(20);
@@ -72,6 +99,21 @@ it('protects generations referenced by the active property and manifest', functi
 
     expect(Storage::disk('default')->exists($explicitDirectory))->toBeTrue()
         ->and(Storage::disk('default')->exists($manifestDirectory))->toBeTrue();
+});
+
+it('fails closed when active generation metadata is malformed', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+    $directory = putResponsiveGeneration($media, oldResponsiveGeneration());
+    $media->setCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION, 'not-a-ulid')->save();
+
+    $this->artisan('mediaman:prune-responsive-generations', [
+        '--older-than' => '0',
+        '--force' => true,
+    ])
+        ->expectsOutputToContain('refusing to prune')
+        ->assertExitCode(1);
+
+    expect(Storage::disk('default')->exists($directory))->toBeTrue();
 });
 
 it('protects a fresh in-progress marker', function () {
@@ -108,6 +150,21 @@ it('deletes an abandoned generation after marker timeout and retention', functio
     ])->assertExitCode(0);
 
     expect(Storage::disk('default')->exists($directory))->toBeFalse();
+});
+
+it('fails closed for a malformed in-progress marker', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+    $directory = putResponsiveGeneration($media, oldResponsiveGeneration());
+    Storage::disk('default')->put($directory.'/'.ResponsiveImageGenerator::IN_PROGRESS_MARKER, 'invalid-json');
+
+    $this->artisan('mediaman:prune-responsive-generations', [
+        '--older-than' => '0',
+        '--force' => true,
+    ])
+        ->expectsOutputToContain('Invalid in-progress marker')
+        ->assertExitCode(1);
+
+    expect(Storage::disk('default')->exists($directory))->toBeTrue();
 });
 
 it('ignores legacy files and unknown directories', function () {
@@ -169,5 +226,15 @@ it('rejects invalid retention and oversized media ranges', function () {
 
     $this->artisan('mediaman:prune-responsive-generations', ['--media' => '1..10001'])
         ->expectsOutputToContain('Invalid --media value')
+        ->assertExitCode(1);
+});
+
+it('rejects explicitly empty destructive filters', function () {
+    $this->artisan('mediaman:prune-responsive-generations', ['--media' => '', '--force' => true])
+        ->expectsOutputToContain('Invalid --media value')
+        ->assertExitCode(1);
+
+    $this->artisan('mediaman:prune-responsive-generations', ['--disk' => '', '--force' => true])
+        ->expectsOutputToContain('Invalid --disk value')
         ->assertExitCode(1);
 });

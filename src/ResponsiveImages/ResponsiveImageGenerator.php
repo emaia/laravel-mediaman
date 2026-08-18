@@ -43,6 +43,14 @@ class ResponsiveImageGenerator
             return;
         }
 
+        if (
+            $media->hasCustomProperty(Media::PROPERTY_RESPONSIVE_CLEARING)
+            || $media->hasCustomProperty(Media::PROPERTY_RESPONSIVE_ROTATING)
+            || $media->hasCustomProperty(Media::PROPERTY_RESPONSIVE_DELETING)
+        ) {
+            throw new RuntimeException("Media [{$media->getKey()}] has a conflicting responsive lifecycle operation.");
+        }
+
         $originalPath = $media->getOriginalPath();
         $filesystem = $media->filesystem();
 
@@ -150,6 +158,12 @@ class ResponsiveImageGenerator
                 throw new RuntimeException("Responsive generation [$generation] produced no variants.");
             }
 
+            foreach ($responsiveData as $item) {
+                if (! $responsiveFilesystem->exists($item['path'])) {
+                    throw new RuntimeException("Responsive image [{$item['path']}] disappeared before publication.");
+                }
+            }
+
             $published = $this->publishManifest($media, $responsiveData, $generation, $snapshot);
             $media->setRawAttributes($published->getAttributes(), true);
 
@@ -235,6 +249,20 @@ class ResponsiveImageGenerator
             $freshEpoch = (int) $fresh->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION_EPOCH, 0);
 
             if (
+                $fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_CLEARING)
+                || $fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_ROTATING)
+                || $fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_DELETING)
+            ) {
+                throw new RuntimeException("Media [{$media->getKey()}] has a conflicting responsive lifecycle operation.");
+            }
+
+            $pruning = $fresh->getCustomProperty(Media::PROPERTY_RESPONSIVE_PRUNING, []);
+
+            if ($generation !== null && is_array($pruning) && array_key_exists($generation, $pruning)) {
+                throw new RuntimeException("Responsive generation [$generation] is being pruned.");
+            }
+
+            if (
                 $fresh->file_name !== $snapshot['file_name']
                 || $fresh->disk !== $snapshot['disk']
                 || $fresh->responsiveDisk() !== $snapshot['responsive_disk']
@@ -242,14 +270,6 @@ class ResponsiveImageGenerator
                 || $freshEpoch !== $snapshot['epoch']
             ) {
                 throw new RuntimeException("Media [{$media->getKey()}] changed while responsive images were being generated.");
-            }
-
-            $filesystem = Storage::disk($snapshot['responsive_disk']);
-
-            foreach ($responsiveData as $item) {
-                if (! $filesystem->exists($item['path'])) {
-                    throw new RuntimeException("Responsive image [{$item['path']}] disappeared before publication.");
-                }
             }
 
             $properties = is_array($fresh->custom_properties) ? $fresh->custom_properties : [];
@@ -263,6 +283,13 @@ class ResponsiveImageGenerator
             } else {
                 $properties[Media::PROPERTY_RESPONSIVE_GENERATION] = $generation;
                 $properties[Media::PROPERTY_RESPONSIVE_GENERATION_DISK] = $snapshot['responsive_disk'];
+                $knownDisks = $properties[Media::PROPERTY_RESPONSIVE_GENERATION_DISKS] ?? [];
+                $knownDisks = is_array($knownDisks) ? $knownDisks : [];
+                $knownDisks[] = $snapshot['responsive_disk'];
+                $properties[Media::PROPERTY_RESPONSIVE_GENERATION_DISKS] = array_values(array_unique(array_filter(
+                    $knownDisks,
+                    fn ($disk) => is_string($disk) && $disk !== '',
+                )));
             }
 
             $fresh->custom_properties = $properties;
@@ -276,7 +303,7 @@ class ResponsiveImageGenerator
     {
         try {
             /** @var Media|null $fresh */
-            $fresh = $media->newQuery()->whereKey($media->getKey())->first();
+            $fresh = $media->newQuery()->useWritePdo()->whereKey($media->getKey())->first();
 
             if ($fresh?->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION) === $generation) {
                 return;
@@ -328,7 +355,7 @@ class ResponsiveImageGenerator
      */
     public function clearResponsiveImages(Media $media): void
     {
-        [$fresh, $responsiveDir, $disks] = DB::connection($media->getConnectionName())->transaction(
+        [$fresh, $clearState] = DB::connection($media->getConnectionName())->transaction(
             function () use ($media): array {
                 /** @var Media|null $fresh */
                 $fresh = $media->newQuery()->whereKey($media->getKey())->lockForUpdate()->first();
@@ -337,18 +364,43 @@ class ResponsiveImageGenerator
                     throw new RuntimeException("Media [{$media->getKey()}] no longer exists.");
                 }
 
+                if (
+                    $fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_ROTATING)
+                    || $fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_DELETING)
+                ) {
+                    throw new RuntimeException("Media [{$media->getKey()}] has a conflicting responsive lifecycle operation.");
+                }
+
                 $properties = is_array($fresh->custom_properties) ? $fresh->custom_properties : [];
+                $clearState = $properties[Media::PROPERTY_RESPONSIVE_CLEARING] ?? null;
+                $resolvedBase = app(MediaResolver::class)->pathForResponsive($fresh);
                 $persistedDisk = $properties[Media::PROPERTY_RESPONSIVE_GENERATION_DISK] ?? null;
-                $disks = array_values(array_unique(array_filter([
+                $allowedDisks = array_values(array_unique(array_filter([
                     is_string($persistedDisk) && $persistedDisk !== '' ? $persistedDisk : null,
                     $fresh->responsiveDisk(),
+                    ...$fresh->responsiveGenerationDisks(),
                 ])));
+
+                if (! is_array($clearState) || ! isset($clearState['token'], $clearState['base_path'], $clearState['disks'])) {
+                    $clearState = [
+                        'token' => strtoupper((string) Str::ulid()),
+                        'base_path' => $resolvedBase,
+                        'disks' => $allowedDisks,
+                        'started_at' => now()->toIso8601String(),
+                    ];
+                    $clearState['signature'] = self::signClearState($fresh, $clearState);
+                } elseif (! self::isValidClearState($fresh, $clearState)) {
+                    throw new RuntimeException('Responsive clear state is invalid; refusing storage cleanup.');
+                }
+
                 $properties[Media::PROPERTY_RESPONSIVE_GENERATION_EPOCH] =
                     ((int) ($properties[Media::PROPERTY_RESPONSIVE_GENERATION_EPOCH] ?? 0)) + 1;
+                $properties[Media::PROPERTY_RESPONSIVE_CLEARING] = $clearState;
                 unset(
                     $properties[Media::PROPERTY_RESPONSIVE_IMAGES],
                     $properties[Media::PROPERTY_RESPONSIVE_GENERATION],
                     $properties[Media::PROPERTY_RESPONSIVE_GENERATION_DISK],
+                    $properties[Media::PROPERTY_RESPONSIVE_GENERATION_DISKS],
                 );
 
                 $fresh->custom_properties = $properties;
@@ -356,21 +408,84 @@ class ResponsiveImageGenerator
 
                 return [
                     $fresh,
-                    app(MediaResolver::class)->pathForResponsive($fresh),
-                    $disks,
+                    $clearState,
                 ];
             }
         );
 
         $media->setRawAttributes($fresh->getAttributes(), true);
 
-        foreach ($disks as $disk) {
+        foreach ($clearState['disks'] as $disk) {
+            if (! is_string($disk) || $disk === '') {
+                throw new RuntimeException('Responsive clear state contains an invalid disk.');
+            }
+
             $filesystem = Storage::disk($disk);
+            $responsiveDir = $clearState['base_path'];
 
             if ($filesystem->exists($responsiveDir) && ! $filesystem->deleteDirectory($responsiveDir)) {
                 throw new RuntimeException("Failed to delete responsive images at [$responsiveDir] on disk [$disk].");
             }
         }
+
+        $published = DB::connection($media->getConnectionName())->transaction(function () use ($media, $clearState): Media {
+            /** @var Media|null $fresh */
+            $fresh = $media->newQuery()->whereKey($media->getKey())->lockForUpdate()->first();
+
+            if ($fresh === null) {
+                throw new RuntimeException("Media [{$media->getKey()}] no longer exists.");
+            }
+
+            $properties = is_array($fresh->custom_properties) ? $fresh->custom_properties : [];
+            $currentState = $properties[Media::PROPERTY_RESPONSIVE_CLEARING] ?? null;
+
+            if (is_array($currentState) && ($currentState['token'] ?? null) === $clearState['token']) {
+                unset($properties[Media::PROPERTY_RESPONSIVE_CLEARING]);
+                $fresh->custom_properties = $properties;
+                $fresh->save();
+            }
+
+            return $fresh;
+        });
+
+        $media->setRawAttributes($published->getAttributes(), true);
+    }
+
+    /** Validate that a clear tombstone was issued for this exact media record. */
+    public static function isValidClearState(Media $media, array $state): bool
+    {
+        if (! is_array($state['disks'] ?? null)) {
+            return false;
+        }
+
+        foreach ($state['disks'] as $disk) {
+            if (! is_string($disk) || $disk === '') {
+                return false;
+            }
+        }
+
+        return isset($state['signature'], $state['started_at'])
+            && is_string($state['signature'])
+            && is_string($state['token'] ?? null)
+            && is_string($state['base_path'] ?? null)
+            && $state['base_path'] !== ''
+            && ! str_contains($state['base_path'], '..')
+            && is_string($state['started_at'])
+            && hash_equals(self::signClearState($media, $state), $state['signature']);
+    }
+
+    /** @param array{token: string, base_path: string, disks: array, started_at: string, signature?: string} $state */
+    protected static function signClearState(Media $media, array $state): string
+    {
+        return hash_hmac('sha256', json_encode([
+            'model' => $media::class,
+            'table' => $media->getTable(),
+            'key' => (string) $media->getKey(),
+            'token' => $state['token'],
+            'base_path' => $state['base_path'],
+            'disks' => array_values($state['disks']),
+            'started_at' => $state['started_at'],
+        ], JSON_THROW_ON_ERROR), (string) config('app.key'));
     }
 
     public function setWidthCalculator(WidthCalculator $calculator): self

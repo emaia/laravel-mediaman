@@ -240,6 +240,40 @@ it('Media::copy rebuilds a versioned responsive manifest for the target', functi
         ))->toBeFalse();
 });
 
+it('Media::copy merges responsive metadata into freshly persisted target properties', function () {
+    Config::set('mediaman.responsive_images.versioning', 'generation');
+
+    $original = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 800, 600))->upload();
+    app(ResponsiveImageGenerator::class)->generateResponsiveImages($original, [
+        'widths' => [320],
+        'formats' => ['jpg'],
+    ]);
+    $original->refresh();
+
+    $eventDispatcher = clone Media::getEventDispatcher();
+
+    try {
+        Media::created(function (Media $created) use ($original): void {
+            if ($created->getKey() === $original->getKey()) {
+                return;
+            }
+
+            $properties = is_array($created->custom_properties) ? $created->custom_properties : [];
+            $properties['application_state'] = ['current' => true];
+            $created->newQuery()->whereKey($created->getKey())->update([
+                'custom_properties' => json_encode($properties, JSON_THROW_ON_ERROR),
+            ]);
+        });
+
+        $copy = $original->copy($this->subject);
+    } finally {
+        Media::setEventDispatcher($eventDispatcher);
+    }
+
+    expect($copy->getCustomProperty('application_state'))->toBe(['current' => true])
+        ->and($copy->hasResponsiveImages())->toBeTrue();
+});
+
 it('Media::copy rolls back a malformed responsive manifest', function () {
     $original = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
     $original->setCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES, [[

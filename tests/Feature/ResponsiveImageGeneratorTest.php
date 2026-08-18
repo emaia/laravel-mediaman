@@ -139,6 +139,39 @@ it('clears versioned metadata, increments the epoch, and removes the persisted g
         ->and(Storage::disk('responsive-a')->exists($responsiveDir))->toBeFalse();
 });
 
+it('keeps a retryable tombstone when responsive storage cleanup fails', function () {
+    Config::set('mediaman.responsive_images.versioning', 'generation');
+
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 800, 600))->upload();
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [320],
+        'formats' => ['jpg'],
+    ]);
+    $realFilesystem = Storage::disk($media->responsiveDisk());
+    $failingFilesystem = Mockery::mock(Filesystem::class);
+    $failingFilesystem->shouldReceive('exists')->once()->andReturn(true);
+    $failingFilesystem->shouldReceive('deleteDirectory')->once()->andReturn(false);
+    Storage::set($media->responsiveDisk(), $failingFilesystem);
+
+    expect(fn () => $this->generator->clearResponsiveImages($media))
+        ->toThrow(RuntimeException::class, 'Failed to delete responsive images');
+
+    $failed = $media->fresh();
+    expect($failed->hasResponsiveImages())->toBeFalse()
+        ->and($failed->getCustomProperty(Media::PROPERTY_RESPONSIVE_CLEARING))->toBeArray();
+
+    Storage::set($media->responsiveDisk(), $realFilesystem);
+
+    expect(fn () => $this->generator->generateResponsiveImages($failed, [
+        'widths' => [320],
+        'formats' => ['jpg'],
+    ]))->toThrow(RuntimeException::class, 'conflicting responsive lifecycle operation');
+
+    $this->generator->clearResponsiveImages($failed);
+
+    expect($failed->fresh()->hasCustomProperty(Media::PROPERTY_RESPONSIVE_CLEARING))->toBeFalse();
+});
+
 it('exposes a fluent setWidthCalculator', function () {
     $custom = new BreakpointWidthCalculator(app(ImageManager::class), [100, 200]);
 

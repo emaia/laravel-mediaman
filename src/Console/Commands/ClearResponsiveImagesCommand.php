@@ -3,7 +3,7 @@
 namespace Emaia\MediaMan\Console\Commands;
 
 use Emaia\MediaMan\Console\Concerns\CommandOutputStyle;
-use Emaia\MediaMan\Console\Concerns\ParsesMediaIds;
+use Emaia\MediaMan\Console\Concerns\ParsesMediaKeys;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Illuminate\Console\Command;
@@ -11,7 +11,7 @@ use Illuminate\Console\Command;
 class ClearResponsiveImagesCommand extends Command
 {
     use CommandOutputStyle;
-    use ParsesMediaIds;
+    use ParsesMediaKeys;
 
     protected $signature = 'mediaman:clear-responsive
                             {--collection= : Clear for specific collection}
@@ -22,7 +22,10 @@ class ClearResponsiveImagesCommand extends Command
 
     public function handle(): int
     {
-        $query = Media::query()->raster();
+        $modelClass = config('mediaman.models.media', Media::class);
+        /** @var Media $model */
+        $model = new $modelClass;
+        $query = $model->newQuery();
 
         if ($collection = $this->option('collection')) {
             $query->whereHas('collections', function ($q) use ($collection) {
@@ -31,7 +34,7 @@ class ClearResponsiveImagesCommand extends Command
         }
 
         if ($mediaOption = $this->option('media')) {
-            $ids = $this->parseMediaIds($mediaOption);
+            $ids = $this->parseMediaKeys((string) $mediaOption);
 
             if (empty($ids)) {
                 $this->error('Invalid --media value.');
@@ -39,10 +42,13 @@ class ClearResponsiveImagesCommand extends Command
                 return self::FAILURE;
             }
 
-            $query->whereIn('id', $ids);
+            $query->whereKey($ids);
         }
 
-        $query->whereNotNull('custom_properties->responsive_images');
+        $query->where(function ($query) {
+            $query->whereNotNull('custom_properties->responsive_images')
+                ->orWhereNotNull('custom_properties->responsive_clearing');
+        });
 
         $mediaItems = $query->get();
 
@@ -72,7 +78,7 @@ class ClearResponsiveImagesCommand extends Command
             try {
                 $generator->clearResponsiveImages($media);
                 $cleared++;
-            } catch (\Exception $e) {
+            } catch (\Throwable $e) {
                 $failures[] = ['id' => $media->getKey(), 'name' => $media->name, 'error' => $e->getMessage()];
             }
         }
@@ -96,6 +102,6 @@ class ClearResponsiveImagesCommand extends Command
             $this->statusLine('Result', 'info', 'nothing to do');
         }
 
-        return self::SUCCESS;
+        return empty($failures) ? self::SUCCESS : self::FAILURE;
     }
 }

@@ -54,7 +54,7 @@ class PruneResponsiveGenerationsCommand extends Command
         $model = new $modelClass;
         $query = $model->newQuery();
 
-        if ($mediaOption = $this->option('media')) {
+        if (($mediaOption = $this->option('media')) !== null) {
             $keys = $this->parseMediaKeys((string) $mediaOption);
 
             if ($keys === []) {
@@ -66,8 +66,30 @@ class PruneResponsiveGenerationsCommand extends Command
             $query->whereKey($keys);
         }
 
-        if ($collection = $this->option('collection')) {
+        if (($collection = $this->option('collection')) !== null) {
+            if ($collection === '') {
+                $this->error('Invalid --collection value.');
+
+                return self::FAILURE;
+            }
+
             $query->whereHas('collections', fn ($relation) => $relation->where('name', $collection));
+        }
+
+        if (($disk = $this->option('disk')) !== null) {
+            if ($disk === '') {
+                $this->error('Invalid --disk value.');
+
+                return self::FAILURE;
+            }
+
+            try {
+                Storage::disk((string) $disk);
+            } catch (Throwable $e) {
+                $this->error($e->getMessage());
+
+                return self::FAILURE;
+            }
         }
 
         $dryRun = ! $this->option('force');
@@ -75,7 +97,7 @@ class PruneResponsiveGenerationsCommand extends Command
         $this->statusLine('Mode', $dryRun ? 'warn' : 'info', $dryRun ? 'dry run' : 'delete');
         $this->statusLine('Older than', 'info', $olderThan.' day(s)');
 
-        foreach ($query->cursor() as $media) {
+        foreach ($query->lazy(100) as $media) {
             $this->processMedia($media, $olderThan, $dryRun);
         }
 
@@ -94,11 +116,12 @@ class PruneResponsiveGenerationsCommand extends Command
     {
         $diskOverride = $this->option('disk');
         $persistedDisk = $media->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION_DISK);
-        $disks = $diskOverride
+        $disks = $diskOverride !== null
             ? [(string) $diskOverride]
             : array_values(array_unique(array_filter([
                 is_string($persistedDisk) && $persistedDisk !== '' ? $persistedDisk : null,
                 $media->responsiveDisk(),
+                ...$media->responsiveGenerationDisks(),
             ])));
 
         foreach ($disks as $disk) {
@@ -146,7 +169,15 @@ class PruneResponsiveGenerationsCommand extends Command
                 continue;
             }
 
-            if ($this->isProtectedNow($media, $generation, $base)) {
+            if ($dryRun && $this->isProtectedNow($media, $generation, $base)) {
+                $this->protected++;
+
+                continue;
+            }
+
+            $claim = $dryRun ? null : $this->claimForPruning($media, $generation, $base);
+
+            if (! $dryRun && $claim === null) {
                 $this->protected++;
 
                 continue;
@@ -158,32 +189,45 @@ class PruneResponsiveGenerationsCommand extends Command
             $this->line("  #{$media->getKey()} [$disk] $generation: $action ({$age}d, files/bytes n/a)");
 
             if (! $dryRun) {
-                if (! $filesystem->deleteDirectory($directory)) {
-                    throw new \RuntimeException("Failed to delete generation [$generation].");
-                }
+                try {
+                    if (! $filesystem->deleteDirectory($directory)) {
+                        throw new \RuntimeException("Failed to delete generation [$generation].");
+                    }
 
-                $this->deleted++;
+                    $this->deleted++;
+                } finally {
+                    $this->releasePruningClaim($media, $generation, $claim);
+                }
             }
         }
     }
 
     private function hasFreshMarker(Filesystem $filesystem, string $directory): bool
     {
-        $path = $directory.'/'.ResponsiveImageGenerator::IN_PROGRESS_MARKER;
+        $paths = array_values(array_filter(
+            $filesystem->files($directory),
+            fn (string $path) => str_starts_with(basename($path), ResponsiveImageGenerator::IN_PROGRESS_MARKER),
+        ));
 
-        if (! $filesystem->exists($path)) {
+        if ($paths === []) {
             return false;
         }
 
-        try {
-            $marker = json_decode($filesystem->get($path), true, flags: JSON_THROW_ON_ERROR);
-            $startedAt = new DateTimeImmutable($marker['started_at'] ?? '');
-            $timeout = ResponsiveGenerationConfig::fromConfig()->generationTimeoutMinutes;
+        foreach ($paths as $path) {
+            try {
+                $marker = json_decode($filesystem->get($path), true, flags: JSON_THROW_ON_ERROR);
+                $startedAt = new DateTimeImmutable($marker['started_at'] ?? '');
+                $timeout = ResponsiveGenerationConfig::fromConfig()->generationTimeoutMinutes;
 
-            return $startedAt > now()->subMinutes($timeout)->toDateTimeImmutable();
-        } catch (Throwable) {
-            return true;
+                if ($startedAt > now()->subMinutes($timeout)->toDateTimeImmutable()) {
+                    return true;
+                }
+            } catch (Throwable $e) {
+                throw new \RuntimeException("Invalid in-progress marker [$path]; refusing to prune.", previous: $e);
+            }
         }
+
+        return false;
     }
 
     private function isProtectedNow(Media $media, string $generation, string $expectedBase): bool
@@ -208,32 +252,137 @@ class PruneResponsiveGenerationsCommand extends Command
         });
     }
 
+    private function claimForPruning(Media $media, string $generation, string $expectedBase): ?string
+    {
+        return DB::connection($media->getConnectionName())->transaction(function () use (
+            $media,
+            $generation,
+            $expectedBase,
+        ): ?string {
+            /** @var Media|null $fresh */
+            $fresh = $media->newQuery()->whereKey($media->getKey())->lockForUpdate()->first();
+
+            if ($fresh === null) {
+                return null;
+            }
+
+            if (
+                $fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_CLEARING)
+                || $fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_ROTATING)
+                || $fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_DELETING)
+            ) {
+                return null;
+            }
+
+            if (rtrim(app(MediaResolver::class)->pathForResponsive($fresh), '/') !== $expectedBase) {
+                return null;
+            }
+
+            if (in_array($generation, $this->protectedGenerations($fresh, $expectedBase), true)) {
+                return null;
+            }
+
+            $properties = is_array($fresh->custom_properties) ? $fresh->custom_properties : [];
+            $claims = $properties[Media::PROPERTY_RESPONSIVE_PRUNING] ?? [];
+            $claims = is_array($claims) ? $claims : [];
+            $existing = $claims[$generation] ?? null;
+
+            if (is_array($existing) && isset($existing['started_at'])) {
+                try {
+                    $startedAt = new DateTimeImmutable($existing['started_at']);
+                    $timeout = ResponsiveGenerationConfig::fromConfig()->generationTimeoutMinutes;
+
+                    if ($startedAt > now()->subMinutes($timeout)->toDateTimeImmutable()) {
+                        return null;
+                    }
+                } catch (Throwable) {
+                    return null;
+                }
+            }
+
+            $token = strtoupper((string) new Ulid);
+            $claims[$generation] = [
+                'token' => $token,
+                'started_at' => now()->toIso8601String(),
+            ];
+            $properties[Media::PROPERTY_RESPONSIVE_PRUNING] = $claims;
+            $fresh->custom_properties = $properties;
+            $fresh->save();
+
+            return $token;
+        });
+    }
+
+    private function releasePruningClaim(Media $media, string $generation, ?string $token): void
+    {
+        if ($token === null) {
+            return;
+        }
+
+        DB::connection($media->getConnectionName())->transaction(function () use ($media, $generation, $token): void {
+            /** @var Media|null $fresh */
+            $fresh = $media->newQuery()->whereKey($media->getKey())->lockForUpdate()->first();
+
+            if ($fresh === null) {
+                return;
+            }
+
+            $properties = is_array($fresh->custom_properties) ? $fresh->custom_properties : [];
+            $claims = $properties[Media::PROPERTY_RESPONSIVE_PRUNING] ?? [];
+
+            if (! is_array($claims) || ($claims[$generation]['token'] ?? null) !== $token) {
+                return;
+            }
+
+            unset($claims[$generation]);
+
+            if ($claims === []) {
+                unset($properties[Media::PROPERTY_RESPONSIVE_PRUNING]);
+            } else {
+                $properties[Media::PROPERTY_RESPONSIVE_PRUNING] = $claims;
+            }
+
+            $fresh->custom_properties = $properties;
+            $fresh->save();
+        });
+    }
+
     /** @return string[] */
     private function protectedGenerations(Media $media, string $base): array
     {
         $protected = [];
         $explicit = $media->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION);
 
-        if (is_string($explicit) && $this->isManagedGeneration($explicit)) {
+        if ($explicit !== null) {
+            if (! is_string($explicit) || ! $this->isManagedGeneration($explicit)) {
+                throw new \RuntimeException('Active responsive generation metadata is invalid; refusing to prune.');
+            }
+
             $protected[$explicit] = true;
         }
 
         $manifest = $media->getCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES, []);
 
-        if (is_array($manifest)) {
-            foreach ($manifest as $item) {
-                $path = is_array($item) ? ($item['path'] ?? null) : null;
-                $prefix = $base.'/';
+        if (! is_array($manifest)) {
+            throw new \RuntimeException('Responsive manifest metadata is invalid; refusing to prune.');
+        }
 
-                if (! is_string($path) || ! str_starts_with($path, $prefix)) {
-                    continue;
-                }
+        foreach ($manifest as $item) {
+            if (! is_array($item) || ! isset($item['path']) || ! is_string($item['path'])) {
+                throw new \RuntimeException('Responsive manifest item is invalid; refusing to prune.');
+            }
 
-                $segment = explode('/', substr($path, strlen($prefix)), 2)[0];
+            $path = $item['path'];
+            $prefix = $base.'/';
 
-                if ($this->isManagedGeneration($segment)) {
-                    $protected[$segment] = true;
-                }
+            if (! str_starts_with($path, $prefix)) {
+                throw new \RuntimeException("Responsive manifest path [$path] is outside [$base]; refusing to prune.");
+            }
+
+            $segment = explode('/', substr($path, strlen($prefix)), 2)[0];
+
+            if ($this->isManagedGeneration($segment)) {
+                $protected[$segment] = true;
             }
         }
 
