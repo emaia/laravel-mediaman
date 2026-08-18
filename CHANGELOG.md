@@ -16,6 +16,10 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 - Responsive writes now treat a filesystem `false` result as failure and retain the previous active manifest when a versioned replacement cannot be published.
 - `Media::copy()` rebuilds responsive paths and URLs for the target media, copies only manifest-published variants, validates storage results, and rolls the target back when attachment or file copying fails.
 - Clearing responsive images now unpublishes metadata and increments a generation epoch before storage cleanup, preventing already-running generations from republishing after clear.
+- Clear now keeps a retryable tombstone until storage cleanup succeeds; generation refuses publication while clear is active, and pruning claims a generation in the database before deleting it.
+- Generate, clear, prune, stats, doctor, and path-rotation flows resolve the configured media model; generation backfills stream records in bounded pages and honor `mediaman.queue`.
+- Responsive generation disk history is retained so clear, delete, doctor, and pruning can still discover old generations after multiple disk changes.
+- Clear tombstones are signed to their media record, and delete/path-rotation claims prevent stale workers from publishing or moving responsive files during destructive lifecycle operations.
 
 ## [3.0.2] — 2026-07-30
 

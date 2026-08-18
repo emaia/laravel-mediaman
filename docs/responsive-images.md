@@ -284,6 +284,8 @@ Each run writes all widths and formats beneath one ULID before switching the man
 
 Concurrent jobs never overwrite each other's files. The last successful publisher becomes active, while previous generations remain readable until explicit pruning. A failed replacement preserves the previous manifest.
 
+MediaMan also retains the set of disks that have held versioned generations. If the responsive disk changes more than once, clear, force-delete, doctor, and default pruning can still discover older retained files without migrating them during a model save.
+
 Rollout existing media after enabling the setting:
 
 ```bash
@@ -293,7 +295,7 @@ php artisan mediaman:stats --responsive
 php artisan mediaman:prune-responsive-generations
 ```
 
-Only a path with the ULID segment is immutable-safe. For Caddy, require the canonical 26-character segment rather than matching every file below `/responsive`:
+Only a path with the ULID segment is immutable-safe. For Caddy, require the canonical 26-character segment rather than matching every file below `/responsive`. Replace `/media` with the URL root produced by your disk or custom resolver (`/storage` is Laravel's usual public-disk default):
 
 ```caddyfile
 @responsive path_regexp responsive ^/media/[^/]+/responsive/[0-9A-HJKMNP-TV-Z]{26}/[^/]+$

@@ -129,7 +129,12 @@ Public surface of the package, organized by class/trait. Each entry links back t
 | `PROPERTY_RESPONSIVE_IMAGES` | `'responsive_images'` | Key in `custom_properties` for responsive variant descriptors. |
 | `PROPERTY_RESPONSIVE_GENERATION` | `'responsive_generation'` | Active responsive generation ULID. |
 | `PROPERTY_RESPONSIVE_GENERATION_DISK` | `'responsive_generation_disk'` | Disk containing the active responsive generation. |
+| `PROPERTY_RESPONSIVE_GENERATION_DISKS` | `'responsive_generation_disks'` | Disks that may contain retained responsive generations. |
 | `PROPERTY_RESPONSIVE_GENERATION_EPOCH` | `'responsive_generation_epoch'` | Internal clear/generation coordination counter. |
+| `PROPERTY_RESPONSIVE_CLEARING` | `'responsive_clearing'` | Internal retryable clear-operation tombstone. |
+| `PROPERTY_RESPONSIVE_PRUNING` | `'responsive_pruning'` | Internal per-generation pruning claims. |
+| `PROPERTY_RESPONSIVE_ROTATING` | `'responsive_rotating'` | Internal path-rotation claim. |
+| `PROPERTY_RESPONSIVE_DELETING` | `'responsive_deleting'` | Internal force-delete claim. |
 
 ---
 

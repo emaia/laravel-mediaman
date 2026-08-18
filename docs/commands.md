@@ -31,7 +31,7 @@ php artisan mediaman:publish-migration
 
 ## Doctor (health check)
 
-Read-only end-to-end diagnostic of the MediaMan pipeline. Useful as a smoke test after deployment, after `APP_KEY` rotation, when adopting `vips`, when adding a new responsive format, or while debugging "the URL returns 404 but the record exists" issues. The command never mutates state — disk probes write a unique scratch file (`mediaman-doctor-probe-{rand}.txt`) and delete it on the same call; image-driver probes are memory-only.
+End-to-end diagnostic with no durable application mutation. Useful as a smoke test after deployment, after `APP_KEY` rotation, when adopting `vips`, when adding a new responsive format, or while debugging "the URL returns 404 but the record exists" issues. Disk probes write a unique scratch file (`mediaman-doctor-probe-{rand}.txt`) and delete it on the same call, which can still appear in remote-storage audit logs or notifications; image-driver probes are memory-only.
 
 ```bash
 php artisan mediaman:doctor
@@ -110,9 +110,11 @@ php artisan mediaman:rotate-paths --old-key="$OLD_KEY" --force --media=42
 The command is idempotent: re-runs against already-migrated media report them as "already migrated" and skip.
 See [Security → APP_KEY rotation](security.md#app_key-rotation) for context.
 
-An active versioned responsive generation blocks rotation because moving it would invalidate an immutable URL. Restore
-revalidating cache headers first, wait for cached HTML to expire, clear responsive images, rotate paths, then regenerate
-under the new key. The command exits non-zero instead of silently creating responsive 404s.
+Responsive generation versioning must be disabled before rotation because a generation can start between filesystem
+checks and path movement. Restore revalidating cache headers first, wait for cached HTML to expire, disable versioning,
+clear responsive images and retained generations, rotate paths, then re-enable and regenerate. Active clear/prune state,
+retained generation-disk history, unverified markers, and old/new path conflicts also return a non-zero exit instead of
+silently creating responsive 404s.
 
 ## Stats (consolidated)
 
@@ -217,6 +219,8 @@ php artisan mediaman:generate-responsive --collection="Blog Posts"
 php artisan mediaman:generate-responsive --queue
 ```
 
+The command resolves `mediaman.models.media`, supports opaque custom-model keys, and processes matching records in bounded pages. Queued jobs use the connection configured by `mediaman.queue`. Inline mode continues after individual failures and returns exit code `1` when any item fails.
+
 ## Clear responsive
 
 Remove responsive variants from storage:
@@ -235,7 +239,7 @@ php artisan mediaman:clear-responsive --collection="Blog Posts"
 php artisan mediaman:clear-responsive --media=1,3,5..10
 ```
 
-Clear first unpublishes responsive metadata and invalidates already-running generation jobs, then removes files. A storage cleanup failure can leave safe orphan files, but it does not leave rendered manifests pointing at deleted variants.
+Clear first unpublishes responsive metadata and invalidates already-running generation jobs, then removes files. A storage cleanup failure leaves a retryable tombstone containing the original disk/base information; generation remains blocked until a later clear retry succeeds. The command continues across media and returns exit code `1` when any item fails.
 
 ## Prune responsive generations
 

@@ -17,13 +17,13 @@ MediaMan dispatches Laravel events at key points in the media lifecycle. Listen 
 | `MediaPrunedFromCollection`   | `enforceMaxItems()` auto-detaches older media from a capped collection         | `$event->collection`, `$event->detachedMediaIds` |
 | `ConversionCompleted`         | At least one image conversion succeeds (queued job, partial-batch)             | `$event->media`, `$event->conversions` (the successful ones) |
 | `ConversionFailed`            | A single image conversion fails — fires once per failure inside a batch        | `$event->media`, `$event->conversion`, `$event->exception` |
-| `ResponsiveImagesGenerated`   | Responsive variants finish (queued job)                                        | `$event->media`, `$event->options`            |
+| `ResponsiveImagesGenerated`   | The queued responsive job finishes without throwing, including no-op inputs     | `$event->media`, `$event->options`            |
 
 All event classes live under `Emaia\MediaMan\Events`.
 
 `MediaUploaded` is dispatched **after** the upload transaction commits — listeners can safely query the media row, dispatch jobs that touch it, or fan out to other services. Responsive variant generation runs immediately before the event fires; depending on `responsive_images.queue`, the variants may already be on disk (inline mode) or still queued in a worker job (queued mode, the default). Listeners that strictly need the variants to be present should check `$media->hasResponsiveImages()` and react when they appear, or hook into `ResponsiveImagesGenerated` instead.
 
-`ResponsiveImagesGenerated` remains a queued-job event; enabling generation versioning does not start dispatching it for inline calls. When a versioned job succeeds, its media payload is synchronized with the atomically published manifest before the event is emitted.
+`ResponsiveImagesGenerated` remains a queued-job event; enabling generation versioning does not start dispatching it for inline calls. For backward compatibility, a missing source or a run with no eligible widths is still a successful no-op event. When a versioned job publishes, its media payload is synchronized with the atomically published manifest before the event is emitted.
 
 ## Register listeners
 
