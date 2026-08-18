@@ -110,6 +110,10 @@ php artisan mediaman:rotate-paths --old-key="$OLD_KEY" --force --media=42
 The command is idempotent: re-runs against already-migrated media report them as "already migrated" and skip.
 See [Security → APP_KEY rotation](security.md#app_key-rotation) for context.
 
+An active versioned responsive generation blocks rotation because moving it would invalidate an immutable URL. Restore
+revalidating cache headers first, wait for cached HTML to expire, clear responsive images, rotate paths, then regenerate
+under the new key. The command exits non-zero instead of silently creating responsive 404s.
+
 ## Stats (consolidated)
 
 Show media, conversion, and responsive image statistics. Without flags, a consolidated dashboard is shown. Use

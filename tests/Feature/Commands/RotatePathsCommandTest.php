@@ -1,6 +1,7 @@
 <?php
 
 use Emaia\MediaMan\MediaUploader;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Storage;
@@ -187,4 +188,27 @@ it('moves conversion + responsive subfiles along with the primary file', functio
     expect(Storage::disk($media->disk)->exists($newDir.'/conversions/thumb/photo.jpg'))->toBeTrue();
     expect(Storage::disk($media->disk)->exists($newDir.'/responsive/photo_320w.webp'))->toBeTrue();
     expect(Storage::disk($media->disk)->exists($oldDir))->toBeFalse();
+});
+
+it('blocks rotation when an immutable responsive generation is active', function () {
+    [$oldKey, $newKey] = rotatePathsKeyPair();
+
+    Config::set('app.key', $oldKey);
+    Config::set('mediaman.responsive_images.versioning', 'generation');
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 800, 600))->upload();
+    app(ResponsiveImageGenerator::class)->generateResponsiveImages($media, [
+        'widths' => [320],
+        'formats' => ['jpg'],
+    ]);
+    $oldDir = $media->getDirectory();
+
+    Config::set('app.key', $newKey);
+    $newDir = expectedDirFor($media->id, $newKey);
+
+    $this->artisan('mediaman:rotate-paths', ['--old-key' => $oldKey, '--force' => true])
+        ->expectsOutputToContain('active versioned responsive generation blocks path rotation')
+        ->assertExitCode(1);
+
+    expect(Storage::disk($media->disk)->exists($oldDir))->toBeTrue()
+        ->and(Storage::disk($media->disk)->exists($newDir))->toBeFalse();
 });

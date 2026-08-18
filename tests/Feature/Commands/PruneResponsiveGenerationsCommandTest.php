@@ -127,6 +127,22 @@ it('ignores legacy files and unknown directories', function () {
         ->and(Storage::disk('default')->exists($base.'/00000000000000000000000000/file.jpg'))->toBeTrue();
 });
 
+it('retains future and non-canonical lowercase ULID directories', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+    $future = Ulid::generate(now()->addDay());
+    $lowercase = strtolower(oldResponsiveGeneration());
+    $futureDirectory = putResponsiveGeneration($media, $future);
+    $lowercaseDirectory = putResponsiveGeneration($media, $lowercase);
+
+    $this->artisan('mediaman:prune-responsive-generations', [
+        '--older-than' => '0',
+        '--force' => true,
+    ])->assertExitCode(0);
+
+    expect(Storage::disk('default')->exists($futureDirectory))->toBeTrue()
+        ->and(Storage::disk('default')->exists($lowercaseDirectory))->toBeTrue();
+});
+
 it('scopes pruning by opaque media key and explicit disk', function () {
     Storage::fake('old-responsive');
 

@@ -36,6 +36,8 @@ php artisan mediaman:prune-responsive-generations
 
 The pruning command is a dry run unless `--force` is present. Schedule it only after retention exceeds the longest HTML/page-cache lifetime, queue delay, and rollback window used by the application.
 
+`mediaman:rotate-paths` refuses to move a media directory while it has an active versioned responsive generation. Moving that directory would invalidate an immutable URL. Before rotating `APP_KEY`, restore revalidating cache headers, wait for cached HTML to expire, clear responsive variants, rotate paths, and regenerate them.
+
 ---
 
 ## From v3.0.1 to v3.0.2

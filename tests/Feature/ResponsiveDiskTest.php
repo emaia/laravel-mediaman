@@ -94,6 +94,28 @@ it('forceDelete removes responsive variants from a non-media disk', function () 
         ->and(Storage::disk($media->disk)->exists($media->getPath()))->toBeFalse();
 });
 
+it('forceDelete uses the persisted generation disk after configuration changes', function () {
+    config([
+        'mediaman.responsive_images.disk' => 'public',
+        'mediaman.responsive_images.versioning' => 'generation',
+    ]);
+
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 800, 600))->upload();
+    app(ResponsiveImageGenerator::class)->generateResponsiveImages($media, [
+        'widths' => [320],
+        'formats' => ['webp'],
+    ]);
+    $media->refresh();
+    $responsiveDir = $media->getDirectory().'/'.Media::RESPONSIVE_DIR;
+    expect($media->activeResponsiveDisk())->toBe('public')
+        ->and(Storage::disk('public')->exists($responsiveDir))->toBeTrue();
+
+    config(['mediaman.responsive_images.disk' => null]);
+    $media->forceDelete();
+
+    expect(Storage::disk('public')->exists($responsiveDir))->toBeFalse();
+});
+
 it('responsive variant URL points to the responsive disk', function () {
     config(['mediaman.responsive_images.disk' => 'public']);
 

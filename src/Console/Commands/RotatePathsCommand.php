@@ -54,11 +54,22 @@ class RotatePathsCommand extends Command
         $skippedAlreadyMigrated = 0;
         $skippedMissing = 0;
         $skippedConflict = 0;
+        $blockedVersioned = 0;
 
         $query->cursor()->each(function (Media $media) use (
             $oldKey, $currentKey, $dryRun,
-            &$renamed, &$skippedAlreadyMigrated, &$skippedMissing, &$skippedConflict
+            &$renamed, &$skippedAlreadyMigrated, &$skippedMissing, &$skippedConflict, &$blockedVersioned
         ) {
+            if ($media->hasCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION)) {
+                $this->error(
+                    "  Media {$media->getKey()}: active versioned responsive generation blocks path rotation. "
+                    .'Restore revalidating cache headers, clear responsive images, rotate paths, then regenerate.'
+                );
+                $blockedVersioned++;
+
+                return;
+            }
+
             $oldDir = $media->getKey().'-'.md5($media->getKey().$oldKey);
             $newDir = $media->getKey().'-'.md5($media->getKey().$currentKey);
 
@@ -136,12 +147,16 @@ class RotatePathsCommand extends Command
             $this->warn("Conflicts (both old + new exist): $skippedConflict");
         }
 
+        if ($blockedVersioned > 0) {
+            $this->error("Blocked by active responsive generations: $blockedVersioned");
+        }
+
         if ($dryRun && $renamed > 0) {
             $this->newLine();
             $this->comment('Re-run with --force to apply the moves.');
         }
 
-        return self::SUCCESS;
+        return $blockedVersioned > 0 ? self::FAILURE : self::SUCCESS;
     }
 
     /**
