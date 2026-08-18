@@ -29,6 +29,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
+use RuntimeException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
 
@@ -91,7 +92,7 @@ class Media extends Model implements Attachable
             // other — same disk must not be wiped twice.
             $variantDisks = array_unique(array_merge(
                 $media->getConversionDisks(),
-                [$media->responsiveDisk()],
+                [$media->responsiveDisk(), $media->activeResponsiveDisk()],
             ));
 
             foreach ($variantDisks as $variantDisk) {
@@ -358,6 +359,14 @@ class Media extends Model implements Attachable
     public function responsiveFilesystem(): Filesystem
     {
         return Storage::disk($this->responsiveDisk());
+    }
+
+    /** Resolve the disk of the published responsive generation, with a legacy fallback. */
+    public function activeResponsiveDisk(): string
+    {
+        $disk = $this->getCustomProperty(self::PROPERTY_RESPONSIVE_GENERATION_DISK);
+
+        return is_string($disk) && $disk !== '' ? $disk : $this->responsiveDisk();
     }
 
     public function replaceFileExtension(string $fileName, string $newExtension): string
@@ -843,19 +852,33 @@ class Media extends Model implements Attachable
         }
 
         $copy = $this->replicate(['id']);
+        $copyProperties = is_array($copy->custom_properties) ? $copy->custom_properties : [];
+        unset(
+            $copyProperties[self::PROPERTY_RESPONSIVE_IMAGES],
+            $copyProperties[self::PROPERTY_RESPONSIVE_GENERATION],
+            $copyProperties[self::PROPERTY_RESPONSIVE_GENERATION_DISK],
+            $copyProperties[self::PROPERTY_RESPONSIVE_GENERATION_EPOCH],
+        );
+        $copy->custom_properties = $copyProperties;
         $copy->save();
 
         try {
             $this->copyPrimaryFile($copy);
             $this->copyConversions($copy);
             $this->copyResponsiveVariants($copy);
+            $target->attachMedia($copy, $channel);
         } catch (Throwable $e) {
-            $copy->delete();
+            try {
+                $copy->delete();
+            } catch (Throwable $cleanupError) {
+                Log::warning('MediaMan: Failed to roll back copied media', [
+                    'media_id' => $copy->getKey(),
+                    'error' => $cleanupError->getMessage(),
+                ]);
+            }
 
             throw $e;
         }
-
-        $target->attachMedia($copy, $channel);
 
         return $copy;
     }
@@ -875,15 +898,23 @@ class Media extends Model implements Attachable
     protected function copyPrimaryFile(Media $target): void
     {
         if ($this->disk === $target->disk) {
-            $this->filesystem()->copy($this->getPath(), $target->getPath());
+            if (! $this->filesystem()->copy($this->getPath(), $target->getPath())) {
+                throw new RuntimeException("Failed to copy media file [{$this->getPath()}].");
+            }
 
             return;
         }
 
         $stream = $this->filesystem()->readStream($this->getPath());
 
+        if (! is_resource($stream)) {
+            throw new RuntimeException("Failed to read media file [{$this->getPath()}].");
+        }
+
         try {
-            $target->filesystem()->writeStream($target->getPath(), $stream);
+            if (! $target->filesystem()->writeStream($target->getPath(), $stream)) {
+                throw new RuntimeException("Failed to write copied media file [{$target->getPath()}].");
+            }
         } finally {
             if (is_resource($stream)) {
                 fclose($stream);
@@ -913,15 +944,23 @@ class Media extends Model implements Attachable
                 $targetPath = $targetDir.'/'.$relativePath;
 
                 if ($sameDisk) {
-                    $sourceFs->copy($file, $targetPath);
+                    if (! $sourceFs->copy($file, $targetPath)) {
+                        throw new RuntimeException("Failed to copy conversion file [$file].");
+                    }
 
                     continue;
                 }
 
                 $stream = $sourceFs->readStream($file);
 
+                if (! is_resource($stream)) {
+                    throw new RuntimeException("Failed to read conversion file [$file].");
+                }
+
                 try {
-                    $targetFs->writeStream($targetPath, $stream);
+                    if (! $targetFs->writeStream($targetPath, $stream)) {
+                        throw new RuntimeException("Failed to write copied conversion file [$targetPath].");
+                    }
                 } finally {
                     if (is_resource($stream)) {
                         fclose($stream);
@@ -933,35 +972,76 @@ class Media extends Model implements Attachable
 
     protected function copyResponsiveVariants(Media $target): void
     {
-        $sourceFs = $this->responsiveFilesystem();
-        $responsiveDir = $this->getDirectory().'/'.self::RESPONSIVE_DIR;
+        $manifest = $this->getCustomProperty(self::PROPERTY_RESPONSIVE_IMAGES, []);
 
-        if (! $sourceFs->exists($responsiveDir)) {
+        if (! is_array($manifest) || $manifest === []) {
             return;
         }
 
+        $resolver = app(MediaResolver::class);
+        $sourceDir = rtrim($resolver->pathForResponsive($this), '/');
+        $targetDir = rtrim($resolver->pathForResponsive($target), '/');
+        $generation = $this->getCustomProperty(self::PROPERTY_RESPONSIVE_GENERATION);
+        $sourceDisk = $this->activeResponsiveDisk();
+        $sourceFs = Storage::disk($sourceDisk);
         $targetFs = $target->responsiveFilesystem();
-        $sameDisk = $this->responsiveDisk() === $target->responsiveDisk();
+        $sameDisk = $sourceDisk === $target->responsiveDisk();
+        $rebuiltManifest = [];
 
-        foreach ($sourceFs->allFiles($responsiveDir) as $file) {
-            $relativePath = substr($file, strlen($responsiveDir) + 1);
-            $targetPath = $target->getDirectory().'/'.self::RESPONSIVE_DIR.'/'.$relativePath;
-
-            if ($sameDisk) {
-                $sourceFs->copy($file, $targetPath);
-
-                continue;
+        foreach ($manifest as $item) {
+            if (! is_array($item) || ! isset($item['path']) || ! is_string($item['path'])) {
+                throw new RuntimeException('Cannot copy malformed responsive image metadata.');
             }
 
-            $stream = $sourceFs->readStream($file);
+            $sourcePath = $item['path'];
+            $prefix = $sourceDir.'/';
 
-            try {
-                $targetFs->writeStream($targetPath, $stream);
-            } finally {
-                if (is_resource($stream)) {
+            if (! str_starts_with($sourcePath, $prefix)) {
+                throw new RuntimeException("Responsive path [$sourcePath] is outside [$sourceDir].");
+            }
+
+            $relativePath = substr($sourcePath, strlen($prefix));
+
+            if (is_string($generation) && ! str_starts_with($relativePath, $generation.'/')) {
+                throw new RuntimeException("Responsive path [$sourcePath] does not belong to active generation [$generation].");
+            }
+
+            $targetPath = $targetDir.'/'.$relativePath;
+
+            if ($sameDisk) {
+                if (! $sourceFs->copy($sourcePath, $targetPath)) {
+                    throw new RuntimeException("Failed to copy responsive image [$sourcePath].");
+                }
+            } else {
+                $stream = $sourceFs->readStream($sourcePath);
+
+                if (! is_resource($stream)) {
+                    throw new RuntimeException("Failed to read responsive image [$sourcePath].");
+                }
+
+                try {
+                    if (! $targetFs->writeStream($targetPath, $stream)) {
+                        throw new RuntimeException("Failed to write copied responsive image [$targetPath].");
+                    }
+                } finally {
                     fclose($stream);
                 }
             }
+
+            $item['path'] = $targetPath;
+            $item['url'] = $targetFs->url($targetPath);
+            $rebuiltManifest[] = $item;
         }
+
+        $properties = is_array($target->custom_properties) ? $target->custom_properties : [];
+        $properties[self::PROPERTY_RESPONSIVE_IMAGES] = $rebuiltManifest;
+
+        if (is_string($generation) && $generation !== '') {
+            $properties[self::PROPERTY_RESPONSIVE_GENERATION] = $generation;
+            $properties[self::PROPERTY_RESPONSIVE_GENERATION_DISK] = $target->responsiveDisk();
+        }
+
+        $target->custom_properties = $properties;
+        $target->save();
     }
 }

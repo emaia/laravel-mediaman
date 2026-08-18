@@ -113,6 +113,32 @@ it('clears responsive images when directory does not exist', function () {
     expect($media->fresh()->hasResponsiveImages())->toBeFalse();
 });
 
+it('clears versioned metadata, increments the epoch, and removes the persisted generation disk', function () {
+    Config::set('mediaman.responsive_images.versioning', 'generation');
+    Storage::fake('responsive-a');
+    Storage::fake('responsive-b');
+    Config::set('mediaman.responsive_images.disk', 'responsive-a');
+
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 800, 600))->upload();
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [320],
+        'formats' => ['jpg'],
+    ]);
+    $responsiveDir = $media->getDirectory().'/responsive';
+    expect(Storage::disk('responsive-a')->exists($responsiveDir))->toBeTrue();
+
+    Config::set('mediaman.responsive_images.disk', 'responsive-b');
+    $this->generator->clearResponsiveImages($media);
+
+    $fresh = $media->fresh();
+
+    expect($fresh->hasResponsiveImages())->toBeFalse()
+        ->and($fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION))->toBeFalse()
+        ->and($fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION_DISK))->toBeFalse()
+        ->and($fresh->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION_EPOCH))->toBe(1)
+        ->and(Storage::disk('responsive-a')->exists($responsiveDir))->toBeFalse();
+});
+
 it('exposes a fluent setWidthCalculator', function () {
     $custom = new BreakpointWidthCalculator(app(ImageManager::class), [100, 200]);
 

@@ -3,8 +3,10 @@
 use Emaia\MediaMan\Exceptions\InvalidCopyTarget;
 use Emaia\MediaMan\MediaUploader;
 use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Emaia\MediaMan\Tests\Models\Subject;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Storage;
 
 beforeEach(function () {
@@ -206,6 +208,54 @@ it('Media::copy preserves the original file', function () {
     $original->copy($this->subject);
 
     expect(Storage::disk(self::DEFAULT_DISK)->exists($original->getPath()))->toBeTrue();
+});
+
+it('Media::copy rebuilds a versioned responsive manifest for the target', function () {
+    Config::set('mediaman.responsive_images.versioning', 'generation');
+
+    $original = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 800, 600))->upload();
+    app(ResponsiveImageGenerator::class)->generateResponsiveImages($original, [
+        'widths' => [320],
+        'formats' => ['jpg'],
+    ]);
+    $original->refresh();
+    $generation = $original->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION);
+    $sourcePath = $original->getResponsiveImages()->first()->path;
+    $inactiveGeneration = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
+    Storage::disk($original->responsiveDisk())->put(
+        $original->getDirectory()."/responsive/$inactiveGeneration/orphan.jpg",
+        'orphan',
+    );
+
+    $copy = $original->copy($this->subject);
+    $targetPath = $copy->getResponsiveImages()->first()->path;
+
+    expect($copy->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION))->toBe($generation)
+        ->and($copy->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION_DISK))->toBe($copy->responsiveDisk())
+        ->and($targetPath)->toContain($copy->getDirectory()."/responsive/$generation/")
+        ->and($targetPath)->not->toBe($sourcePath)
+        ->and(Storage::disk($copy->responsiveDisk())->exists($targetPath))->toBeTrue()
+        ->and(Storage::disk($copy->responsiveDisk())->exists(
+            $copy->getDirectory()."/responsive/$inactiveGeneration/orphan.jpg"
+        ))->toBeFalse();
+});
+
+it('Media::copy rolls back a malformed responsive manifest', function () {
+    $original = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+    $original->setCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES, [[
+        'width' => 320,
+        'height' => 240,
+        'format' => 'jpg',
+        'path' => 'outside/responsive.jpg',
+        'url' => '/outside/responsive.jpg',
+        'size' => 1,
+    ]])->save();
+    $before = Media::query()->count();
+
+    expect(fn () => $original->copy($this->subject))
+        ->toThrow(RuntimeException::class, 'outside');
+
+    expect(Media::query()->count())->toBe($before);
 });
 
 // ─── Media::attachTo() ───────────────────────────────────────────────

@@ -328,15 +328,49 @@ class ResponsiveImageGenerator
      */
     public function clearResponsiveImages(Media $media): void
     {
-        $responsiveDir = app(MediaResolver::class)->pathForResponsive($media);
-        $filesystem = $media->responsiveFilesystem();
+        [$fresh, $responsiveDir, $disks] = DB::connection($media->getConnectionName())->transaction(
+            function () use ($media): array {
+                /** @var Media|null $fresh */
+                $fresh = $media->newQuery()->whereKey($media->getKey())->lockForUpdate()->first();
 
-        if ($filesystem->exists($responsiveDir)) {
-            $filesystem->deleteDirectory($responsiveDir);
+                if ($fresh === null) {
+                    throw new RuntimeException("Media [{$media->getKey()}] no longer exists.");
+                }
+
+                $properties = is_array($fresh->custom_properties) ? $fresh->custom_properties : [];
+                $persistedDisk = $properties[Media::PROPERTY_RESPONSIVE_GENERATION_DISK] ?? null;
+                $disks = array_values(array_unique(array_filter([
+                    is_string($persistedDisk) && $persistedDisk !== '' ? $persistedDisk : null,
+                    $fresh->responsiveDisk(),
+                ])));
+                $properties[Media::PROPERTY_RESPONSIVE_GENERATION_EPOCH] =
+                    ((int) ($properties[Media::PROPERTY_RESPONSIVE_GENERATION_EPOCH] ?? 0)) + 1;
+                unset(
+                    $properties[Media::PROPERTY_RESPONSIVE_IMAGES],
+                    $properties[Media::PROPERTY_RESPONSIVE_GENERATION],
+                    $properties[Media::PROPERTY_RESPONSIVE_GENERATION_DISK],
+                );
+
+                $fresh->custom_properties = $properties;
+                $fresh->save();
+
+                return [
+                    $fresh,
+                    app(MediaResolver::class)->pathForResponsive($fresh),
+                    $disks,
+                ];
+            }
+        );
+
+        $media->setRawAttributes($fresh->getAttributes(), true);
+
+        foreach ($disks as $disk) {
+            $filesystem = Storage::disk($disk);
+
+            if ($filesystem->exists($responsiveDir) && ! $filesystem->deleteDirectory($responsiveDir)) {
+                throw new RuntimeException("Failed to delete responsive images at [$responsiveDir] on disk [$disk].");
+            }
         }
-
-        $media->forgetCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES);
-        $media->save();
     }
 
     public function setWidthCalculator(WidthCalculator $calculator): self
