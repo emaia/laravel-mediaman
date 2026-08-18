@@ -5,6 +5,7 @@ use Emaia\MediaMan\MediaUploader;
 use Emaia\MediaMan\Models\Media;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Config;
 use Intervention\Image\Format;
 use Symfony\Component\Console\Output\BufferedOutput;
 
@@ -27,6 +28,27 @@ it('shows responsive stats with --responsive flag', function () {
     $out = captureStatsOutput(['--responsive' => true]);
     expect($out)->toContain('Responsive images', 'Total images', 'With responsive', 'Without responsive');
     expect($out)->toContain('Configuration', 'Enabled', 'Auto generate', 'Queue', 'Quality', 'Formats', 'Breakpoints', 'Width calculator');
+});
+
+it('shows responsive generation strategy and manifest coverage', function () {
+    Config::set('mediaman.responsive_images.versioning', 'generation');
+    Config::set('mediaman.responsive_images.version_retention_days', 3);
+
+    $legacy = MediaUploader::source(UploadedFile::fake()->image('legacy.jpg'))->upload();
+    $legacy->setCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES, [['path' => 'legacy']])->save();
+    $versioned = MediaUploader::source(UploadedFile::fake()->image('versioned.jpg'))->upload();
+    $versioned->setCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES, [['path' => 'versioned']])
+        ->setCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION, '01ARZ3NDEKTSV4RRFFQ69G5FAV')
+        ->save();
+
+    $out = captureStatsOutput(['--responsive' => true]);
+
+    expect($out)
+        ->toContain('Legacy manifests')
+        ->toContain('Versioned manifests')
+        ->toContain('Versioning')
+        ->toContain('generation')
+        ->toContain('3 day(s)');
 });
 
 it('always shows media inventory regardless of flags', function () {

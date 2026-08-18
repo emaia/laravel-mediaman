@@ -6,6 +6,38 @@ For non-breaking additions, see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
+## From v3.0 to v3.1
+
+Responsive generation versioning is opt-in and requires no database migration. Existing manifests, stable responsive paths, and custom `MediaResolver` implementations continue to work unchanged.
+
+Published configs do not receive new nested keys automatically. Add these entries when enabling versioned generations:
+
+```php
+'responsive_images' => [
+    // Existing options...
+    'versioning' => env('MEDIAMAN_RESPONSIVE_VERSIONING', false),
+    'version_retention_days' => env('MEDIAMAN_RESPONSIVE_VERSION_RETENTION_DAYS', 7),
+    'generation_timeout_minutes' => env('MEDIAMAN_RESPONSIVE_GENERATION_TIMEOUT_MINUTES', 1440),
+],
+```
+
+Enable generation paths only after deploying the package, then force-regenerate existing media. Do not apply immutable cache headers to legacy responsive paths, originals, or conversions.
+
+```dotenv
+MEDIAMAN_RESPONSIVE_VERSIONING=generation
+MEDIAMAN_RESPONSIVE_VERSION_RETENTION_DAYS=7
+```
+
+```bash
+php artisan mediaman:doctor
+php artisan mediaman:generate-responsive --force
+php artisan mediaman:prune-responsive-generations
+```
+
+The pruning command is a dry run unless `--force` is present. Schedule it only after retention exceeds the longest HTML/page-cache lifetime, queue delay, and rollback window used by the application.
+
+---
+
 ## From v3.0.1 to v3.0.2
 
 MediaMan now defaults new uploads to Laravel's `public` disk so the documented `php artisan storage:link` installation flow produces working `getUrl()` values on a standard Laravel 12/13 application. Laravel's own default disk is `local`, rooted at `storage/app/private`, and is not exposed by that symlink.

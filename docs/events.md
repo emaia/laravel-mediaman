@@ -23,6 +23,8 @@ All event classes live under `Emaia\MediaMan\Events`.
 
 `MediaUploaded` is dispatched **after** the upload transaction commits — listeners can safely query the media row, dispatch jobs that touch it, or fan out to other services. Responsive variant generation runs immediately before the event fires; depending on `responsive_images.queue`, the variants may already be on disk (inline mode) or still queued in a worker job (queued mode, the default). Listeners that strictly need the variants to be present should check `$media->hasResponsiveImages()` and react when they appear, or hook into `ResponsiveImagesGenerated` instead.
 
+`ResponsiveImagesGenerated` remains a queued-job event; enabling generation versioning does not start dispatching it for inline calls. When a versioned job succeeds, its media payload is synchronized with the atomically published manifest before the event is emitted.
+
 ## Register listeners
 
 In `EventServiceProvider`:

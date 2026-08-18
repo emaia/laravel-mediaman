@@ -4,6 +4,19 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Responsive images can opt into immutable-safe generation paths with `MEDIAMAN_RESPONSIVE_VERSIONING=generation`. Every complete generation is written beneath one ULID directory and published through a single locked media save; legacy stable paths remain the default.
+- Added `mediaman:prune-responsive-generations`, a dry-run-first command that removes inactive and abandoned ULID generations after retention while protecting active manifests and in-progress work.
+- `mediaman:doctor` and `mediaman:stats --responsive` now report generation strategy, retention, timeout, and legacy/versioned manifest coverage.
+
+### Fixed
+
+- Responsive manifest publication now merges into a fresh locked media row instead of allowing stale queued models to overwrite unrelated custom properties.
+- Responsive writes now treat a filesystem `false` result as failure and retain the previous active manifest when a versioned replacement cannot be published.
+- `Media::copy()` rebuilds responsive paths and URLs for the target media, copies only manifest-published variants, validates storage results, and rolls the target back when attachment or file copying fails.
+- Clearing responsive images now unpublishes metadata and increments a generation epoch before storage cleanup, preventing already-running generations from republishing after clear.
+
 ## [3.0.2] — 2026-07-30
 
 Restores a working public-disk default for fresh Laravel installations and keeps queued conversion URLs aligned with their canonical output extension.

@@ -11,6 +11,7 @@
 - [Clear conversions](#clear-conversions)
 - [Generate responsive](#generate-responsive)
 - [Clear responsive](#clear-responsive)
+- [Prune responsive generations](#prune-responsive-generations)
 
 ## Publish assets
 
@@ -41,7 +42,7 @@ Sections run in order and each is independent — a failure in one doesn't block
 | Section | What it surfaces |
 |---|---|
 | **Schema migrations** | All 4 expected tables exist (respects `mediaman.tables.*` overrides). |
-| **Config file** | Whether `config/mediaman.php` was published, or whether the pipeline is running on the package defaults. |
+| **Config file** | Whether `config/mediaman.php` was published, plus responsive generation strategy, retention, in-progress timeout, and validation. |
 | **Disk** | Write/read/delete probe on the main disk **and** on every distinct variant disk in use (per-conversion `register(..., disk: 'X')` registrations + the `mediaman.conversions.disk` and `mediaman.responsive_images.disk` defaults), dedup'd against the main disk. See [Conversions → Conversion disk](conversions.md#conversion-disk). |
 | **Public symlink** | For each `filesystems.links` entry pointing at the effective disk's `root`: the symlink exists, points where expected, and isn't squatted by a regular file. Local-driver only — S3/SFTP/etc. are skipped. Disks with no matching link warn that `getUrl()` cannot expose their files; private disks should use temporary or authenticated responses. |
 | **Image driver** | The effective driver class, a real 1×1 PNG encode (Vips loads FFI bindings only on the first encode — without this, doctor would report "ok" for a class that can't actually do work), the SAPI + `ffi.enable` value when Vips is the driver (with a per-SAPI verification hint), and a 10×10 encode probe for **each** format in `responsive_images.formats` to surface codec gaps before they hit a real upload. See [Responsive images → Verifying driver/codec support](responsive-images.md#verifying-driver-codec-support). |
@@ -69,6 +70,8 @@ php artisan mediaman:clean --disk=media
 
 The command also detects reverse orphans (Media records whose file is missing from disk) and reports them for manual
 review — **DB records are never auto-deleted**. See [Security → mediaman:clean](security.md#detect-orphaned-files).
+Files inside a valid media directory are intentionally outside this command's scope. Use
+`mediaman:prune-responsive-generations` for inactive versioned responsive directories.
 
 ## Rotate media paths after APP_KEY rotation
 
@@ -127,9 +130,9 @@ php artisan mediaman:stats --responsive --conversions
 ```
 
 The consolidated view shows media inventory (records, total size, image records), registered conversion names, and
-responsive coverage with current config. The `--responsive` detail adds per-format configuration (quality, formats,
-breakpoints, width calculator). The `--conversions` detail shows each registered conversion with its detected output
-format.
+responsive coverage with current config. The `--responsive` detail adds per-format configuration, generation strategy,
+retention, and legacy/versioned manifest counts. The `--conversions` detail shows each registered conversion with its
+detected output format.
 
 ## Generate conversions
 
@@ -227,3 +230,39 @@ php artisan mediaman:clear-responsive --collection="Blog Posts"
 # Limit to specific media ids with range support
 php artisan mediaman:clear-responsive --media=1,3,5..10
 ```
+
+Clear first unpublishes responsive metadata and invalidates already-running generation jobs, then removes files. A storage cleanup failure can leave safe orphan files, but it does not leave rendered manifests pointing at deleted variants.
+
+## Prune responsive generations
+
+Report or remove inactive ULID generation directories. Legacy files, unknown directories, active manifest references, and fresh in-progress markers are never deleted.
+
+```bash
+# Dry run using responsive_images.version_retention_days
+php artisan mediaman:prune-responsive-generations
+
+# Delete eligible generations
+php artisan mediaman:prune-responsive-generations --force
+
+# Override age and scope
+php artisan mediaman:prune-responsive-generations --older-than=14 --media=1,3..10
+php artisan mediaman:prune-responsive-generations --collection="Blog Posts"
+
+# Scan a previously configured responsive disk
+php artisan mediaman:prune-responsive-generations --disk=old-responsive --force
+```
+
+The command returns non-zero when configuration, listing, active-state validation, or deletion fails, while continuing with other media where safe. It streams media records rather than loading the full catalog.
+
+Scheduling is application-owned:
+
+```php
+use Illuminate\Support\Facades\Schedule;
+
+Schedule::command('mediaman:prune-responsive-generations --force')
+    ->daily()
+    ->withoutOverlapping()
+    ->onOneServer();
+```
+
+`onOneServer()` requires a shared lock-capable cache. Retention should exceed the longest HTML/page-cache lifetime, queue delay, generation duration, and deployment rollback window.

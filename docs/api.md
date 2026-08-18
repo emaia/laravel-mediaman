@@ -127,6 +127,9 @@ Public surface of the package, organized by class/trait. Each entry links back t
 | `RESPONSIVE_DIR`            | `'responsive'`       | Subdirectory holding responsive variants. |
 | `PROPERTY_IMAGE_META`       | `'image_meta'`       | Key in `custom_properties` for width, height, dominant color. |
 | `PROPERTY_RESPONSIVE_IMAGES` | `'responsive_images'` | Key in `custom_properties` for responsive variant descriptors. |
+| `PROPERTY_RESPONSIVE_GENERATION` | `'responsive_generation'` | Active responsive generation ULID. |
+| `PROPERTY_RESPONSIVE_GENERATION_DISK` | `'responsive_generation_disk'` | Disk containing the active responsive generation. |
+| `PROPERTY_RESPONSIVE_GENERATION_EPOCH` | `'responsive_generation_epoch'` | Internal clear/generation coordination counter. |
 
 ---
 
