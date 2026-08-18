@@ -85,13 +85,7 @@ class StatsCommand extends Command
     protected function showResponsiveSummary(bool $detailed): void
     {
         $totalImages = $this->mediaQuery()->where('mime_type', 'like', 'image/%')->count();
-        $withResponsive = $this->mediaQuery()->where('mime_type', 'like', 'image/%')
-            ->whereNotNull('custom_properties->responsive_images')
-            ->count();
-        $versioned = $this->mediaQuery()->where('mime_type', 'like', 'image/%')
-            ->whereNotNull('custom_properties->responsive_generation')
-            ->count();
-        $legacy = max(0, $withResponsive - $versioned);
+        [$withResponsive, $legacy, $versioned, $inconsistent] = $this->responsiveManifestCounts();
 
         $this->section('Responsive images');
 
@@ -118,6 +112,10 @@ class StatsCommand extends Command
         $this->statusLine('Without responsive', 'info', number_format($totalImages - $withResponsive));
         $this->statusLine('Legacy manifests', 'info', number_format($legacy));
         $this->statusLine('Versioned manifests', 'info', number_format($versioned));
+
+        if ($inconsistent > 0) {
+            $this->statusLine('Inconsistent metadata', 'warn', number_format($inconsistent));
+        }
 
         if ($totalImages > 0) {
             $percentage = (int) round(($withResponsive / $totalImages) * 100);
@@ -149,6 +147,40 @@ class StatsCommand extends Command
         $modelClass = config('mediaman.models.media', Media::class);
 
         return (new $modelClass)->newQuery();
+    }
+
+    /** @return array{int, int, int, int} */
+    protected function responsiveManifestCounts(): array
+    {
+        $withResponsive = 0;
+        $legacy = 0;
+        $versioned = 0;
+        $inconsistent = 0;
+
+        foreach ($this->mediaQuery()->where('mime_type', 'like', 'image/%')->select('custom_properties')->cursor() as $media) {
+            if (! $media instanceof Media) {
+                continue;
+            }
+
+            $manifest = $media->getCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES);
+            $generation = $media->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION);
+
+            if (is_array($manifest) && $manifest !== []) {
+                $withResponsive++;
+
+                if (is_string($generation) && $generation !== '') {
+                    $versioned++;
+                } elseif ($generation === null) {
+                    $legacy++;
+                } else {
+                    $inconsistent++;
+                }
+            } elseif ($generation !== null) {
+                $inconsistent++;
+            }
+        }
+
+        return [$withResponsive, $legacy, $versioned, $inconsistent];
     }
 
     /** Stringify a scalar or per-format quality config for the stats line. */

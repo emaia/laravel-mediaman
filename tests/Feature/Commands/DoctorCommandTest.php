@@ -7,6 +7,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Symfony\Component\Console\Output\BufferedOutput;
 
 /**
@@ -114,6 +115,18 @@ it('reports the config file as not published on a fresh install', function () {
             file_put_contents($path, $backup);
         }
     }
+});
+
+it('probes disks persisted by active responsive generations', function () {
+    Storage::fake('persisted-responsive');
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+    $media->setCustomProperty('responsive_generation_disk', 'persisted-responsive')->save();
+
+    $out = captureDoctorOutput();
+
+    expect($out)
+        ->toContain("Responsive disk 'persisted-responsive'")
+        ->toContain('OK');
 });
 
 it('reports the config file as published when config/mediaman.php exists', function () {

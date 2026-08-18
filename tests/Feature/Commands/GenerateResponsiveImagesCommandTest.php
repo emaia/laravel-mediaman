@@ -108,8 +108,9 @@ it('continues processing when an individual generation fails', function () {
         ->andThrow(new RuntimeException('boom'));
     app()->instance(ResponsiveImageGenerator::class, $generator);
 
-    $out = captureGenerateResponsiveOutput();
-    expect($out)->toContain('Failed');
+    $this->artisan('mediaman:generate-responsive')
+        ->expectsOutputToContain('Failed')
+        ->assertExitCode(1);
 });
 
 it('supports --media with range syntax', function () {
@@ -136,5 +137,29 @@ it('fails before dispatching work when responsive versioning config is invalid',
 
     $this->artisan('mediaman:generate-responsive', ['--queue' => true])
         ->expectsOutputToContain("versioning must be false or 'generation'")
+        ->assertExitCode(1);
+});
+
+it('dispatches responsive jobs on the configured queue connection', function () {
+    Queue::fake();
+    Config::set('mediaman.queue', 'media-queue');
+    MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+
+    $this->artisan('mediaman:generate-responsive', ['--queue' => true])
+        ->assertExitCode(0);
+
+    Queue::assertPushed(
+        GenerateResponsiveImages::class,
+        fn (GenerateResponsiveImages $job) => $job->connection === 'media-queue',
+    );
+});
+
+it('rejects explicitly empty filters', function () {
+    $this->artisan('mediaman:generate-responsive', ['--media' => ''])
+        ->expectsOutputToContain('Invalid --media value')
+        ->assertExitCode(1);
+
+    $this->artisan('mediaman:generate-responsive', ['--collection' => ''])
+        ->expectsOutputToContain('Invalid --collection value')
         ->assertExitCode(1);
 });

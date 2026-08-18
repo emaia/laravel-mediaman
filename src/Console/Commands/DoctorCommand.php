@@ -7,6 +7,7 @@ use Emaia\MediaMan\ConversionRegistry;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveGenerationConfig;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Intervention\Image\Format;
@@ -180,10 +181,30 @@ class DoctorCommand extends Command
             $this->probeDisk($diskName, "Conversion disk '$diskName'");
         }
 
-        $responsiveDisk = config('mediaman.responsive_images.disk');
+        $responsiveDisks = array_filter([config('mediaman.responsive_images.disk')]);
 
-        if ($responsiveDisk !== null && $responsiveDisk !== $main) {
-            $this->probeDisk($responsiveDisk, "Responsive disk '$responsiveDisk'");
+        try {
+            foreach ($this->mediaQuery()->select('custom_properties')->cursor() as $media) {
+                if (! $media instanceof Media) {
+                    continue;
+                }
+
+                $disk = $media->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION_DISK);
+
+                if (is_string($disk) && $disk !== '') {
+                    $responsiveDisks[] = $disk;
+                }
+
+                $responsiveDisks = [...$responsiveDisks, ...$media->responsiveGenerationDisks()];
+            }
+        } catch (Throwable $e) {
+            $this->statusLine('Persisted responsive disks', 'warn', 'query failed: '.$e->getMessage());
+        }
+
+        foreach (array_unique($responsiveDisks) as $responsiveDisk) {
+            if ($responsiveDisk !== $main) {
+                $this->probeDisk($responsiveDisk, "Responsive disk '$responsiveDisk'");
+            }
         }
     }
 
@@ -479,8 +500,8 @@ class DoctorCommand extends Command
         $this->section('Media inventory');
 
         try {
-            $total = Media::query()->count();
-            $bytes = (int) Media::query()->sum('size');
+            $total = $this->mediaQuery()->count();
+            $bytes = (int) $this->mediaQuery()->sum('size');
         } catch (Throwable $e) {
             $this->statusLine('Records', 'error', 'query failed: '.$e->getMessage());
 
@@ -494,23 +515,35 @@ class DoctorCommand extends Command
             return;
         }
 
-        // Count records that have a non-empty responsive_images custom_properties entry.
-        // The custom_properties cast stores JSON; we check via LIKE on the raw column
-        // for cross-driver compatibility (works on sqlite/mysql/pgsql without JSON
-        // path operators).
         try {
-            $withResponsive = Media::query()
-                ->where('custom_properties', 'like', '%"responsive_images":%')
-                ->count();
+            $imageQuery = $this->mediaQuery()->where('mime_type', 'like', 'image/%');
+            $totalImages = (clone $imageQuery)->count();
+            $withResponsive = 0;
 
-            $pct = (int) round($withResponsive / $total * 100);
+            foreach ($imageQuery->select('custom_properties')->cursor() as $media) {
+                if (! $media instanceof Media) {
+                    continue;
+                }
+
+                $manifest = $media->getCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES);
+                $withResponsive += is_array($manifest) && $manifest !== [] ? 1 : 0;
+            }
+
+            $pct = $totalImages > 0 ? (int) round($withResponsive / $totalImages * 100) : 0;
             $this->statusLine(
                 'Responsive coverage',
                 'info',
-                number_format($withResponsive).' / '.number_format($total)." ($pct%)"
+                number_format($withResponsive).' / '.number_format($totalImages)." ($pct%)"
             );
         } catch (Throwable $e) {
             $this->statusLine('Responsive coverage', 'warn', 'coverage query failed: '.$e->getMessage());
         }
+    }
+
+    protected function mediaQuery(): Builder
+    {
+        $modelClass = config('mediaman.models.media', Media::class);
+
+        return (new $modelClass)->newQuery();
     }
 }
