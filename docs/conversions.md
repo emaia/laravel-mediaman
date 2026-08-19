@@ -120,7 +120,7 @@ Forced regeneration writes a new directory and atomically switches persisted act
 
 Reads remain pinned to the published path and disk even if a registration is removed or its write disk changes. New generations use the current registration/configuration disk. Disable versioning and regenerate successfully before expecting legacy stable paths again.
 
-The manifest signature authenticates the persisted disk and complete path, while read validation still requires the path to remain inside its `conversions/{name}` segment and end in the signed generation/filename pair. This deliberately avoids recomputing the media directory from the current `APP_KEY`, so active URLs remain readable while the signing key is retained in `APP_PREVIOUS_KEYS`.
+The manifest signature authenticates the persisted disk and complete path. Read validation requires the conversion directory returned by `pathForConversion()` to end with that conversion's name, followed by the signed generation/filename pair; it does not require the default literal `conversions/` segment. This preserves custom resolver layouts and deliberately avoids recomputing the media directory from the current `APP_KEY`, so active URLs remain readable while the signing key is retained in `APP_PREVIOUS_KEYS`.
 
 Match the canonical ULID segment before sending immutable cache headers. Do not mark the complete `/conversions/*` subtree immutable because legacy conversion URLs remain stable:
 

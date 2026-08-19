@@ -829,14 +829,15 @@ class Media extends Model implements Attachable
             $fileName = ConversionPath::fileName($entry['file_name']);
             $suffix = '/'.$entry['generation'].'/'.$fileName;
 
-            if (
-                ! str_contains($entry['path'], '/'.self::CONVERSIONS_DIR.'/'.$conversion.'/')
-                || ! str_ends_with($entry['path'], $suffix)
-            ) {
+            if (! str_ends_with($entry['path'], $suffix)) {
                 return null;
             }
 
-            ConversionPath::directory(substr($entry['path'], 0, -strlen($suffix)));
+            $prefix = ConversionPath::directory(substr($entry['path'], 0, -strlen($suffix)));
+
+            if (basename($prefix) !== $conversion) {
+                return null;
+            }
         } catch (InvalidArgumentException) {
             return null;
         }

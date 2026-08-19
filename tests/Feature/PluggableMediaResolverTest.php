@@ -1,10 +1,13 @@
 <?php
 
+use Emaia\MediaMan\Facades\Conversion;
+use Emaia\MediaMan\ImageManipulator;
 use Emaia\MediaMan\MediaUploader;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Resolvers\DefaultMediaResolver;
 use Emaia\MediaMan\Resolvers\MediaResolver;
 use Illuminate\Http\UploadedFile;
+use Intervention\Image\Image;
 
 class CustomResolverForConfigSwap extends DefaultMediaResolver {}
 
@@ -78,6 +81,25 @@ it('can swap the path methods by extending DefaultMediaResolver', function () {
 
     expect($media->getDirectory())->toEqual('custom/'.$media->getKey())
         ->and($media->getPath())->toStartWith('custom/'.$media->getKey());
+});
+
+it('keeps versioned conversion manifests valid with a custom conversion directory', function () {
+    config(['mediaman.conversions.versioning' => 'generation']);
+    app()->instance(MediaResolver::class, new class extends DefaultMediaResolver
+    {
+        public function pathForConversion(Media $media, string $conversion): string
+        {
+            return $this->directory($media).'/derived/'.$conversion;
+        }
+    });
+    Conversion::register('thumb', fn (Image $image) => $image->cover(64, 64));
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+
+    app(ImageManipulator::class)->manipulate($media, ['thumb'], onlyIfMissing: false);
+    $active = $media->getConversionFile('thumb');
+
+    expect($active)->not->toBeNull()
+        ->and($active['path'])->toContain('/derived/thumb/'.$active['generation'].'/');
 });
 
 it('can swap the URL methods by extending DefaultMediaResolver', function () {

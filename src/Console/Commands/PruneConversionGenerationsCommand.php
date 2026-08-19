@@ -293,6 +293,9 @@ class PruneConversionGenerationsCommand extends Command
             fn (string $name) => preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/', $name) === 1,
         );
         $names = [...$registered, ...array_keys($media->conversionFiles())];
+
+        // Best-effort orphan discovery for the default layout. Custom resolvers
+        // remain fully supported through registered and persisted names above.
         $legacyRoot = $media->getDirectory().'/'.Media::CONVERSIONS_DIR;
 
         foreach ($disks as $disk) {
