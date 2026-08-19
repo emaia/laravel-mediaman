@@ -541,7 +541,7 @@ Broad bucket classification used by `Media::isOfType()` and `$media->type` acces
 | Class                                             | When                                              |
 |---------------------------------------------------|---------------------------------------------------|
 | `Emaia\MediaMan\Events\MediaUploaded`             | Right after `MediaUploader::upload()`.            |
-| `Emaia\MediaMan\Events\MediaDeleted`              | Right after `Media::delete()`.                    |
+| `Emaia\MediaMan\Events\MediaDeleted`              | After hard-delete commits and physical cleanup completes. |
 | `Emaia\MediaMan\Events\MediaPrunedFromCollection` | When `enforceMaxItems()` auto-detaches media.     |
 | `Emaia\MediaMan\Events\ConversionCompleted`       | At the end of the conversion queued job (carries the conversions that succeeded). |
 | `Emaia\MediaMan\Events\ConversionFailed`          | One per failed conversion inside a batch (carries the failing name + exception). |

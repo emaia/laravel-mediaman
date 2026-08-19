@@ -50,6 +50,10 @@ The global `mediaman.queue` connection is now applied by both image job construc
 
 `ResponsiveImageGenerator::generateResponsiveImages()` intentionally omits a native return declaration so existing 3.x subclasses with `void` overrides remain loadable. The built-in generator returns `ResponsiveGenerationResult`; jobs also accept a legacy `null` return and expose `null` as the event result for those custom subclasses.
 
+`Media::deleteQuietly()` and `forceDeleteQuietly()` still suppress Eloquent model events and `MediaDeleted`, but they now perform the same physical file cleanup as their non-quiet counterparts. Applications that used quiet deletion to preserve files must stop deleting the media row and implement an explicit archival workflow instead.
+
+When hard-delete runs inside an application database transaction, physical cleanup and `MediaDeleted` wait for the outer commit. Rolling the transaction back preserves the database row and files. Code that expected files to disappear before commit should move that work after the transaction boundary.
+
 ---
 
 ## From v3.0.1 to v3.0.2

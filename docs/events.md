@@ -23,6 +23,8 @@ All event classes live under `Emaia\MediaMan\Events`.
 
 `MediaUploaded` is dispatched **after** the upload transaction commits — listeners can safely query the media row, dispatch jobs that touch it, or fan out to other services. Responsive variant generation runs immediately before the event fires; depending on `responsive_images.queue`, the variants may already be on disk (inline mode) or still queued in a worker job (queued mode, the default). Listeners that strictly need the variants to be present should check `$media->hasResponsiveImages()` and react when they appear, or hook into `ResponsiveImagesGenerated` instead.
 
+`MediaDeleted` is emitted after physical cleanup. When deletion is enclosed by an application transaction, cleanup and the event wait for the outer commit; rollback preserves both the row and files. Quiet deletion removes files but suppresses this event.
+
 `ResponsiveImagesGenerated` remains a queued-job event; enabling generation versioning does not start dispatching it for inline calls. Non-raster media, missing sources, and versioned runs with no eligible widths are no-ops and do not emit the event. Its `ResponsiveGenerationResult` identifies complete versus partial publication and includes attempted, published, and skipped variant counts. Hard failures throw and remain eligible for normal queue retries.
 
 ## Register listeners

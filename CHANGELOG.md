@@ -16,6 +16,7 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 - `ResponsiveImagesGenerated` is emitted only after a queued job publishes a manifest; no-op jobs for non-raster or missing source media no longer emit it. The event now exposes the structured result as `$event->result`.
 - Responsive and conversion jobs consistently use the connection configured by `mediaman.queue`, regardless of whether dispatch originates from a command, upload, model helper, or channel attachment.
 - `mediaman:clear-responsive` scans every selected media record rather than only raster images, allowing stale responsive metadata and retry tombstones to be cleared after a record's MIME type changes.
+- `deleteQuietly()` and `forceDeleteQuietly()` now suppress model/package events but still remove physical media files. Hard-delete cleanup and `MediaDeleted` are deferred until an enclosing application transaction commits; rollback preserves both the row and its files.
 
 ### Fixed
 
