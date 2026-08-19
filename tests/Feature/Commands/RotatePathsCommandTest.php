@@ -94,7 +94,7 @@ it('skips a media row deleted between cursor hydration and rotation claim', func
 
         $this->artisan('mediaman:rotate-paths', ['--old-key' => $oldKey, '--force' => true])
             ->expectsOutputToContain('record no longer exists, skipping')
-            ->expectsOutputToContain('Deleted records: 1')
+            ->expectsOutputToContain('Deleted records:  1')
             ->assertExitCode(0);
     } finally {
         Media::setEventDispatcher($eventDispatcher);

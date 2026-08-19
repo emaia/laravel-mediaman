@@ -244,7 +244,7 @@ class RotatePathsCommand extends Command
         }
 
         if ($skippedDeleted > 0) {
-            $this->line("Deleted records: $skippedDeleted");
+            $this->line("Deleted records:  $skippedDeleted");
         }
 
         if ($skippedConflict > 0) {
