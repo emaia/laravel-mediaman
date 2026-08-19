@@ -7,6 +7,7 @@ use Emaia\MediaMan\Console\Concerns\ParsesMediaKeys;
 use Emaia\MediaMan\Jobs\GenerateResponsiveImages;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveGenerationConfig;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveGenerationResult;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Illuminate\Console\Command;
 
@@ -82,8 +83,7 @@ class GenerateResponsiveImagesCommand extends Command
             $this->newLine();
 
             foreach ($query->lazy(100) as $media) {
-                GenerateResponsiveImages::dispatch($media)
-                    ->onConnection(config('mediaman.queue'));
+                GenerateResponsiveImages::dispatch($media);
             }
 
             $this->statusLine('Dispatched', 'ok', "$total (queued)");
@@ -98,13 +98,16 @@ class GenerateResponsiveImagesCommand extends Command
         $this->newLine();
 
         $processed = 0;
+        $skipped = 0;
         $failures = [];
         $generator = app(ResponsiveImageGenerator::class);
 
         foreach ($query->lazy(100) as $media) {
             try {
-                $generator->generateResponsiveImages($media);
-                $processed++;
+                $result = $generator->generateResponsiveImages($media);
+                $result instanceof ResponsiveGenerationResult && ! $result->wasPublished()
+                    ? $skipped++
+                    : $processed++;
             } catch (\Throwable $e) {
                 $failures[] = ['id' => $media->getKey(), 'name' => $media->name, 'error' => $e->getMessage()];
             }
@@ -112,6 +115,10 @@ class GenerateResponsiveImagesCommand extends Command
 
         if ($processed > 0) {
             $this->statusLine('Processed', 'ok', (string) $processed);
+        }
+
+        if ($skipped > 0) {
+            $this->statusLine('Skipped', 'info', (string) $skipped);
         }
 
         if (! empty($failures)) {
@@ -125,7 +132,7 @@ class GenerateResponsiveImagesCommand extends Command
             }
         }
 
-        if ($processed === 0 && empty($failures)) {
+        if ($processed === 0 && $skipped === 0 && empty($failures)) {
             $this->statusLine('Result', 'info', 'nothing to do');
         }
 

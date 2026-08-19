@@ -240,6 +240,61 @@ it('Media::copy rebuilds a versioned responsive manifest for the target', functi
         ))->toBeFalse();
 });
 
+it('Media::copy streams an active versioned generation to a different responsive disk', function () {
+    Config::set('mediaman.responsive_images.versioning', 'generation');
+    Storage::fake('responsive-a');
+    Storage::fake('responsive-b');
+    Config::set('mediaman.responsive_images.disk', 'responsive-a');
+
+    $original = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 800, 600))->upload();
+    app(ResponsiveImageGenerator::class)->generateResponsiveImages($original, [
+        'widths' => [320],
+        'formats' => ['jpg'],
+    ]);
+    $original->refresh();
+    $sourceItem = $original->getCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES)[0];
+    $generation = $original->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION);
+
+    Config::set('mediaman.responsive_images.disk', 'responsive-b');
+    $copy = $original->copy($this->subject);
+    $targetItem = $copy->getCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES)[0];
+
+    expect($original->activeResponsiveDisk())->toBe('responsive-a')
+        ->and($copy->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION))->toBe($generation)
+        ->and($copy->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION_DISK))->toBe('responsive-b')
+        ->and($copy->responsiveGenerationDisks())->toBe(['responsive-b'])
+        ->and($targetItem['path'])->toContain($copy->getDirectory()."/responsive/$generation/")
+        ->and($targetItem['url'])->toBe(Storage::disk('responsive-b')->url($targetItem['path']))
+        ->and(Storage::disk('responsive-a')->exists($sourceItem['path']))->toBeTrue()
+        ->and(Storage::disk('responsive-a')->exists($targetItem['path']))->toBeFalse()
+        ->and(Storage::disk('responsive-b')->exists($targetItem['path']))->toBeTrue()
+        ->and(Storage::disk('responsive-b')->get($targetItem['path']))
+        ->toBe(Storage::disk('responsive-a')->get($sourceItem['path']))
+        ->and(collect(Storage::disk('responsive-a')->allFiles())->contains(
+            fn (string $path) => str_contains($path, ResponsiveImageGenerator::IN_PROGRESS_MARKER.'-copy-')
+        ))->toBeFalse()
+        ->and(collect(Storage::disk('responsive-b')->allFiles())->contains(
+            fn (string $path) => str_contains($path, ResponsiveImageGenerator::IN_PROGRESS_MARKER.'-copy-')
+        ))->toBeFalse();
+});
+
+it('Media::copy rejects non-managed generation metadata before creating the target row', function ($generation) {
+    $original = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+    $original->setCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION, $generation)->save();
+    $before = Media::query()->count();
+
+    expect(fn () => $original->copy($this->subject))
+        ->toThrow(RuntimeException::class, 'malformed responsive generation');
+
+    expect(Media::query()->count())->toBe($before);
+})->with([
+    'lowercase ULID' => ['01arz3ndektsv4rrffq69g5fav'],
+    'nil ULID' => ['00000000000000000000000000'],
+    'max ULID' => ['7ZZZZZZZZZZZZZZZZZZZZZZZZZ'],
+    'malformed string' => ['not-a-ulid'],
+    'non-string' => [123],
+]);
+
 it('Media::copy merges responsive metadata into freshly persisted target properties', function () {
     Config::set('mediaman.responsive_images.versioning', 'generation');
 

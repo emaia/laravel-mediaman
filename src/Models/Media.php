@@ -12,6 +12,7 @@ use Emaia\MediaMan\Events\MediaDeleted;
 use Emaia\MediaMan\Exceptions\InvalidCopyTarget;
 use Emaia\MediaMan\Exceptions\TemporaryUrlNotSupported;
 use Emaia\MediaMan\Resolvers\MediaResolver;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveGeneration;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Emaia\MediaMan\Traits\ResolvesModels;
 use Emaia\MediaMan\Traits\ResponsiveImages;
@@ -23,6 +24,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Events\NullDispatcher;
 use Illuminate\Mail\Attachment;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection as BaseCollection;
@@ -71,8 +73,6 @@ class Media extends Model implements Attachable
 
     const string PROPERTY_RESPONSIVE_ROTATING = 'responsive_rotating';
 
-    const string PROPERTY_RESPONSIVE_DELETING = 'responsive_deleting';
-
     const string PROPERTY_IMAGE_META = 'image_meta';
 
     protected $fillable = [
@@ -99,100 +99,8 @@ class Media extends Model implements Attachable
 
     protected ?string $deletionFilePath = null;
 
-    protected ?string $deletionClaimToken = null;
-
     public static function booted(): void
     {
-        static::deleting(static function ($media) {
-            if (method_exists($media, 'isForceDeleting') && ! $media->isForceDeleting()) {
-                return;
-            }
-
-            $state = DB::connection($media->getConnectionName())->transaction(function () use ($media): Media {
-                /** @var Media|null $fresh */
-                $fresh = $media->newQueryWithoutScopes()->useWritePdo()->whereKey($media->getKey())->lockForUpdate()->first();
-
-                if ($fresh === null) {
-                    return $media;
-                }
-
-                if ($fresh->hasCustomProperty(self::PROPERTY_RESPONSIVE_ROTATING)) {
-                    throw new RuntimeException("Media [{$media->getKey()}] is rotating paths.");
-                }
-
-                $properties = is_array($fresh->custom_properties) ? $fresh->custom_properties : [];
-                $token = strtoupper((string) Str::ulid());
-                $properties[self::PROPERTY_RESPONSIVE_DELETING] = [
-                    'token' => $token,
-                    'started_at' => now()->toIso8601String(),
-                ];
-                $fresh->custom_properties = $properties;
-                $fresh->save();
-                $media->deletionClaimToken = $token;
-
-                return $fresh;
-            });
-            $media->deletionPrimaryDisk = $state->disk;
-            $media->deletionDirectory = $state->getDirectory();
-            $media->deletionFilePath = $state->getPath();
-            $media->deletionVariantDisks = array_values(array_unique(array_merge(
-                $state->getConversionDisks(),
-                [$state->responsiveDisk(), $state->activeResponsiveDisk()],
-                $state->responsiveGenerationDisks(),
-            )));
-            $clearState = $state->getCustomProperty(self::PROPERTY_RESPONSIVE_CLEARING);
-
-            if (is_array($clearState) && ResponsiveImageGenerator::isValidClearState($state, $clearState)) {
-                foreach ($clearState['disks'] as $disk) {
-                    if (is_string($disk) && $disk !== '' && is_string($clearState['base_path'])) {
-                        $media->deletionResponsivePaths[] = [
-                            'disk' => $disk,
-                            'path' => $clearState['base_path'],
-                        ];
-                    }
-                }
-            }
-        });
-
-        static::deleted(static function ($media) {
-            // Respect soft deletes: a soft delete fires the `deleted` event too,
-            // but the files must survive so a later restore() keeps working.
-            // Only a force delete (or a model without soft deletes) removes files.
-            if (method_exists($media, 'isForceDeleting') && ! $media->isForceDeleting()) {
-                return;
-            }
-
-            $primaryDisk = $media->deletionPrimaryDisk ?? $media->disk;
-            $directory = $media->deletionDirectory ?? $media->getDirectory();
-            $filePath = $media->deletionFilePath ?? $media->getPath();
-            $mainDeleted = Storage::disk($primaryDisk)->deleteDirectory($directory);
-            ! $mainDeleted && Storage::disk($primaryDisk)->delete($filePath);
-
-            // Deduplicate variant disks against the main disk and against each
-            // other — same disk must not be wiped twice.
-            $variantDisks = $media->deletionVariantDisks !== []
-                ? $media->deletionVariantDisks
-                : array_unique(array_merge(
-                    $media->getConversionDisks(),
-                    [$media->responsiveDisk(), $media->activeResponsiveDisk()],
-                    $media->responsiveGenerationDisks(),
-                ));
-
-            foreach ($variantDisks as $variantDisk) {
-                if ($variantDisk === $primaryDisk) {
-                    continue;
-                }
-
-                Storage::disk($variantDisk)->deleteDirectory($directory);
-            }
-
-            foreach ($media->deletionResponsivePaths as $responsivePath) {
-                Storage::disk($responsivePath['disk'])->deleteDirectory($responsivePath['path']);
-            }
-
-            event(new MediaDeleted($media));
-        });
-
         static::updating(function ($media) {
             if ($media->isDirty('disk')) {
                 self::ensureDiskUsability($media->disk);
@@ -222,54 +130,112 @@ class Media extends Model implements Attachable
         });
     }
 
-    /** Delete the model and clear its lifecycle claim when deletion is cancelled or fails. */
+    /** Delete the model while serializing hard-delete against responsive lifecycle operations. */
     public function delete(): ?bool
     {
-        try {
-            $deleted = parent::delete();
-        } catch (Throwable $e) {
-            $this->clearFailedDeletionClaim();
+        $hardDelete = ! method_exists($this, 'isForceDeleting') || $this->isForceDeleting();
 
-            throw $e;
+        if (! $hardDelete) {
+            return parent::delete();
         }
 
-        if ($deleted === false) {
-            $this->clearFailedDeletionClaim();
+        $this->mergeAttributesFromCachedCasts();
+
+        if (! $this->exists) {
+            return null;
         }
 
-        return $deleted;
+        if ($this->fireModelEvent('deleting') === false) {
+            return false;
+        }
+
+        $this->touchOwners();
+        $dispatchMediaDeleted = ! static::getEventDispatcher() instanceof NullDispatcher;
+
+        DB::connection($this->getConnectionName())->transaction(function (): void {
+            /** @var Media|null $fresh */
+            $fresh = $this->newQueryWithoutScopes()
+                ->useWritePdo()
+                ->whereKey($this->getKey())
+                ->lockForUpdate()
+                ->first();
+
+            if ($fresh === null) {
+                $this->exists = false;
+
+                return;
+            }
+
+            if ($fresh->hasCustomProperty(self::PROPERTY_RESPONSIVE_ROTATING)) {
+                throw new RuntimeException("Media [{$this->getKey()}] is rotating paths.");
+            }
+
+            self::captureDeletionState($this, $fresh);
+            $this->performDeleteOnModel();
+        });
+
+        DB::connection($this->getConnectionName())->afterCommit(
+            fn () => self::deleteCapturedFiles($this, $dispatchMediaDeleted),
+        );
+        $this->fireModelEvent('deleted', false);
+
+        return true;
     }
 
-    protected function clearFailedDeletionClaim(): void
+    private static function captureDeletionState(Media $media, Media $state): void
     {
-        if ($this->deletionClaimToken === null) {
+        $media->deletionPrimaryDisk = $state->disk;
+        $media->deletionDirectory = $state->getDirectory();
+        $media->deletionFilePath = $state->getPath();
+        $media->deletionVariantDisks = array_values(array_unique(array_merge(
+            $state->getConversionDisks(),
+            [$state->responsiveDisk(), $state->activeResponsiveDisk()],
+            $state->responsiveGenerationDisks(),
+        )));
+        $clearState = $state->getCustomProperty(self::PROPERTY_RESPONSIVE_CLEARING);
+
+        if (! is_array($clearState) || ! ResponsiveImageGenerator::isValidClearState($state, $clearState)) {
             return;
         }
 
-        try {
-            DB::connection($this->getConnectionName())->transaction(function (): void {
-                /** @var Media|null $fresh */
-                $fresh = $this->newQueryWithoutScopes()->useWritePdo()->whereKey($this->getKey())->lockForUpdate()->first();
+        foreach ($clearState['disks'] as $disk) {
+            if (is_string($disk) && $disk !== '' && is_string($clearState['base_path'])) {
+                $media->deletionResponsivePaths[] = [
+                    'disk' => $disk,
+                    'path' => $clearState['base_path'],
+                ];
+            }
+        }
+    }
 
-                if ($fresh === null) {
-                    return;
-                }
+    private static function deleteCapturedFiles(Media $media, bool $dispatchEvent): void
+    {
+        $primaryDisk = $media->deletionPrimaryDisk ?? $media->disk;
+        $directory = $media->deletionDirectory ?? $media->getDirectory();
+        $filePath = $media->deletionFilePath ?? $media->getPath();
+        $mainDeleted = Storage::disk($primaryDisk)->deleteDirectory($directory);
+        ! $mainDeleted && Storage::disk($primaryDisk)->delete($filePath);
 
-                $properties = is_array($fresh->custom_properties) ? $fresh->custom_properties : [];
+        $variantDisks = $media->deletionVariantDisks !== []
+            ? $media->deletionVariantDisks
+            : array_unique(array_merge(
+                $media->getConversionDisks(),
+                [$media->responsiveDisk(), $media->activeResponsiveDisk()],
+                $media->responsiveGenerationDisks(),
+            ));
 
-                if (($properties[self::PROPERTY_RESPONSIVE_DELETING]['token'] ?? null) !== $this->deletionClaimToken) {
-                    return;
-                }
+        foreach ($variantDisks as $variantDisk) {
+            if ($variantDisk !== $primaryDisk) {
+                Storage::disk($variantDisk)->deleteDirectory($directory);
+            }
+        }
 
-                unset($properties[self::PROPERTY_RESPONSIVE_DELETING]);
-                $fresh->custom_properties = $properties;
-                $fresh->save();
-            });
-        } catch (Throwable $cleanupError) {
-            Log::warning('MediaMan: Failed to clear a cancelled deletion claim', [
-                'media_id' => $this->getKey(),
-                'error' => $cleanupError->getMessage(),
-            ]);
+        foreach ($media->deletionResponsivePaths as $responsivePath) {
+            Storage::disk($responsivePath['disk'])->deleteDirectory($responsivePath['path']);
+        }
+
+        if ($dispatchEvent) {
+            event(new MediaDeleted($media));
         }
     }
 
@@ -1003,6 +969,12 @@ class Media extends Model implements Attachable
             throw InvalidCopyTarget::missingTrait();
         }
 
+        $generation = $this->getCustomProperty(self::PROPERTY_RESPONSIVE_GENERATION);
+
+        if ($generation !== null && (! is_string($generation) || ! ResponsiveGeneration::isManaged($generation))) {
+            throw new RuntimeException('Cannot copy malformed responsive generation metadata.');
+        }
+
         $copy = $this->replicate(['id']);
         $copyProperties = is_array($copy->custom_properties) ? $copy->custom_properties : [];
         unset(
@@ -1014,7 +986,6 @@ class Media extends Model implements Attachable
             $copyProperties[self::PROPERTY_RESPONSIVE_CLEARING],
             $copyProperties[self::PROPERTY_RESPONSIVE_PRUNING],
             $copyProperties[self::PROPERTY_RESPONSIVE_ROTATING],
-            $copyProperties[self::PROPERTY_RESPONSIVE_DELETING],
         );
         $copy->custom_properties = $copyProperties;
         $copy->save();
@@ -1155,12 +1126,11 @@ class Media extends Model implements Attachable
             $freshSource === null
             || $freshSource->hasCustomProperty(self::PROPERTY_RESPONSIVE_CLEARING)
             || $freshSource->hasCustomProperty(self::PROPERTY_RESPONSIVE_ROTATING)
-            || $freshSource->hasCustomProperty(self::PROPERTY_RESPONSIVE_DELETING)
         ) {
             throw new RuntimeException("Media [{$this->getKey()}] cannot copy responsive files during a lifecycle operation.");
         }
 
-        if ($generation !== null && (! is_string($generation) || $generation === '')) {
+        if ($generation !== null && (! is_string($generation) || ! ResponsiveGeneration::isManaged($generation))) {
             throw new RuntimeException('Cannot copy malformed responsive generation metadata.');
         }
 
@@ -1250,7 +1220,6 @@ class Media extends Model implements Attachable
                 if (
                     $fresh->hasCustomProperty(self::PROPERTY_RESPONSIVE_CLEARING)
                     || $fresh->hasCustomProperty(self::PROPERTY_RESPONSIVE_ROTATING)
-                    || $fresh->hasCustomProperty(self::PROPERTY_RESPONSIVE_DELETING)
                     || (int) $fresh->getCustomProperty(self::PROPERTY_RESPONSIVE_GENERATION_EPOCH, 0) !== $targetEpoch
                 ) {
                     throw new RuntimeException("Copied media [{$target->getKey()}] changed while responsive files were copied.");

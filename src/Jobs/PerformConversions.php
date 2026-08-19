@@ -36,6 +36,8 @@ class PerformConversions implements ShouldQueue
         $this->media = $media;
 
         $this->conversions = $conversions;
+
+        $this->onConnection(config('mediaman.queue'));
     }
 
     public function handle(ImageManipulator $manipulator): void

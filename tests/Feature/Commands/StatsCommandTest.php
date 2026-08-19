@@ -40,6 +40,26 @@ it('shows responsive generation strategy and manifest coverage', function () {
     $versioned->setCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES, [['path' => 'versioned']])
         ->setCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION, '01ARZ3NDEKTSV4RRFFQ69G5FAV')
         ->save();
+    $empty = MediaUploader::source(UploadedFile::fake()->image('empty.jpg'))->upload();
+    $empty->setCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES, [])->save();
+    $generationOnly = MediaUploader::source(UploadedFile::fake()->image('generation-only.jpg'))->upload();
+    $generationOnly->setCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION, '01ARZ3NDEKTSV4RRFFQ69G5FAW')->save();
+    $emptyGeneration = MediaUploader::source(UploadedFile::fake()->image('empty-generation.jpg'))->upload();
+    $emptyGeneration->setCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES, [['path' => 'invalid']])
+        ->setCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION, '')
+        ->save();
+    $numericGeneration = MediaUploader::source(UploadedFile::fake()->image('numeric-generation.jpg'))->upload();
+    $numericGeneration->setCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES, [['path' => 'numeric']])
+        ->setCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION, 123)
+        ->save();
+    $lowercaseGeneration = MediaUploader::source(UploadedFile::fake()->image('lowercase-generation.jpg'))->upload();
+    $lowercaseGeneration->setCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES, [['path' => 'lowercase']])
+        ->setCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION, '01arz3ndektsv4rrffq69g5fav')
+        ->save();
+    $scalarManifest = MediaUploader::source(UploadedFile::fake()->image('scalar-manifest.jpg'))->upload();
+    $scalarManifest->setCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES, 'invalid')
+        ->setCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION, '01ARZ3NDEKTSV4RRFFQ69G5FAX')
+        ->save();
 
     $out = captureStatsOutput(['--responsive' => true]);
 
@@ -48,7 +68,13 @@ it('shows responsive generation strategy and manifest coverage', function () {
         ->toContain('Versioned manifests')
         ->toContain('Versioning')
         ->toContain('generation')
-        ->toContain('3 day(s)');
+        ->toContain('3 day(s)')
+        ->toMatch('/With responsive.*5/')
+        ->toMatch('/Without responsive.*3/')
+        ->toMatch('/Legacy manifests.*1/')
+        ->toMatch('/Versioned manifests.*1/')
+        ->toMatch('/Inconsistent metadata.*5/')
+        ->toContain('5 / 8 (63%)');
 });
 
 it('always shows media inventory regardless of flags', function () {

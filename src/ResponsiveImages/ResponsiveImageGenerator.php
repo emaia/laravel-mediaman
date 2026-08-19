@@ -35,18 +35,22 @@ class ResponsiveImageGenerator
         $this->widthCalculator = $widthCalculator;
     }
 
-    public function generateResponsiveImages(Media $media, array $options = []): void
+    /**
+     * Generate and atomically publish responsive variants, or report why no publication occurred.
+     *
+     * @return ResponsiveGenerationResult|null The native type is omitted so existing 3.x subclasses with void overrides remain compatible.
+     */
+    public function generateResponsiveImages(Media $media, array $options = [])
     {
         $generationConfig = ResponsiveGenerationConfig::fromConfig();
 
         if (! $media->isRasterImage()) {
-            return;
+            return ResponsiveGenerationResult::noOp('not-raster-image');
         }
 
         if (
             $media->hasCustomProperty(Media::PROPERTY_RESPONSIVE_CLEARING)
             || $media->hasCustomProperty(Media::PROPERTY_RESPONSIVE_ROTATING)
-            || $media->hasCustomProperty(Media::PROPERTY_RESPONSIVE_DELETING)
         ) {
             throw new RuntimeException("Media [{$media->getKey()}] has a conflicting responsive lifecycle operation.");
         }
@@ -55,7 +59,7 @@ class ResponsiveImageGenerator
         $filesystem = $media->filesystem();
 
         if (! $filesystem->exists($originalPath)) {
-            return;
+            return ResponsiveGenerationResult::noOp('source-missing');
         }
 
         // Get configuration
@@ -95,7 +99,7 @@ class ResponsiveImageGenerator
         $widths = $widths->filter(fn ($width) => $width <= $originalImage->width());
 
         if ($widths->isEmpty() && $generationConfig->isVersioned()) {
-            return;
+            return ResponsiveGenerationResult::noOp('no-eligible-widths');
         }
 
         $resolver = app(MediaResolver::class);
@@ -116,6 +120,8 @@ class ResponsiveImageGenerator
             'epoch' => (int) $media->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION_EPOCH, 0),
         ];
         $responsiveData = [];
+        $skipped = [];
+        $attempted = $widths->count() * count($formats);
 
         try {
             if ($generation !== null) {
@@ -144,6 +150,11 @@ class ResponsiveImageGenerator
                             $responsiveDisk,
                         );
                     } catch (ImageException|ResponsiveFormatNotSupported|InvalidArgumentException $e) {
+                        $skipped[] = [
+                            'format' => $format,
+                            'width' => (int) $targetWidth,
+                            'error' => $e->getMessage(),
+                        ];
                         Log::warning('MediaMan: Skipping responsive format — driver does not support encoding', [
                             'mediaId' => $media->id,
                             'format' => $format,
@@ -165,11 +176,21 @@ class ResponsiveImageGenerator
             }
 
             $published = $this->publishManifest($media, $responsiveData, $generation, $snapshot);
+            // Publication is authoritative; callers should persist unrelated dirty attributes before generating.
             $media->setRawAttributes($published->getAttributes(), true);
 
             if ($generation !== null) {
                 $this->removeMarker($responsiveFilesystem, $outputDirectory.'/'.self::IN_PROGRESS_MARKER);
             }
+
+            return new ResponsiveGenerationResult(
+                $skipped === [] ? ResponsiveGenerationStatus::Published : ResponsiveGenerationStatus::Partial,
+                $generation,
+                $responsiveDisk,
+                $attempted,
+                count($responsiveData),
+                $skipped,
+            );
         } catch (Throwable $e) {
             if ($generation !== null) {
                 $this->cleanupUnpublishedGeneration($media, $generation, $outputDirectory, $responsiveDisk);
@@ -251,7 +272,6 @@ class ResponsiveImageGenerator
             if (
                 $fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_CLEARING)
                 || $fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_ROTATING)
-                || $fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_DELETING)
             ) {
                 throw new RuntimeException("Media [{$media->getKey()}] has a conflicting responsive lifecycle operation.");
             }
@@ -366,7 +386,6 @@ class ResponsiveImageGenerator
 
                 if (
                     $fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_ROTATING)
-                    || $fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_DELETING)
                 ) {
                     throw new RuntimeException("Media [{$media->getKey()}] has a conflicting responsive lifecycle operation.");
                 }
@@ -464,19 +483,32 @@ class ResponsiveImageGenerator
             }
         }
 
-        return isset($state['signature'], $state['started_at'])
+        if (! (isset($state['signature'], $state['started_at'])
             && is_string($state['signature'])
             && is_string($state['token'] ?? null)
+            && ResponsiveGeneration::isManaged($state['token'])
             && is_string($state['base_path'] ?? null)
             && $state['base_path'] !== ''
             && ! str_contains($state['base_path'], '..')
-            && is_string($state['started_at'])
-            && hash_equals(self::signClearState($media, $state), $state['signature']);
+            && is_string($state['started_at']))) {
+            return false;
+        }
+
+        foreach (self::clearStateSigningKeys() as $key) {
+            if (hash_equals(self::signClearState($media, $state, $key), $state['signature'])) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @param array{token: string, base_path: string, disks: array, started_at: string, signature?: string} $state */
-    protected static function signClearState(Media $media, array $state): string
+    protected static function signClearState(Media $media, array $state, ?string $key = null): string
     {
+        $key ??= self::clearStateSigningKeys()[0]
+            ?? throw new RuntimeException('APP_KEY is required to sign responsive clear state.');
+
         return hash_hmac('sha256', json_encode([
             'model' => $media::class,
             'table' => $media->getTable(),
@@ -485,7 +517,22 @@ class ResponsiveImageGenerator
             'base_path' => $state['base_path'],
             'disks' => array_values($state['disks']),
             'started_at' => $state['started_at'],
-        ], JSON_THROW_ON_ERROR), (string) config('app.key'));
+        ], JSON_THROW_ON_ERROR), $key);
+    }
+
+    /** @return string[] */
+    protected static function clearStateSigningKeys(): array
+    {
+        $previous = config('app.previous_keys', []);
+
+        if (is_string($previous)) {
+            $previous = explode(',', $previous);
+        }
+
+        return array_values(array_unique(array_filter([
+            config('app.key'),
+            ...(is_array($previous) ? $previous : []),
+        ], fn ($key) => is_string($key) && $key !== '')));
     }
 
     public function setWidthCalculator(WidthCalculator $calculator): self

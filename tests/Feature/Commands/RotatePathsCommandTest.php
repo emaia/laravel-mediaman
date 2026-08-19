@@ -39,6 +39,8 @@ it('reports planned moves in dry-run mode without touching disk', function () {
     Config::set('app.key', $oldKey);
     $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
     $oldDir = $media->getDirectory();
+    $media->newQuery()->whereKey($media->getKey())->update(['updated_at' => '2000-01-01 00:00:00']);
+    $before = $media->fresh();
 
     Config::set('app.key', $newKey);
 
@@ -49,7 +51,26 @@ it('reports planned moves in dry-run mode without touching disk', function () {
 
     // File still at the old location after dry-run
     expect(Storage::disk($media->disk)->exists($oldDir))->toBeTrue()
-        ->and($media->fresh()->getCustomProperty('responsive_generation_epoch', 0))->toBe(0);
+        ->and($media->fresh()->getCustomProperty('responsive_generation_epoch', 0))->toBe(0)
+        ->and($media->fresh()->getRawOriginal('updated_at'))->toBe($before->getRawOriginal('updated_at'))
+        ->and($media->fresh()->custom_properties)->toBe($before->custom_properties);
+});
+
+it('moves configured disks but fails when a required variant disk is unavailable', function () {
+    [$oldKey, $newKey] = rotatePathsKeyPair();
+    Config::set('app.key', $oldKey);
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+    $oldDir = $media->getDirectory();
+    Config::set('mediaman.responsive_images.disk', 'missing-responsive');
+    Config::set('app.key', $newKey);
+    $newDir = expectedDirFor($media->id, $newKey);
+
+    $this->artisan('mediaman:rotate-paths', ['--old-key' => $oldKey, '--force' => true])
+        ->expectsOutputToContain('disk [missing-responsive] not configured; path rotation incomplete')
+        ->assertExitCode(1);
+
+    expect(Storage::disk($media->disk)->exists($oldDir))->toBeFalse()
+        ->and(Storage::disk($media->disk)->exists($newDir.'/'.$media->file_name))->toBeTrue();
 });
 
 it('actually moves files when --force is passed', function () {

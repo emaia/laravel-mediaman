@@ -3,6 +3,7 @@
 use Emaia\MediaMan\Exceptions\MediaFileWriteFailed;
 use Emaia\MediaMan\MediaUploader;
 use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveGenerationStatus;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\BreakpointWidthCalculator;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\WidthCalculator;
@@ -24,13 +25,36 @@ beforeEach(function () {
     config()->set('mediaman.responsive_images.max_width', 0);
 });
 
+function responsiveGeneratorBeforePublish(Closure $callback): ResponsiveImageGenerator
+{
+    return new class(app(ImageManager::class), app(WidthCalculator::class), $callback) extends ResponsiveImageGenerator
+    {
+        public function __construct(
+            ImageManager $imageManager,
+            WidthCalculator $widthCalculator,
+            private readonly Closure $beforePublish,
+        ) {
+            parent::__construct($imageManager, $widthCalculator);
+        }
+
+        protected function publishManifest(Media $media, array $responsiveData, ?string $generation, array $snapshot): Media
+        {
+            ($this->beforePublish)($media, $responsiveData, $generation, $snapshot);
+
+            return parent::publishManifest($media, $responsiveData, $generation, $snapshot);
+        }
+    };
+}
+
 it('does nothing for non-image media', function () {
     $file = UploadedFile::fake()->create('document.pdf', 100, 'application/pdf');
     $media = MediaUploader::source($file)->upload();
 
-    $this->generator->generateResponsiveImages($media);
+    $result = $this->generator->generateResponsiveImages($media);
 
-    expect($media->fresh()->hasResponsiveImages())->toBeFalse();
+    expect($result->status)->toBe(ResponsiveGenerationStatus::NoOp)
+        ->and($result->reason)->toBe('not-raster-image')
+        ->and($media->fresh()->hasResponsiveImages())->toBeFalse();
 });
 
 it('returns early when the original file is missing on disk', function () {
@@ -40,9 +64,11 @@ it('returns early when the original file is missing on disk', function () {
     // Remove the source file
     $media->filesystem()->delete($media->getOriginalPath());
 
-    $this->generator->generateResponsiveImages($media);
+    $result = $this->generator->generateResponsiveImages($media);
 
-    expect($media->fresh()->hasResponsiveImages())->toBeFalse();
+    expect($result->status)->toBe(ResponsiveGenerationStatus::NoOp)
+        ->and($result->reason)->toBe('source-missing')
+        ->and($media->fresh()->hasResponsiveImages())->toBeFalse();
 });
 
 it('uses custom widths from options', function () {
@@ -618,4 +644,119 @@ it('MediaUploader::withQuality accepts both scalar and array shapes', function (
     $formats = $media->fresh()->getResponsiveImages()->pluck('format')->sort()->values()->toArray();
 
     expect($formats)->toEqual(['jpg', 'webp']);
+});
+
+it('returns a partial result when supported variants publish alongside skipped formats', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 800, 600))->upload();
+
+    $result = $this->generator->generateResponsiveImages($media, [
+        'widths' => [320],
+        'formats' => ['jpg', 'unsupported'],
+    ]);
+
+    expect($result->status)->toBe(ResponsiveGenerationStatus::Partial)
+        ->and($result->attempted)->toBe(2)
+        ->and($result->published)->toBe(1)
+        ->and($result->skipped)->toHaveCount(1)
+        ->and($result->wasPublished())->toBeTrue();
+});
+
+it('retries a persisted clear tombstone after APP_KEY rotation', function () {
+    Config::set('mediaman.responsive_images.versioning', 'generation');
+    $oldKey = config('app.key');
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 800, 600))->upload();
+    $this->generator->generateResponsiveImages($media, [
+        'widths' => [320],
+        'formats' => ['jpg'],
+    ]);
+    $realFilesystem = Storage::disk($media->responsiveDisk());
+    $failingFilesystem = Mockery::mock(Filesystem::class);
+    $failingFilesystem->shouldReceive('exists')->once()->andReturn(true);
+    $failingFilesystem->shouldReceive('deleteDirectory')->once()->andReturn(false);
+    Storage::set($media->responsiveDisk(), $failingFilesystem);
+
+    expect(fn () => $this->generator->clearResponsiveImages($media))
+        ->toThrow(RuntimeException::class, 'Failed to delete responsive images');
+
+    Config::set('app.key', 'base64:'.base64_encode(random_bytes(32)));
+    Config::set('app.previous_keys', [$oldKey]);
+    Storage::set($media->responsiveDisk(), $realFilesystem);
+    $this->generator->clearResponsiveImages($media->fresh());
+
+    expect($media->fresh()->hasCustomProperty(Media::PROPERTY_RESPONSIVE_CLEARING))->toBeFalse();
+});
+
+it('rejects publication when clear increments the generation epoch after writes', function () {
+    Config::set('mediaman.responsive_images.versioning', 'generation');
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 800, 600))->upload();
+    $generation = null;
+    $generator = responsiveGeneratorBeforePublish(function (Media $publishing, array $manifest, ?string $candidate) use (&$generation): void {
+        $generation = $candidate;
+        expect($manifest)->not->toBeEmpty();
+        app(ResponsiveImageGenerator::class)->clearResponsiveImages($publishing->fresh());
+    });
+
+    expect(fn () => $generator->generateResponsiveImages($media, [
+        'widths' => [320],
+        'formats' => ['jpg'],
+    ]))->toThrow(RuntimeException::class, 'changed while responsive images were being generated');
+
+    $fresh = $media->fresh();
+    expect($generation)->toBeString()
+        ->and($fresh->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION_EPOCH))->toBe(1)
+        ->and($fresh->hasResponsiveImages())->toBeFalse()
+        ->and(Storage::disk($media->responsiveDisk())->exists(
+            $media->getDirectory()."/responsive/$generation"
+        ))->toBeFalse();
+});
+
+it('publishes one complete manifest when generation B publishes before generation A', function () {
+    Config::set('mediaman.responsive_images.versioning', 'generation');
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 800, 600))->upload();
+    $aManifest = [];
+    $aGeneration = null;
+    $bManifest = [];
+    $bGeneration = null;
+    $generatorA = responsiveGeneratorBeforePublish(function (
+        Media $publishing,
+        array $manifest,
+        ?string $generation,
+    ) use (&$aManifest, &$aGeneration, &$bManifest, &$bGeneration): void {
+        $aManifest = $manifest;
+        $aGeneration = $generation;
+
+        foreach ($manifest as $item) {
+            expect(Storage::disk($publishing->responsiveDisk())->exists($item['path']))->toBeTrue();
+        }
+
+        app(ResponsiveImageGenerator::class)->generateResponsiveImages($publishing, [
+            'widths' => [300],
+            'formats' => ['webp'],
+        ]);
+        $publishedB = $publishing->fresh();
+        $bManifest = $publishedB->getCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES);
+        $bGeneration = $publishedB->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION);
+    });
+
+    $result = $generatorA->generateResponsiveImages($media, [
+        'widths' => [200, 400],
+        'formats' => ['jpg'],
+    ]);
+    $fresh = $media->fresh();
+    $finalManifest = $fresh->getCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES);
+
+    expect($result->status)->toBe(ResponsiveGenerationStatus::Published)
+        ->and($aGeneration)->toBeString()
+        ->and($bGeneration)->toBeString()->not->toBe($aGeneration)
+        ->and($fresh->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION))->toBe($aGeneration)
+        ->and($finalManifest)->toBe($aManifest)
+        ->and(collect($finalManifest)->pluck('width')->sort()->values()->all())->toBe([200, 400])
+        ->and(collect($finalManifest)->every(
+            fn (array $item) => str_contains($item['path'], "/$aGeneration/")
+                && ! str_contains($item['path'], "/$bGeneration/")
+        ))->toBeTrue();
+
+    foreach ($bManifest as $item) {
+        expect(Storage::disk($media->responsiveDisk())->exists($item['path']))->toBeTrue();
+    }
 });

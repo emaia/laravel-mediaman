@@ -148,6 +148,14 @@ it('dispatches ResponsiveImagesGenerated event after responsive images are gener
 
     Event::assertDispatched(ResponsiveImagesGenerated::class, function ($event) use ($media, $options) {
         return $event->media->id === $media->id
-            && $event->options === $options;
+            && $event->options === $options
+            && $event->result?->wasPublished() === true;
     });
+});
+
+it('uses the configured media queue connection for conversion jobs', function () {
+    config(['mediaman.queue' => 'media-queue']);
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+
+    expect((new PerformConversions($media, ['thumb']))->connection)->toBe('media-queue');
 });

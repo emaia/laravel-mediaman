@@ -4,7 +4,9 @@ use Emaia\MediaMan\Events\MediaDeleted;
 use Emaia\MediaMan\MediaUploader;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Tests\Models\SoftDeletingMedia;
+use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
@@ -75,9 +77,11 @@ it('force deletes a soft-deleting copy when target attachment fails', function (
         ->and(Storage::disk('default')->exists($media->getPath()))->toBeTrue();
 });
 
-it('clears the responsive deletion claim when another listener cancels deletion', function () {
+it('does not mutate responsive state when another listener cancels deletion', function () {
+    Config::set('mediaman.responsive_images.versioning', 'generation');
     $media = MediaUploader::source($this->fileOne)->upload();
     $eventDispatcher = clone Media::getEventDispatcher();
+    $properties = $media->custom_properties;
 
     try {
         Media::deleting(fn () => false);
@@ -87,37 +91,127 @@ it('clears the responsive deletion claim when another listener cancels deletion'
         Media::setEventDispatcher($eventDispatcher);
     }
 
-    expect($media->fresh())->not->toBeNull()
-        ->and($media->fresh()->hasCustomProperty(Media::PROPERTY_RESPONSIVE_DELETING))->toBeFalse();
+    expect(Media::query()->find($media->getKey()))->not->toBeNull()
+        ->and($media->fresh()->custom_properties)->toBe($properties);
 });
 
-it('does not clear a newer concurrent deletion claim', function () {
+it('does not update legacy media solely to coordinate deletion', function () {
+    Config::set('mediaman.responsive_images.versioning', false);
     $media = MediaUploader::source($this->fileOne)->upload();
     $eventDispatcher = clone Media::getEventDispatcher();
-    $newerToken = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
+    $updates = 0;
 
     try {
-        Media::deleting(function (Media $deleting) use ($newerToken): bool {
-            $properties = is_array($deleting->fresh()->custom_properties)
-                ? $deleting->fresh()->custom_properties
-                : [];
-            $properties[Media::PROPERTY_RESPONSIVE_DELETING] = [
-                'token' => $newerToken,
-                'started_at' => now()->toIso8601String(),
-            ];
-            $deleting->newQuery()->whereKey($deleting->getKey())->update([
-                'custom_properties' => json_encode($properties, JSON_THROW_ON_ERROR),
-            ]);
-
-            return false;
+        Media::updated(function () use (&$updates): void {
+            $updates++;
         });
 
-        expect($media->delete())->toBeFalse();
+        $media->delete();
     } finally {
         Media::setEventDispatcher($eventDispatcher);
     }
 
-    expect($media->fresh()->getCustomProperty(Media::PROPERTY_RESPONSIVE_DELETING.'.token'))->toBe($newerToken);
+    expect($updates)->toBe(0);
+});
+
+it('refreshes deletion state before applying the legacy fast path', function () {
+    Config::set('mediaman.responsive_images.versioning', false);
+    Storage::fake('retained-responsive');
+    $media = MediaUploader::source($this->fileOne)->upload();
+    $stale = $media->fresh();
+    $generation = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
+    $responsivePath = $media->getDirectory()."/responsive/$generation/photo.jpg";
+    Storage::disk('retained-responsive')->put($responsivePath, 'variant');
+    $media->setCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION, $generation)
+        ->setCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION_DISK, 'retained-responsive')
+        ->setCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION_DISKS, ['retained-responsive'])
+        ->save();
+
+    $stale->delete();
+
+    expect(Storage::disk('retained-responsive')->exists($responsivePath))->toBeFalse();
+});
+
+it('releases the deletion row lock before filesystem cleanup', function () {
+    $media = MediaUploader::source($this->fileOne)->upload();
+    $baselineTransactionLevel = DB::connection()->transactionLevel();
+    $filesystem = Mockery::mock(Filesystem::class);
+    $filesystem->shouldReceive('deleteDirectory')
+        ->once()
+        ->with($media->getDirectory())
+        ->andReturnUsing(function () use ($baselineTransactionLevel): bool {
+            expect(DB::connection()->transactionLevel())->toBe($baselineTransactionLevel);
+
+            return true;
+        });
+    Storage::set($media->disk, $filesystem);
+
+    $media->delete();
+});
+
+it('does not remove files when an outer deletion transaction rolls back', function () {
+    $media = MediaUploader::source($this->fileOne)->upload();
+    $mediaId = $media->getKey();
+    $path = $media->getPath();
+    Event::fake([MediaDeleted::class]);
+
+    try {
+        DB::transaction(function () use ($media, $path): void {
+            $media->delete();
+            expect(Storage::disk($media->disk)->exists($path))->toBeTrue();
+
+            throw new RuntimeException('roll back delete');
+        });
+    } catch (RuntimeException $e) {
+        expect($e->getMessage())->toBe('roll back delete');
+    }
+
+    expect(Media::query()->find($mediaId))->not->toBeNull()
+        ->and(Storage::disk($media->disk)->exists($path))->toBeTrue();
+    Event::assertNotDispatched(MediaDeleted::class);
+});
+
+it('coordinates deleteQuietly cleanup without dispatching MediaDeleted', function () {
+    $media = MediaUploader::source($this->fileOne)->upload();
+    $path = $media->getPath();
+    Event::fake([MediaDeleted::class]);
+
+    $media->deleteQuietly();
+
+    Storage::disk($media->disk)->assertMissing($path);
+    Event::assertNotDispatched(MediaDeleted::class);
+});
+
+it('coordinates forceDeleteQuietly cleanup without dispatching MediaDeleted', function () {
+    useSoftDeletingMedia();
+    $media = MediaUploader::source($this->fileOne)->upload();
+    $path = $media->getPath();
+    Event::fake([MediaDeleted::class]);
+
+    $media->forceDeleteQuietly();
+
+    Storage::disk($media->disk)->assertMissing($path);
+    expect(SoftDeletingMedia::withTrashed()->find($media->getKey()))->toBeNull();
+    Event::assertNotDispatched(MediaDeleted::class);
+});
+
+it('cleans files before a later deleted observer can fail', function () {
+    $media = MediaUploader::source($this->fileOne)->upload();
+    $mediaId = $media->getKey();
+    $path = $media->getPath();
+    $eventDispatcher = clone Media::getEventDispatcher();
+
+    try {
+        Media::deleted(fn () => throw new RuntimeException('observer failed'));
+
+        expect(fn () => $media->delete())
+            ->toThrow(RuntimeException::class, 'observer failed');
+    } finally {
+        Media::setEventDispatcher($eventDispatcher);
+    }
+
+    expect(Media::query()->find($mediaId))->toBeNull();
+    Storage::disk($media->disk)->assertMissing($path);
 });
 
 it('removes files on force delete of soft deleting media', function () {

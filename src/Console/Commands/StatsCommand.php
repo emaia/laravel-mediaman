@@ -6,6 +6,7 @@ use Emaia\MediaMan\Console\Concerns\CommandOutputStyle;
 use Emaia\MediaMan\ConversionRegistry;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveGenerationConfig;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveMetadataQuery;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -152,33 +153,14 @@ class StatsCommand extends Command
     /** @return array{int, int, int, int} */
     protected function responsiveManifestCounts(): array
     {
-        $withResponsive = 0;
-        $legacy = 0;
-        $versioned = 0;
-        $inconsistent = 0;
-
-        foreach ($this->mediaQuery()->where('mime_type', 'like', 'image/%')->select('custom_properties')->cursor() as $media) {
-            if (! $media instanceof Media) {
-                continue;
-            }
-
-            $manifest = $media->getCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES);
-            $generation = $media->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION);
-
-            if (is_array($manifest) && $manifest !== []) {
-                $withResponsive++;
-
-                if (is_string($generation) && $generation !== '') {
-                    $versioned++;
-                } elseif ($generation === null) {
-                    $legacy++;
-                } else {
-                    $inconsistent++;
-                }
-            } elseif ($generation !== null) {
-                $inconsistent++;
-            }
-        }
+        $generationPath = 'custom_properties->'.Media::PROPERTY_RESPONSIVE_GENERATION;
+        $images = $this->mediaQuery()->where('mime_type', 'like', 'image/%');
+        $manifests = ResponsiveMetadataQuery::whereHasManifest(clone $images);
+        $withResponsive = (clone $manifests)->count();
+        $legacy = (clone $manifests)->whereNull($generationPath)->count();
+        $versioned = ResponsiveMetadataQuery::whereHasManagedGeneration(clone $manifests)->count();
+        $withGeneration = (clone $images)->whereNotNull($generationPath)->count();
+        $inconsistent = max(0, $withGeneration - $versioned);
 
         return [$withResponsive, $legacy, $versioned, $inconsistent];
     }

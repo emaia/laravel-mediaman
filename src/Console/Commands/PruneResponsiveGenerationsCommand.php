@@ -7,12 +7,15 @@ use Emaia\MediaMan\Console\Concerns\CommandOutputStyle;
 use Emaia\MediaMan\Console\Concerns\ParsesMediaKeys;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Resolvers\MediaResolver;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveGeneration;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveGenerationConfig;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Filesystem\Filesystem;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use League\Flysystem\FileAttributes;
 use Symfony\Component\Uid\Ulid;
 use Throwable;
 
@@ -98,7 +101,7 @@ class PruneResponsiveGenerationsCommand extends Command
         $this->statusLine('Older than', 'info', $olderThan.' day(s)');
 
         foreach ($query->lazy(100) as $media) {
-            $this->processMedia($media, $olderThan, $dryRun);
+            $this->processMedia($media, $olderThan, $dryRun, $config);
         }
 
         $this->newLine();
@@ -112,8 +115,12 @@ class PruneResponsiveGenerationsCommand extends Command
         return $this->failures > 0 ? self::FAILURE : self::SUCCESS;
     }
 
-    private function processMedia(Media $media, int $olderThan, bool $dryRun): void
-    {
+    private function processMedia(
+        Media $media,
+        int $olderThan,
+        bool $dryRun,
+        ResponsiveGenerationConfig $config,
+    ): void {
         $diskOverride = $this->option('disk');
         $persistedDisk = $media->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION_DISK);
         $disks = $diskOverride !== null
@@ -126,7 +133,7 @@ class PruneResponsiveGenerationsCommand extends Command
 
         foreach ($disks as $disk) {
             try {
-                $this->processMediaDisk($media, $disk, $olderThan, $dryRun);
+                $this->processMediaDisk($media, $disk, $olderThan, $dryRun, $config);
             } catch (Throwable $e) {
                 $this->failures++;
                 $this->components->twoColumnDetail(
@@ -137,8 +144,13 @@ class PruneResponsiveGenerationsCommand extends Command
         }
     }
 
-    private function processMediaDisk(Media $media, string $disk, int $olderThan, bool $dryRun): void
-    {
+    private function processMediaDisk(
+        Media $media,
+        string $disk,
+        int $olderThan,
+        bool $dryRun,
+        ResponsiveGenerationConfig $config,
+    ): void {
         $filesystem = Storage::disk($disk);
         $base = rtrim(app(MediaResolver::class)->pathForResponsive($media), '/');
         $threshold = now()->subDays($olderThan);
@@ -146,7 +158,7 @@ class PruneResponsiveGenerationsCommand extends Command
         foreach ($filesystem->directories($base) as $directory) {
             $generation = basename($directory);
 
-            if (! $this->isManagedGeneration($generation)) {
+            if (! ResponsiveGeneration::isManaged($generation)) {
                 continue;
             }
 
@@ -163,8 +175,19 @@ class PruneResponsiveGenerationsCommand extends Command
                 continue;
             }
 
-            if ($this->hasFreshMarker($filesystem, $directory)) {
+            try {
+                if ($this->hasFreshMarker($filesystem, $directory, $config)) {
+                    $this->protected++;
+
+                    continue;
+                }
+            } catch (Throwable $e) {
+                $this->failures++;
                 $this->protected++;
+                $this->components->twoColumnDetail(
+                    "  #{$media->getKey()} [$disk] $generation",
+                    '<fg=red>failed</> '.$e->getMessage(),
+                );
 
                 continue;
             }
@@ -175,7 +198,7 @@ class PruneResponsiveGenerationsCommand extends Command
                 continue;
             }
 
-            $claim = $dryRun ? null : $this->claimForPruning($media, $generation, $base);
+            $claim = $dryRun ? null : $this->claimForPruning($media, $generation, $base, $config);
 
             if (! $dryRun && $claim === null) {
                 $this->protected++;
@@ -186,7 +209,8 @@ class PruneResponsiveGenerationsCommand extends Command
             $this->candidates++;
             $age = $generatedAt->diff(now())->days;
             $action = $dryRun ? 'would delete' : 'deleting';
-            $this->line("  #{$media->getKey()} [$disk] $generation: $action ({$age}d, files/bytes n/a)");
+            $metrics = $this->generationMetrics($filesystem, $directory);
+            $this->line("  #{$media->getKey()} [$disk] $generation: $action ({$age}d, $metrics)");
 
             if (! $dryRun) {
                 try {
@@ -202,8 +226,11 @@ class PruneResponsiveGenerationsCommand extends Command
         }
     }
 
-    private function hasFreshMarker(Filesystem $filesystem, string $directory): bool
-    {
+    private function hasFreshMarker(
+        Filesystem $filesystem,
+        string $directory,
+        ResponsiveGenerationConfig $config,
+    ): bool {
         $paths = array_values(array_filter(
             $filesystem->files($directory),
             fn (string $path) => str_starts_with(basename($path), ResponsiveImageGenerator::IN_PROGRESS_MARKER),
@@ -217,9 +244,8 @@ class PruneResponsiveGenerationsCommand extends Command
             try {
                 $marker = json_decode($filesystem->get($path), true, flags: JSON_THROW_ON_ERROR);
                 $startedAt = new DateTimeImmutable($marker['started_at'] ?? '');
-                $timeout = ResponsiveGenerationConfig::fromConfig()->generationTimeoutMinutes;
 
-                if ($startedAt > now()->subMinutes($timeout)->toDateTimeImmutable()) {
+                if ($startedAt > now()->subMinutes($config->generationTimeoutMinutes)->toDateTimeImmutable()) {
                     return true;
                 }
             } catch (Throwable $e) {
@@ -232,32 +258,31 @@ class PruneResponsiveGenerationsCommand extends Command
 
     private function isProtectedNow(Media $media, string $generation, string $expectedBase): bool
     {
-        return DB::connection($media->getConnectionName())->transaction(function () use (
-            $media,
-            $generation,
-            $expectedBase,
-        ): bool {
-            /** @var Media|null $fresh */
-            $fresh = $media->newQuery()->whereKey($media->getKey())->lockForUpdate()->first();
+        /** @var Media|null $fresh */
+        $fresh = $media->newQuery()->useWritePdo()->whereKey($media->getKey())->first();
 
-            if ($fresh === null) {
-                return false;
-            }
+        if ($fresh === null) {
+            return false;
+        }
 
-            if (rtrim(app(MediaResolver::class)->pathForResponsive($fresh), '/') !== $expectedBase) {
-                return true;
-            }
+        if (rtrim(app(MediaResolver::class)->pathForResponsive($fresh), '/') !== $expectedBase) {
+            return true;
+        }
 
-            return in_array($generation, $this->protectedGenerations($fresh, $expectedBase), true);
-        });
+        return in_array($generation, $this->protectedGenerations($fresh, $expectedBase), true);
     }
 
-    private function claimForPruning(Media $media, string $generation, string $expectedBase): ?string
-    {
+    private function claimForPruning(
+        Media $media,
+        string $generation,
+        string $expectedBase,
+        ResponsiveGenerationConfig $config,
+    ): ?string {
         return DB::connection($media->getConnectionName())->transaction(function () use (
             $media,
             $generation,
             $expectedBase,
+            $config,
         ): ?string {
             /** @var Media|null $fresh */
             $fresh = $media->newQuery()->whereKey($media->getKey())->lockForUpdate()->first();
@@ -269,7 +294,6 @@ class PruneResponsiveGenerationsCommand extends Command
             if (
                 $fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_CLEARING)
                 || $fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_ROTATING)
-                || $fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_DELETING)
             ) {
                 return null;
             }
@@ -290,9 +314,8 @@ class PruneResponsiveGenerationsCommand extends Command
             if (is_array($existing) && isset($existing['started_at'])) {
                 try {
                     $startedAt = new DateTimeImmutable($existing['started_at']);
-                    $timeout = ResponsiveGenerationConfig::fromConfig()->generationTimeoutMinutes;
 
-                    if ($startedAt > now()->subMinutes($timeout)->toDateTimeImmutable()) {
+                    if ($startedAt > now()->subMinutes($config->generationTimeoutMinutes)->toDateTimeImmutable()) {
                         return null;
                     }
                 } catch (Throwable) {
@@ -354,7 +377,7 @@ class PruneResponsiveGenerationsCommand extends Command
         $explicit = $media->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION);
 
         if ($explicit !== null) {
-            if (! is_string($explicit) || ! $this->isManagedGeneration($explicit)) {
+            if (! is_string($explicit) || ! ResponsiveGeneration::isManaged($explicit)) {
                 throw new \RuntimeException('Active responsive generation metadata is invalid; refusing to prune.');
             }
 
@@ -381,7 +404,7 @@ class PruneResponsiveGenerationsCommand extends Command
 
             $segment = explode('/', substr($path, strlen($prefix)), 2)[0];
 
-            if ($this->isManagedGeneration($segment)) {
+            if (ResponsiveGeneration::isManaged($segment)) {
                 $protected[$segment] = true;
             }
         }
@@ -389,12 +412,37 @@ class PruneResponsiveGenerationsCommand extends Command
         return array_keys($protected);
     }
 
-    private function isManagedGeneration(string $generation): bool
+    private function generationMetrics(Filesystem $filesystem, string $directory): string
     {
-        return $generation !== '00000000000000000000000000'
-            && $generation !== '7ZZZZZZZZZZZZZZZZZZZZZZZZZ'
-            && preg_match('/^[0-9A-HJKMNP-TV-Z]{26}$/', $generation) === 1
-            && Ulid::isValid($generation);
+        if (! $filesystem instanceof FilesystemAdapter) {
+            return 'files/bytes n/a';
+        }
+
+        try {
+            $files = 0;
+            $bytes = 0;
+
+            foreach ($filesystem->getDriver()->listContents($directory, true) as $attributes) {
+                if (! $attributes instanceof FileAttributes) {
+                    continue;
+                }
+
+                $size = $attributes->fileSize();
+
+                if ($size === null) {
+                    return 'files/bytes n/a';
+                }
+
+                $files++;
+                $bytes += $size;
+            }
+
+            $label = $files === 1 ? 'file' : 'files';
+
+            return "$files $label, ".$this->formatBytes($bytes);
+        } catch (Throwable) {
+            return 'files/bytes n/a';
+        }
     }
 
     private function resolveOlderThan(int $default): int

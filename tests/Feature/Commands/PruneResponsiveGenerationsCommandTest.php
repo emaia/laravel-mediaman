@@ -155,6 +155,7 @@ it('deletes an abandoned generation after marker timeout and retention', functio
 it('fails closed for a malformed in-progress marker', function () {
     $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
     $directory = putResponsiveGeneration($media, oldResponsiveGeneration());
+    $eligibleDirectory = putResponsiveGeneration($media, oldResponsiveGeneration(11));
     Storage::disk('default')->put($directory.'/'.ResponsiveImageGenerator::IN_PROGRESS_MARKER, 'invalid-json');
 
     $this->artisan('mediaman:prune-responsive-generations', [
@@ -164,7 +165,8 @@ it('fails closed for a malformed in-progress marker', function () {
         ->expectsOutputToContain('Invalid in-progress marker')
         ->assertExitCode(1);
 
-    expect(Storage::disk('default')->exists($directory))->toBeTrue();
+    expect(Storage::disk('default')->exists($directory))->toBeTrue()
+        ->and(Storage::disk('default')->exists($eligibleDirectory))->toBeFalse();
 });
 
 it('ignores legacy files and unknown directories', function () {
@@ -173,6 +175,7 @@ it('ignores legacy files and unknown directories', function () {
     Storage::disk('default')->put($base.'/photo_320w.jpg', 'legacy');
     Storage::disk('default')->put($base.'/not-a-generation/file.jpg', 'unknown');
     Storage::disk('default')->put($base.'/00000000000000000000000000/file.jpg', 'nil');
+    Storage::disk('default')->put($base.'/7ZZZZZZZZZZZZZZZZZZZZZZZZZ/file.jpg', 'max');
 
     $this->artisan('mediaman:prune-responsive-generations', [
         '--older-than' => '0',
@@ -181,7 +184,17 @@ it('ignores legacy files and unknown directories', function () {
 
     expect(Storage::disk('default')->exists($base.'/photo_320w.jpg'))->toBeTrue()
         ->and(Storage::disk('default')->exists($base.'/not-a-generation/file.jpg'))->toBeTrue()
-        ->and(Storage::disk('default')->exists($base.'/00000000000000000000000000/file.jpg'))->toBeTrue();
+        ->and(Storage::disk('default')->exists($base.'/00000000000000000000000000/file.jpg'))->toBeTrue()
+        ->and(Storage::disk('default')->exists($base.'/7ZZZZZZZZZZZZZZZZZZZZZZZZZ/file.jpg'))->toBeTrue();
+});
+
+it('reports generation file count and bytes when the filesystem provides metadata', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+    putResponsiveGeneration($media, oldResponsiveGeneration());
+
+    $this->artisan('mediaman:prune-responsive-generations', ['--older-than' => '0'])
+        ->expectsOutputToContain('1 file, 7 B')
+        ->assertExitCode(0);
 });
 
 it('retains future and non-canonical lowercase ULID directories', function () {

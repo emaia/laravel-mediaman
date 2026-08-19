@@ -39,7 +39,9 @@ class RotatePathsCommand extends Command
         }
 
         try {
-            if (ResponsiveGenerationConfig::fromConfig()->isVersioned()) {
+            $generationConfig = ResponsiveGenerationConfig::fromConfig();
+
+            if ($generationConfig->isVersioned()) {
                 $this->error(
                     'Path rotation is blocked while responsive generation versioning is enabled. '
                     .'Disable versioning, clear retained responsive generations, then retry.'
@@ -92,12 +94,15 @@ class RotatePathsCommand extends Command
         $moveFailures = 0;
 
         $query->lazy(100)->each(function (Media $media) use (
-            $oldKey, $currentKey, $dryRun,
+            $oldKey, $currentKey, $dryRun, $generationConfig,
             &$renamed, &$skippedAlreadyMigrated, &$skippedMissing, &$skippedConflict, &$blockedVersioned, &$moveFailures
         ) {
-            $rotationToken = $this->claimRotation($media, invalidateGeneration: ! $dryRun);
+            $rotationToken = $dryRun ? null : $this->claimRotation($media, $generationConfig);
+            $rotationAllowed = $dryRun
+                ? $this->canRotate($media, $generationConfig)
+                : $rotationToken !== null;
 
-            if ($rotationToken === null) {
+            if (! $rotationAllowed) {
                 $this->error(
                     "  Media {$media->getKey()}: responsive generation lifecycle state blocks path rotation. "
                     .'Restore revalidating cache headers, clear responsive images, rotate paths, then regenerate.'
@@ -116,6 +121,7 @@ class RotatePathsCommand extends Command
                 }
 
                 $disks = $this->resolveMediaDisks($media);
+                $availableDisks = [];
 
                 foreach ($disks as $diskName) {
                     try {
@@ -126,6 +132,12 @@ class RotatePathsCommand extends Command
                                 ResponsiveImageGenerator::IN_PROGRESS_MARKER,
                             ),
                         );
+                        $availableDisks[] = $diskName;
+                    } catch (\InvalidArgumentException) {
+                        $this->error("  Media {$media->getKey()}: disk [$diskName] not configured; path rotation incomplete.");
+                        $moveFailures++;
+
+                        continue;
                     } catch (\Throwable $e) {
                         $this->error("  Media {$media->getKey()}: cannot verify responsive markers on disk [$diskName]: {$e->getMessage()}");
                         $blockedVersioned++;
@@ -141,14 +153,8 @@ class RotatePathsCommand extends Command
                     }
                 }
 
-                foreach ($disks as $diskName) {
-                    try {
-                        $filesystem = Storage::disk($diskName);
-                    } catch (\InvalidArgumentException $e) {
-                        $this->warn("  Media {$media->getKey()}: disk [$diskName] not configured, skipping.");
-
-                        continue;
-                    }
+                foreach ($availableDisks as $diskName) {
+                    $filesystem = Storage::disk($diskName);
 
                     $oldExists = $filesystem->exists($oldDir);
                     $newExists = $filesystem->exists($newDir);
@@ -204,7 +210,9 @@ class RotatePathsCommand extends Command
                     $renamed++;
                 }
             } finally {
-                $this->releaseRotation($media, $rotationToken);
+                if ($rotationToken !== null) {
+                    $this->releaseRotation($media, $rotationToken);
+                }
             }
         });
 
@@ -241,9 +249,9 @@ class RotatePathsCommand extends Command
             : self::SUCCESS;
     }
 
-    private function claimRotation(Media $media, bool $invalidateGeneration): ?string
+    private function claimRotation(Media $media, ResponsiveGenerationConfig $config): ?string
     {
-        return DB::connection($media->getConnectionName())->transaction(function () use ($media, $invalidateGeneration): ?string {
+        return DB::connection($media->getConnectionName())->transaction(function () use ($media, $config): ?string {
             /** @var Media|null $fresh */
             $fresh = $media->newQueryWithoutScopes()->whereKey($media->getKey())->lockForUpdate()->first();
 
@@ -251,31 +259,11 @@ class RotatePathsCommand extends Command
                 return null;
             }
 
-            if (
-                $fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION)
-                || $fresh->responsiveGenerationDisks() !== []
-                || $fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_CLEARING)
-                || $fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_PRUNING)
-                || $fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_DELETING)
-            ) {
+            if (! $this->canRotate($fresh, $config)) {
                 return null;
             }
 
             $properties = is_array($fresh->custom_properties) ? $fresh->custom_properties : [];
-            $existing = $properties[Media::PROPERTY_RESPONSIVE_ROTATING] ?? null;
-
-            if (is_array($existing) && isset($existing['started_at'])) {
-                try {
-                    $startedAt = new \DateTimeImmutable($existing['started_at']);
-                    $timeout = ResponsiveGenerationConfig::fromConfig()->generationTimeoutMinutes;
-
-                    if ($startedAt > now()->subMinutes($timeout)->toDateTimeImmutable()) {
-                        return null;
-                    }
-                } catch (\Throwable) {
-                    return null;
-                }
-            }
 
             $token = strtoupper((string) new Ulid);
             $properties[Media::PROPERTY_RESPONSIVE_ROTATING] = [
@@ -283,16 +271,40 @@ class RotatePathsCommand extends Command
                 'started_at' => now()->toIso8601String(),
             ];
 
-            if ($invalidateGeneration) {
-                $properties[Media::PROPERTY_RESPONSIVE_GENERATION_EPOCH] =
-                    ((int) ($properties[Media::PROPERTY_RESPONSIVE_GENERATION_EPOCH] ?? 0)) + 1;
-            }
+            $properties[Media::PROPERTY_RESPONSIVE_GENERATION_EPOCH] =
+                ((int) ($properties[Media::PROPERTY_RESPONSIVE_GENERATION_EPOCH] ?? 0)) + 1;
 
             $fresh->custom_properties = $properties;
             $fresh->save();
 
             return $token;
         });
+    }
+
+    private function canRotate(Media $media, ResponsiveGenerationConfig $config): bool
+    {
+        if (
+            $media->hasCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION)
+            || $media->responsiveGenerationDisks() !== []
+            || $media->hasCustomProperty(Media::PROPERTY_RESPONSIVE_CLEARING)
+            || $media->hasCustomProperty(Media::PROPERTY_RESPONSIVE_PRUNING)
+        ) {
+            return false;
+        }
+
+        $existing = $media->getCustomProperty(Media::PROPERTY_RESPONSIVE_ROTATING);
+
+        if (! is_array($existing) || ! isset($existing['started_at'])) {
+            return true;
+        }
+
+        try {
+            $startedAt = new \DateTimeImmutable($existing['started_at']);
+
+            return $startedAt <= now()->subMinutes($config->generationTimeoutMinutes)->toDateTimeImmutable();
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     private function releaseRotation(Media $media, string $token): void

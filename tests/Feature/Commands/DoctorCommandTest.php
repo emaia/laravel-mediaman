@@ -120,13 +120,19 @@ it('reports the config file as not published on a fresh install', function () {
 it('probes disks persisted by active responsive generations', function () {
     Storage::fake('persisted-responsive');
     $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
-    $media->setCustomProperty('responsive_generation_disk', 'persisted-responsive')->save();
+    $media->setCustomProperty('responsive_generation_disk', 'persisted-responsive')
+        ->setCustomProperty('responsive_generation_disks', ['persisted-responsive', 'persisted-responsive'])
+        ->save();
+    MediaUploader::source(UploadedFile::fake()->image('second.jpg'))->upload()
+        ->setCustomProperty('responsive_generation_disks', ['persisted-responsive'])
+        ->save();
 
     $out = captureDoctorOutput();
 
     expect($out)
         ->toContain("Responsive disk 'persisted-responsive'")
-        ->toContain('OK');
+        ->toContain('OK')
+        ->and(substr_count($out, "Responsive disk 'persisted-responsive'"))->toBe(1);
 });
 
 it('reports the config file as published when config/mediaman.php exists', function () {
@@ -359,8 +365,12 @@ it('emits a successful 1x1 encode probe under any healthy driver', function () {
 it('reports responsive coverage when records have responsive_images persisted', function () {
     $media = MediaUploader::source(UploadedFile::fake()->image('a.jpg'))->upload();
     MediaUploader::source(UploadedFile::fake()->image('b.jpg'))->upload();
+    $empty = MediaUploader::source(UploadedFile::fake()->image('c.jpg'))->upload();
+    $empty->setCustomProperty('responsive_images', [])->save();
+    $malformed = MediaUploader::source(UploadedFile::fake()->image('d.jpg'))->upload();
+    $malformed->setCustomProperty('responsive_images', 'not-an-array')->save();
 
-    // Simulate one of the two records having responsive_images custom property.
+    // Empty manifests do not count as generated coverage.
     $media->setCustomProperty('responsive_images', [
         ['width' => 320, 'height' => 240, 'format' => 'webp', 'path' => 'p', 'url' => '/u', 'size' => 1],
     ]);
@@ -370,7 +380,7 @@ it('reports responsive coverage when records have responsive_images persisted', 
 
     expect($out)
         ->toContain('Responsive coverage')
-        ->toContain('1 / 2 (50%)');
+        ->toContain('1 / 4 (25%)');
 });
 
 // ─── Security section ────────────────────────────────────────────────

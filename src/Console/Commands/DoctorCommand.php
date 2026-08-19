@@ -6,6 +6,7 @@ use Emaia\MediaMan\Console\Concerns\CommandOutputStyle;
 use Emaia\MediaMan\ConversionRegistry;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveGenerationConfig;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveMetadataQuery;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Schema;
@@ -181,7 +182,12 @@ class DoctorCommand extends Command
             $this->probeDisk($diskName, "Conversion disk '$diskName'");
         }
 
-        $responsiveDisks = array_filter([config('mediaman.responsive_images.disk')]);
+        $responsiveDisks = [];
+        $configuredResponsiveDisk = config('mediaman.responsive_images.disk');
+
+        if (is_string($configuredResponsiveDisk) && $configuredResponsiveDisk !== '') {
+            $responsiveDisks[$configuredResponsiveDisk] = true;
+        }
 
         try {
             foreach ($this->mediaQuery()->select('custom_properties')->cursor() as $media) {
@@ -192,16 +198,18 @@ class DoctorCommand extends Command
                 $disk = $media->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION_DISK);
 
                 if (is_string($disk) && $disk !== '') {
-                    $responsiveDisks[] = $disk;
+                    $responsiveDisks[$disk] = true;
                 }
 
-                $responsiveDisks = [...$responsiveDisks, ...$media->responsiveGenerationDisks()];
+                foreach ($media->responsiveGenerationDisks() as $generationDisk) {
+                    $responsiveDisks[$generationDisk] = true;
+                }
             }
         } catch (Throwable $e) {
             $this->statusLine('Persisted responsive disks', 'warn', 'query failed: '.$e->getMessage());
         }
 
-        foreach (array_unique($responsiveDisks) as $responsiveDisk) {
+        foreach (array_keys($responsiveDisks) as $responsiveDisk) {
             if ($responsiveDisk !== $main) {
                 $this->probeDisk($responsiveDisk, "Responsive disk '$responsiveDisk'");
             }
@@ -518,16 +526,7 @@ class DoctorCommand extends Command
         try {
             $imageQuery = $this->mediaQuery()->where('mime_type', 'like', 'image/%');
             $totalImages = (clone $imageQuery)->count();
-            $withResponsive = 0;
-
-            foreach ($imageQuery->select('custom_properties')->cursor() as $media) {
-                if (! $media instanceof Media) {
-                    continue;
-                }
-
-                $manifest = $media->getCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES);
-                $withResponsive += is_array($manifest) && $manifest !== [] ? 1 : 0;
-            }
+            $withResponsive = ResponsiveMetadataQuery::whereHasManifest(clone $imageQuery)->count();
 
             $pct = $totalImages > 0 ? (int) round($withResponsive / $totalImages * 100) : 0;
             $this->statusLine(
