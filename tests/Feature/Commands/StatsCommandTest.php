@@ -25,6 +25,14 @@ it('shows consolidated stats with no flags', function () {
     expect($out)->toContain('Responsive images', 'Enabled', 'Auto generate');
 });
 
+it('fails for invalid responsive generation configuration', function () {
+    Config::set('mediaman.responsive_images.versioning', 'timestamp');
+
+    $this->artisan('mediaman:stats')
+        ->expectsOutputToContain("versioning must be false or 'generation'")
+        ->assertExitCode(1);
+});
+
 it('shows responsive stats with --responsive flag', function () {
     $out = captureStatsOutput(['--responsive' => true]);
     expect($out)->toContain('Responsive images', 'Total images', 'With responsive', 'Without responsive');

@@ -329,6 +329,51 @@ it('Media::copy merges responsive metadata into freshly persisted target propert
         ->and($copy->hasResponsiveImages())->toBeTrue();
 });
 
+it('Media::copy rolls back when the copied generation becomes pruning-claimed', function () {
+    Config::set('mediaman.responsive_images.versioning', 'generation');
+    $original = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 800, 600))->upload();
+    app(ResponsiveImageGenerator::class)->generateResponsiveImages($original, [
+        'widths' => [320],
+        'formats' => ['jpg'],
+    ]);
+    $original->refresh();
+    $generation = $original->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION);
+    $before = Media::query()->count();
+    $eventDispatcher = clone Media::getEventDispatcher();
+
+    try {
+        Media::created(function (Media $created) use ($original, $generation): void {
+            if ($created->getKey() === $original->getKey()) {
+                return;
+            }
+
+            $properties = is_array($created->custom_properties) ? $created->custom_properties : [];
+            $properties[Media::PROPERTY_RESPONSIVE_PRUNING] = [
+                $generation => [
+                    'token' => '01ARZ3NDEKTSV4RRFFQ69G5FAW',
+                    'started_at' => now()->toIso8601String(),
+                ],
+            ];
+            $created->newQuery()->whereKey($created->getKey())->update([
+                'custom_properties' => json_encode($properties, JSON_THROW_ON_ERROR),
+            ]);
+        });
+
+        expect(fn () => $original->copy($this->subject))
+            ->toThrow(RuntimeException::class, 'is being pruned');
+    } finally {
+        Media::setEventDispatcher($eventDispatcher);
+    }
+
+    expect(Media::query()->count())->toBe($before)
+        ->and(Storage::disk($original->responsiveDisk())->exists(
+            $original->getResponsiveImages()->first()->path
+        ))->toBeTrue()
+        ->and(collect(Storage::disk($original->responsiveDisk())->allFiles())->contains(
+            fn (string $path) => str_contains($path, ResponsiveImageGenerator::IN_PROGRESS_MARKER.'-copy-')
+        ))->toBeFalse();
+});
+
 it('Media::copy rolls back a malformed responsive manifest', function () {
     $original = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
     $original->setCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES, [[

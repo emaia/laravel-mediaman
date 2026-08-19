@@ -400,6 +400,28 @@ it('does not publish a variant when the filesystem returns false', function () {
     expect($media->fresh()->hasResponsiveImages())->toBeFalse();
 });
 
+it('preserves a marker-write failure when unpublished cleanup also fails', function () {
+    Config::set('mediaman.responsive_images.versioning', 'generation');
+    Config::set('mediaman.responsive_images.disk', 'failed-marker-cleanup');
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 800, 600))->upload();
+    $filesystem = Mockery::mock(Filesystem::class);
+    $filesystem->shouldReceive('put')->once()->andReturn(false);
+    $filesystem->shouldReceive('deleteDirectory')->once()->andReturn(false);
+    Storage::set('failed-marker-cleanup', $filesystem);
+    Log::spy();
+
+    expect(fn () => $this->generator->generateResponsiveImages($media, [
+        'widths' => [320],
+        'formats' => ['jpg'],
+    ]))->toThrow(MediaFileWriteFailed::class);
+
+    expect($media->fresh()->hasResponsiveImages())->toBeFalse();
+    Log::shouldHaveReceived('warning')->withArgs(
+        fn (string $message, array $context) => $message === 'MediaMan: Failed to clean unpublished responsive generation'
+            && ($context['disk'] ?? null) === 'failed-marker-cleanup',
+    );
+});
+
 it('skips a format when the encoder returns zero bytes (e.g. imagick without libheif)', function () {
     Log::spy();
 

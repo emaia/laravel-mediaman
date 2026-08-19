@@ -28,6 +28,25 @@ it('requires --old-key', function () {
         ->assertExitCode(1);
 });
 
+it('rejects invalid generation config and empty filters', function () {
+    [$oldKey] = rotatePathsKeyPair();
+    Config::set('mediaman.responsive_images.versioning', 'timestamp');
+
+    $this->artisan('mediaman:rotate-paths', ['--old-key' => $oldKey])
+        ->expectsOutputToContain("versioning must be false or 'generation'")
+        ->assertExitCode(1);
+
+    Config::set('mediaman.responsive_images.versioning', false);
+
+    $this->artisan('mediaman:rotate-paths', ['--old-key' => $oldKey, '--media' => ''])
+        ->expectsOutputToContain('Invalid --media value')
+        ->assertExitCode(1);
+
+    $this->artisan('mediaman:rotate-paths', ['--old-key' => $oldKey, '--disk' => ''])
+        ->expectsOutputToContain('Invalid --disk value')
+        ->assertExitCode(1);
+});
+
 it('noops when --old-key matches the current key', function () {
     $this->artisan('mediaman:rotate-paths', ['--old-key' => config('app.key')])
         ->expectsOutputToContain('matches the current app.key')
@@ -285,6 +304,75 @@ it('blocks rotation while a first responsive generation is in progress', functio
         ->assertExitCode(1);
 
     expect(Storage::disk($media->disk)->exists($oldDir))->toBeTrue();
+});
+
+it('blocks fresh and malformed rotation leases', function (string $startedAt) {
+    [$oldKey, $newKey] = rotatePathsKeyPair();
+    Config::set('app.key', $oldKey);
+    Config::set('mediaman.responsive_images.generation_timeout_minutes', 60);
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+    $oldDir = $media->getDirectory();
+    $token = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
+    $media->setCustomProperty(Media::PROPERTY_RESPONSIVE_ROTATING, [
+        'token' => $token,
+        'started_at' => $startedAt,
+    ])->save();
+    Config::set('app.key', $newKey);
+
+    $this->artisan('mediaman:rotate-paths', ['--old-key' => $oldKey, '--force' => true])
+        ->expectsOutputToContain('lifecycle state blocks path rotation')
+        ->assertExitCode(1);
+
+    expect(Storage::disk($media->disk)->exists($oldDir))->toBeTrue()
+        ->and($media->fresh()->getCustomProperty(Media::PROPERTY_RESPONSIVE_ROTATING.'.token'))->toBe($token);
+})->with([
+    'fresh' => fn () => now()->toIso8601String(),
+    'malformed' => 'not-a-date',
+]);
+
+it('reclaims an expired rotation lease', function () {
+    [$oldKey, $newKey] = rotatePathsKeyPair();
+    Config::set('app.key', $oldKey);
+    Config::set('mediaman.responsive_images.generation_timeout_minutes', 60);
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+    $media->setCustomProperty(Media::PROPERTY_RESPONSIVE_ROTATING, [
+        'token' => '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+        'started_at' => now()->subHours(2)->toIso8601String(),
+    ])->save();
+    Config::set('app.key', $newKey);
+    $newDir = expectedDirFor($media->id, $newKey);
+
+    $this->artisan('mediaman:rotate-paths', ['--old-key' => $oldKey, '--force' => true])
+        ->assertExitCode(0);
+
+    expect(Storage::disk($media->disk)->exists($newDir.'/'.$media->file_name))->toBeTrue()
+        ->and($media->fresh()->hasCustomProperty(Media::PROPERTY_RESPONSIVE_ROTATING))->toBeFalse();
+});
+
+it('releases its claim when responsive marker enumeration fails', function () {
+    [$oldKey, $newKey] = rotatePathsKeyPair();
+    Config::set('app.key', $oldKey);
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+    $oldDir = $media->getDirectory();
+    Config::set('app.key', $newKey);
+    $realFilesystem = Storage::disk($media->disk);
+    $filesystem = Mockery::mock(Filesystem::class);
+    $filesystem->shouldReceive('allFiles')
+        ->once()
+        ->with($oldDir.'/responsive')
+        ->andThrow(new RuntimeException('listing failed'));
+    Storage::set($media->disk, $filesystem);
+
+    try {
+        $this->artisan('mediaman:rotate-paths', ['--old-key' => $oldKey, '--force' => true])
+            ->expectsOutputToContain('cannot verify responsive markers')
+            ->assertExitCode(1);
+    } finally {
+        Storage::set($media->disk, $realFilesystem);
+    }
+
+    expect($media->fresh()->hasCustomProperty(Media::PROPERTY_RESPONSIVE_ROTATING))->toBeFalse()
+        ->and($media->fresh()->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION_EPOCH))->toBe(1);
 });
 
 it('does not delete the source directory when a filesystem move returns false', function () {

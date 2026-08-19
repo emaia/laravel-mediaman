@@ -80,6 +80,35 @@ it('claims a generation in the database while deleting it', function () {
     expect($media->fresh()->hasCustomProperty(Media::PROPERTY_RESPONSIVE_PRUNING))->toBeFalse();
 });
 
+it('preserves a fresh pruning claim while deleting another generation', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+    $claimed = oldResponsiveGeneration(12);
+    $eligible = oldResponsiveGeneration(11);
+    $claimedDirectory = putResponsiveGeneration($media, $claimed);
+    $eligibleDirectory = putResponsiveGeneration($media, $eligible);
+    $token = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
+    $media->setCustomProperty(Media::PROPERTY_RESPONSIVE_PRUNING, [
+        $claimed => [
+            'token' => $token,
+            'started_at' => now()->toIso8601String(),
+        ],
+    ])->save();
+
+    $this->artisan('mediaman:prune-responsive-generations', [
+        '--older-than' => '0',
+        '--force' => true,
+    ])->assertExitCode(0);
+
+    expect(Storage::disk('default')->exists($claimedDirectory))->toBeTrue()
+        ->and(Storage::disk('default')->exists($eligibleDirectory))->toBeFalse()
+        ->and($media->fresh()->getCustomProperty(Media::PROPERTY_RESPONSIVE_PRUNING))->toBe([
+            $claimed => [
+                'token' => $token,
+                'started_at' => $media->getCustomProperty(Media::PROPERTY_RESPONSIVE_PRUNING.'.'.$claimed.'.started_at'),
+            ],
+        ]);
+});
+
 it('protects generations referenced by the active property and manifest', function () {
     $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
     $explicit = oldResponsiveGeneration(20);
@@ -325,5 +354,15 @@ it('rejects explicitly empty destructive filters', function () {
 
     $this->artisan('mediaman:prune-responsive-generations', ['--disk' => '', '--force' => true])
         ->expectsOutputToContain('Invalid --disk value')
+        ->assertExitCode(1);
+});
+
+it('rejects an empty collection and an undefined disk', function () {
+    $this->artisan('mediaman:prune-responsive-generations', ['--collection' => ''])
+        ->expectsOutputToContain('Invalid --collection value')
+        ->assertExitCode(1);
+
+    $this->artisan('mediaman:prune-responsive-generations', ['--disk' => 'undefined-responsive'])
+        ->expectsOutputToContain('Disk [undefined-responsive] does not have a configured driver')
         ->assertExitCode(1);
 });

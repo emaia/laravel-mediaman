@@ -132,6 +132,21 @@ it('refreshes deletion state before applying the legacy fast path', function () 
     expect(Storage::disk('retained-responsive')->exists($responsivePath))->toBeFalse();
 });
 
+it('fails closed when hard delete overlaps path rotation', function () {
+    $media = MediaUploader::source($this->fileOne)->upload();
+    $path = $media->getPath();
+    $media->setCustomProperty(Media::PROPERTY_RESPONSIVE_ROTATING, [
+        'token' => '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+        'started_at' => now()->toIso8601String(),
+    ])->save();
+
+    expect(fn () => $media->delete())
+        ->toThrow(RuntimeException::class, 'is rotating paths');
+
+    expect(Media::query()->find($media->getKey()))->not->toBeNull()
+        ->and(Storage::disk($media->disk)->exists($path))->toBeTrue();
+});
+
 it('releases the deletion row lock before filesystem cleanup', function () {
     $media = MediaUploader::source($this->fileOne)->upload();
     $baselineTransactionLevel = DB::connection()->transactionLevel();

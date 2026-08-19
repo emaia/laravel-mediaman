@@ -197,6 +197,39 @@ it('does not trust a forged clear tombstone during force delete', function () {
     expect(Storage::disk('unrelated-responsive')->exists('unrelated/keep.jpg'))->toBeTrue();
 });
 
+it('force deletes responsive paths retained by a valid clear tombstone', function () {
+    Storage::fake('responsive-a');
+    Storage::fake('responsive-b');
+    config([
+        'mediaman.responsive_images.disk' => 'responsive-a',
+        'mediaman.responsive_images.versioning' => 'generation',
+    ]);
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg', 800, 600))->upload();
+    $generator = app(ResponsiveImageGenerator::class);
+    $generator->generateResponsiveImages($media, [
+        'widths' => [320],
+        'formats' => ['webp'],
+    ]);
+    $responsiveDir = $media->getDirectory().'/'.Media::RESPONSIVE_DIR;
+    $primaryPath = $media->getPath();
+    $realA = Storage::disk('responsive-a');
+    $failingA = Mockery::mock(Filesystem::class);
+    $failingA->shouldReceive('exists')->once()->andReturn(true);
+    $failingA->shouldReceive('deleteDirectory')->once()->andReturn(false);
+    Storage::set('responsive-a', $failingA);
+
+    expect(fn () => $generator->clearResponsiveImages($media))
+        ->toThrow(RuntimeException::class, 'responsive-a');
+
+    Storage::set('responsive-a', $realA);
+    config(['mediaman.responsive_images.disk' => 'responsive-b']);
+    $media->fresh()->forceDelete();
+
+    expect(Media::query()->find($media->getKey()))->toBeNull()
+        ->and(Storage::disk('default')->exists($primaryPath))->toBeFalse()
+        ->and(Storage::disk('responsive-a')->exists($responsiveDir))->toBeFalse();
+});
+
 it('responsive variant URL points to the responsive disk', function () {
     config(['mediaman.responsive_images.disk' => 'public']);
 

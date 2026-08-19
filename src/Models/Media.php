@@ -1045,9 +1045,7 @@ class Media extends Model implements Attachable
                 throw new RuntimeException("Failed to write copied media file [{$target->getPath()}].");
             }
         } finally {
-            if (is_resource($stream)) {
-                fclose($stream);
-            }
+            fclose($stream);
         }
     }
 
@@ -1091,9 +1089,7 @@ class Media extends Model implements Attachable
                         throw new RuntimeException("Failed to write copied conversion file [$targetPath].");
                     }
                 } finally {
-                    if (is_resource($stream)) {
-                        fclose($stream);
-                    }
+                    fclose($stream);
                 }
             }
         }
