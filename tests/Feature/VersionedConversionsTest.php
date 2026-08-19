@@ -3,12 +3,16 @@
 use Emaia\MediaMan\ConversionRegistry;
 use Emaia\MediaMan\Conversions\ConversionClearer;
 use Emaia\MediaMan\Conversions\ConversionManifest;
+use Emaia\MediaMan\Conversions\ConversionPath;
 use Emaia\MediaMan\Exceptions\ConversionFormatNotSupported;
+use Emaia\MediaMan\Exceptions\MediaFileWriteFailed;
 use Emaia\MediaMan\Facades\Conversion;
 use Emaia\MediaMan\ImageManipulator;
 use Emaia\MediaMan\MediaUploader;
 use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\Support\SigningKeys;
 use Emaia\MediaMan\Tests\Models\Subject;
+use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
@@ -16,6 +20,7 @@ use Illuminate\Support\Facades\Storage;
 use Intervention\Image\EncodedImage;
 use Intervention\Image\Encoders\WebpEncoder;
 use Intervention\Image\Image;
+use Intervention\Image\ImageManager;
 
 beforeEach(function () {
     Config::set('mediaman.conversions.versioning', 'generation');
@@ -33,6 +38,27 @@ function registerVersionedThumb(?string $disk = null): void
         fn (Image $image) => $image->cover(320, 240)->encode(new WebpEncoder(quality: 80)),
         disk: $disk,
     );
+}
+
+function conversionManipulatorBeforePublish(Closure $callback): ImageManipulator
+{
+    return new class(app(ConversionRegistry::class), app(ImageManager::class), $callback) extends ImageManipulator
+    {
+        public function __construct(
+            ConversionRegistry $conversionRegistry,
+            ImageManager $imageManager,
+            private readonly Closure $beforePublish,
+        ) {
+            parent::__construct($conversionRegistry, $imageManager);
+        }
+
+        protected function publishVersionedConversions(Media $media, array $candidates): Media
+        {
+            ($this->beforePublish)($media, $candidates);
+
+            return parent::publishVersionedConversions($media, $candidates);
+        }
+    };
 }
 
 it('preserves the exact legacy conversion path when versioning is disabled', function () {
@@ -560,4 +586,283 @@ it('reports zero-byte encoded conversions as unsupported instead of storage fail
     expect($report['completed'])->toBe([])
         ->and($report['failed'])->toHaveCount(1)
         ->and($report['failed'][0]['exception'])->toBeInstanceOf(ConversionFormatNotSupported::class);
+});
+
+it('retries a persisted conversion clear tombstone after APP_KEY rotation', function () {
+    $oldKey = config('app.key');
+    registerVersionedThumb();
+    $media = uploadVersionedConversionMedia();
+    app(ImageManipulator::class)->manipulate($media, ['thumb'], onlyIfMissing: false);
+    $active = $media->getConversionFile('thumb');
+    $realFilesystem = Storage::disk($active['disk']);
+    $failingFilesystem = Mockery::mock(Filesystem::class);
+    $failingFilesystem->shouldReceive('exists')->once()->andReturn(true);
+    $failingFilesystem->shouldReceive('deleteDirectory')->once()->andReturn(false);
+    Storage::set($active['disk'], $failingFilesystem);
+
+    expect(fn () => app(ConversionClearer::class)->clear($media, 'thumb'))
+        ->toThrow(RuntimeException::class, 'Failed to delete conversion');
+
+    expect($media->fresh()->getCustomProperty(Media::PROPERTY_CONVERSION_CLEARING.'.thumb'))->toBeArray();
+
+    Config::set('app.key', 'base64:'.base64_encode(random_bytes(32)));
+    Config::set('app.previous_keys', [$oldKey]);
+    Storage::set($active['disk'], $realFilesystem);
+
+    expect(app(ConversionClearer::class)->clear($media->fresh(), 'thumb'))->toBeTrue()
+        ->and($media->fresh()->hasCustomProperty(Media::PROPERTY_CONVERSION_CLEARING))->toBeFalse()
+        ->and(Storage::disk($active['disk'])->exists($active['path']))->toBeFalse();
+});
+
+it('captures a persisted conversion clear tombstone during force delete', function () {
+    registerVersionedThumb();
+    $media = uploadVersionedConversionMedia();
+    app(ImageManipulator::class)->manipulate($media, ['thumb'], onlyIfMissing: false);
+    $active = $media->getConversionFile('thumb');
+    $realFilesystem = Storage::disk($active['disk']);
+    $failingFilesystem = Mockery::mock(Filesystem::class);
+    $failingFilesystem->shouldReceive('exists')->once()->andReturn(true);
+    $failingFilesystem->shouldReceive('deleteDirectory')->once()->andReturn(false);
+    Storage::set($active['disk'], $failingFilesystem);
+
+    expect(fn () => app(ConversionClearer::class)->clear($media, 'thumb'))
+        ->toThrow(RuntimeException::class, 'Failed to delete conversion');
+
+    Storage::set($active['disk'], $realFilesystem);
+    $media->fresh()->forceDelete();
+
+    expect(Media::find($media->getKey()))->toBeNull()
+        ->and(Storage::disk($active['disk'])->exists($active['path']))->toBeFalse();
+});
+
+it('rejects malformed entries even when the conversion manifest is validly signed', function () {
+    registerVersionedThumb();
+    $media = uploadVersionedConversionMedia();
+    app(ImageManipulator::class)->manipulate($media, ['thumb'], onlyIfMissing: false);
+    $original = $media->custom_properties;
+    $mutations = [
+        'missing field' => fn (array $entry) => array_diff_key($entry, ['mime_type' => true]),
+        'non-positive size' => fn (array $entry) => [...$entry, 'size' => 0],
+        'invalid generation' => fn (array $entry) => [...$entry, 'generation' => 'not-a-generation'],
+        'mismatched format' => fn (array $entry) => [...$entry, 'format' => 'png'],
+        'undefined disk' => fn (array $entry) => [...$entry, 'disk' => 'undefined-conversion-disk'],
+        'unsafe filename' => fn (array $entry) => [...$entry, 'file_name' => '../photo.webp'],
+        'wrong path suffix' => fn (array $entry) => [...$entry, 'path' => $entry['path'].'.missing'],
+    ];
+
+    foreach ($mutations as $mutation) {
+        $properties = $original;
+        $properties[Media::PROPERTY_CONVERSION_FILES]['thumb'] = $mutation(
+            $properties[Media::PROPERTY_CONVERSION_FILES]['thumb'],
+        );
+        $properties[Media::PROPERTY_CONVERSION_MANIFEST_SIGNATURE] = ConversionManifest::sign(
+            $media,
+            $properties[Media::PROPERTY_CONVERSION_FILES],
+            $properties[Media::PROPERTY_CONVERSION_GENERATION_DISKS],
+        );
+        $media->custom_properties = $properties;
+
+        expect($media->getConversionFile('thumb'))->toBeNull()
+            ->and($media->conversionFiles())->toBe([]);
+    }
+
+    $properties = $original;
+    $properties[Media::PROPERTY_CONVERSION_FILES] = [0 => $properties[Media::PROPERTY_CONVERSION_FILES]['thumb']];
+    $properties[Media::PROPERTY_CONVERSION_MANIFEST_SIGNATURE] = ConversionManifest::sign(
+        $media,
+        $properties[Media::PROPERTY_CONVERSION_FILES],
+        $properties[Media::PROPERTY_CONVERSION_GENERATION_DISKS],
+    );
+    $media->custom_properties = $properties;
+
+    expect($media->conversionFiles())->toBe([]);
+});
+
+it('streams active versioned conversions to a different target disk when copying', function () {
+    Storage::fake('conversion-source');
+    Storage::fake('conversion-target');
+    registerVersionedThumb('conversion-source');
+    $media = uploadVersionedConversionMedia();
+    app(ImageManipulator::class)->manipulate($media, ['thumb'], onlyIfMissing: false);
+    $source = $media->getConversionFile('thumb');
+    registerVersionedThumb('conversion-target');
+
+    $copy = $media->copy(Subject::create());
+    $copied = $copy->getConversionFile('thumb');
+
+    expect($copied['disk'])->toBe('conversion-target')
+        ->and($copied['generation'])->toBe($source['generation'])
+        ->and(Storage::disk('conversion-target')->exists($copied['path']))->toBeTrue()
+        ->and(Storage::disk('conversion-source')->exists($source['path']))->toBeTrue();
+});
+
+it('rejects publication and removes the candidate when pruning claims its generation', function () {
+    registerVersionedThumb();
+    $media = uploadVersionedConversionMedia();
+    app(ImageManipulator::class)->manipulate($media, ['thumb'], onlyIfMissing: false);
+    $active = $media->getConversionFile('thumb');
+    $candidate = null;
+    $manipulator = conversionManipulatorBeforePublish(function (Media $publishing, array $candidates) use (&$candidate): void {
+        $candidate = $candidates['thumb'];
+        $fresh = $publishing->fresh();
+        $fresh->setCustomProperty(Media::PROPERTY_CONVERSION_PRUNING, [
+            'thumb' => [
+                $candidate['generation'] => [
+                    'token' => '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+                    'started_at' => now()->toIso8601String(),
+                ],
+            ],
+        ])->save();
+    });
+
+    expect(fn () => $manipulator->manipulate($media, ['thumb'], onlyIfMissing: false))
+        ->toThrow(RuntimeException::class, 'is being pruned');
+
+    expect($media->fresh()->getConversionFile('thumb'))->toBe($active)
+        ->and(Storage::disk($candidate['disk'])->exists($candidate['_directory']))->toBeFalse();
+});
+
+it('rejects publication and removes the candidate when its file disappears', function () {
+    registerVersionedThumb();
+    $media = uploadVersionedConversionMedia();
+    $candidate = null;
+    $manipulator = conversionManipulatorBeforePublish(function (Media $publishing, array $candidates) use (&$candidate): void {
+        $candidate = $candidates['thumb'];
+        Storage::disk($candidate['disk'])->delete($candidate['path']);
+    });
+
+    expect(fn () => $manipulator->manipulate($media, ['thumb'], onlyIfMissing: false))
+        ->toThrow(RuntimeException::class, 'disappeared before publication');
+
+    expect($media->fresh()->getConversionFile('thumb'))->toBeNull()
+        ->and(Storage::disk($candidate['disk'])->exists($candidate['_directory']))->toBeFalse();
+});
+
+it('preserves marker write failures when conversion cleanup throws', function () {
+    Storage::fake('conversion-cleanup-failure');
+    registerVersionedThumb('conversion-cleanup-failure');
+    $media = uploadVersionedConversionMedia();
+    $filesystem = Mockery::mock(Filesystem::class);
+    $filesystem->shouldReceive('put')->once()->andReturn(false);
+    $filesystem->shouldReceive('deleteDirectory')->once()->andThrow(new RuntimeException('cleanup failed'));
+    Storage::set('conversion-cleanup-failure', $filesystem);
+    Log::spy();
+
+    $report = app(ImageManipulator::class)->manipulate($media, ['thumb'], onlyIfMissing: false);
+
+    expect($report['completed'])->toBe([])
+        ->and($report['failed'])->toHaveCount(1)
+        ->and($report['failed'][0]['exception'])->toBeInstanceOf(MediaFileWriteFailed::class);
+    Log::shouldHaveReceived('warning')->withArgs(
+        fn (string $message, array $context) => $message === 'MediaMan: Failed to clean unpublished conversion generation'
+            && ($context['error'] ?? null) === 'cleanup failed',
+    );
+});
+
+it('keeps a published conversion when marker cleanup throws', function () {
+    Storage::fake('conversion-marker-failure');
+    registerVersionedThumb('conversion-marker-failure');
+    $media = uploadVersionedConversionMedia();
+    $filesystem = Mockery::mock(Filesystem::class);
+    $filesystem->shouldReceive('put')->twice()->andReturnTrue();
+    $filesystem->shouldReceive('exists')->once()->andReturnTrue();
+    $filesystem->shouldReceive('delete')->once()->andThrow(new RuntimeException('marker cleanup failed'));
+    Storage::set('conversion-marker-failure', $filesystem);
+    Log::spy();
+
+    $report = app(ImageManipulator::class)->manipulate($media, ['thumb'], onlyIfMissing: false);
+
+    expect($report['completed'])->toBe(['thumb'])
+        ->and($media->getConversionFile('thumb'))->not->toBeNull();
+    Log::shouldHaveReceived('warning')->withArgs(
+        fn (string $message, array $context) => $message === 'MediaMan: Failed to remove conversion generation marker'
+            && ($context['error'] ?? null) === 'marker cleanup failed',
+    );
+});
+
+it('rejects unsafe conversion directories', function () {
+    expect(fn () => ConversionPath::directory('/absolute/conversions/thumb'))
+        ->toThrow(InvalidArgumentException::class, 'unsafe for storage')
+        ->and(fn () => ConversionPath::directory('media/../thumb'))
+        ->toThrow(InvalidArgumentException::class, 'unsafe for storage');
+});
+
+it('requires APP_KEY when signing conversion lifecycle metadata', function () {
+    $media = uploadVersionedConversionMedia();
+    Config::set('app.key', null);
+    Config::set('app.previous_keys', []);
+
+    expect(fn () => ConversionManifest::sign($media, [], []))
+        ->toThrow(RuntimeException::class, 'APP_KEY is required')
+        ->and(fn () => app(ConversionClearer::class)->clear($media, 'thumb'))
+        ->toThrow(RuntimeException::class, 'APP_KEY is required');
+});
+
+it('parses comma-separated previous signing keys', function () {
+    $oldKey = 'base64:'.base64_encode(random_bytes(32));
+    Config::set('app.previous_keys', $oldKey.',another-key');
+
+    expect(SigningKeys::all())->toContain($oldKey, 'another-key');
+});
+
+it('rejects conversion clearing while media paths are rotating', function () {
+    $media = uploadVersionedConversionMedia();
+    $media->setCustomProperty(Media::PROPERTY_RESPONSIVE_ROTATING, ['token' => 'rotation'])->save();
+
+    expect(fn () => app(ConversionClearer::class)->clear($media, 'thumb'))
+        ->toThrow(RuntimeException::class, 'is rotating paths');
+});
+
+it('reports legacy conversion writes that return false', function (bool $encoded) {
+    Config::set('mediaman.conversions.versioning', false);
+    Storage::fake('legacy-write-failure');
+    Conversion::register(
+        'thumb',
+        $encoded
+            ? fn (Image $image) => $image->encode(new WebpEncoder)
+            : fn (Image $image) => $image->cover(320, 240),
+        disk: 'legacy-write-failure',
+    );
+    $media = uploadVersionedConversionMedia();
+    $filesystem = Mockery::mock(Filesystem::class);
+    $filesystem->shouldReceive('exists')->zeroOrMoreTimes()->andReturnFalse();
+    $filesystem->shouldReceive('put')->once()->andReturnFalse();
+    Storage::set('legacy-write-failure', $filesystem);
+
+    $report = app(ImageManipulator::class)->manipulate($media, ['thumb'], onlyIfMissing: false);
+
+    expect($report['completed'])->toBe([])
+        ->and($report['failed'])->toHaveCount(1)
+        ->and($report['failed'][0]['exception'])->toBeInstanceOf(MediaFileWriteFailed::class);
+})->with([true, false]);
+
+it('reports unsupported conversion return values in both path strategies', function (string|false $versioning) {
+    Config::set('mediaman.conversions.versioning', $versioning);
+    Conversion::register('thumb', fn () => 'unsupported');
+    $media = uploadVersionedConversionMedia();
+
+    $report = app(ImageManipulator::class)->manipulate($media, ['thumb'], onlyIfMissing: false);
+
+    expect($report['completed'])->toBe([])
+        ->and($report['failed'])->toHaveCount(1)
+        ->and($report['failed'][0]['exception'])
+        ->toBeInstanceOf(RuntimeException::class)
+        ->getMessage()->toContain('unsupported value');
+})->with(['generation', false]);
+
+it('does not publish a versioned conversion when the file write returns false', function () {
+    Storage::fake('conversion-write-failure');
+    registerVersionedThumb('conversion-write-failure');
+    $media = uploadVersionedConversionMedia();
+    $filesystem = Mockery::mock(Filesystem::class);
+    $filesystem->shouldReceive('put')->twice()->andReturn(true, false);
+    $filesystem->shouldReceive('deleteDirectory')->once()->andReturnTrue();
+    Storage::set('conversion-write-failure', $filesystem);
+
+    $report = app(ImageManipulator::class)->manipulate($media, ['thumb'], onlyIfMissing: false);
+
+    expect($report['completed'])->toBe([])
+        ->and($report['failed'])->toHaveCount(1)
+        ->and($report['failed'][0]['exception'])->toBeInstanceOf(MediaFileWriteFailed::class)
+        ->and($media->fresh()->getConversionFile('thumb'))->toBeNull();
 });

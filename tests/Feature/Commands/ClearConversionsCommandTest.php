@@ -51,6 +51,12 @@ it('exits with error for unknown conversion names', function () {
         ->assertExitCode(1);
 });
 
+it('rejects unsafe conversion names', function () {
+    $this->artisan('mediaman:clear-conversions', ['--conversion' => '../thumb'])
+        ->expectsOutputToContain('Invalid conversion name')
+        ->assertExitCode(1);
+});
+
 it('shows message when no media items found', function () {
     Conversion::register('thumb', function ($image) {
         return $image->resize(200, 200);

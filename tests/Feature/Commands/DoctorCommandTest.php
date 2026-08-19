@@ -61,6 +61,14 @@ it('fails doctor for invalid responsive generation configuration', function () {
         ->assertExitCode(1);
 });
 
+it('reports invalid conversion generation configuration', function () {
+    Config::set('mediaman.conversions.versioning', 'timestamp');
+
+    $this->artisan('mediaman:doctor')
+        ->expectsOutputToContain("versioning must be false or 'generation'")
+        ->assertExitCode(1);
+});
+
 it('shows the effective image driver class', function () {
     $this->artisan('mediaman:doctor')
         ->expectsOutputToContain('Intervention\Image\Drivers\\')

@@ -82,6 +82,16 @@ class PruneConversionGenerationsCommand extends Command
             return self::FAILURE;
         }
 
+        if ($diskOverride !== null) {
+            try {
+                Storage::disk((string) $diskOverride);
+            } catch (Throwable $e) {
+                $this->error($e->getMessage());
+
+                return self::FAILURE;
+            }
+        }
+
         $force = (bool) $this->option('force');
         $cutoff = now()->subDays($olderThan)->toDateTimeImmutable();
         $candidates = 0;

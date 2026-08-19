@@ -1,10 +1,14 @@
 <?php
 
+use Emaia\MediaMan\Events\ConversionFailed;
 use Emaia\MediaMan\Facades\Conversion;
 use Emaia\MediaMan\Jobs\PerformConversions;
 use Emaia\MediaMan\MediaUploader;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Intervention\Image\Format;
@@ -21,6 +25,14 @@ function captureGenerateConversionsOutput(array $options = []): string
 it('exits with error when --conversion is missing', function () {
     $this->artisan('mediaman:generate-conversions')
         ->expectsOutputToContain('--conversion option is required')
+        ->assertExitCode(1);
+});
+
+it('rejects invalid conversion generation configuration', function () {
+    Config::set('mediaman.conversions.versioning', 'timestamp');
+
+    $this->artisan('mediaman:generate-conversions', ['--conversion' => 'thumb'])
+        ->expectsOutputToContain("versioning must be false or 'generation'")
         ->assertExitCode(1);
 });
 
@@ -43,6 +55,31 @@ it('registers a conversion and generates it for a media item', function () {
 
     $path = $media->fresh()->getPath('thumb');
     expect(Storage::disk(self::DEFAULT_DISK)->exists($path))->toBeTrue();
+});
+
+it('reports inline conversion failures to operators', function () {
+    Conversion::register('broken', fn () => throw new RuntimeException('conversion exploded'));
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+    Event::fake([ConversionFailed::class]);
+    Log::spy();
+
+    $out = captureGenerateConversionsOutput([
+        '--conversion' => 'broken',
+        '--force' => true,
+    ]);
+
+    expect($out)->toContain('Failed conversions', 'broken', 'conversion exploded');
+    Event::assertDispatched(
+        ConversionFailed::class,
+        fn (ConversionFailed $event) => $event->media->is($media)
+            && $event->conversion === 'broken'
+            && $event->exception->getMessage() === 'conversion exploded',
+    );
+    Log::shouldHaveReceived('warning')->once()->with('MediaMan: Conversion failed', [
+        'mediaId' => $media->getKey(),
+        'conversion' => 'broken',
+        'error' => 'conversion exploded',
+    ]);
 });
 
 it('skips existing conversions without --force', function () {
