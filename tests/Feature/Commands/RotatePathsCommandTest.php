@@ -1,6 +1,7 @@
 <?php
 
 use Emaia\MediaMan\MediaUploader;
+use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
@@ -71,6 +72,33 @@ it('moves configured disks but fails when a required variant disk is unavailable
 
     expect(Storage::disk($media->disk)->exists($oldDir))->toBeFalse()
         ->and(Storage::disk($media->disk)->exists($newDir.'/'.$media->file_name))->toBeTrue();
+});
+
+it('skips a media row deleted between cursor hydration and rotation claim', function () {
+    [$oldKey, $newKey] = rotatePathsKeyPair();
+    Config::set('app.key', $oldKey);
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+    Config::set('app.key', $newKey);
+    $eventDispatcher = clone Media::getEventDispatcher();
+    $removed = false;
+
+    try {
+        Media::retrieved(function (Media $retrieved) use ($media, &$removed): void {
+            if ($removed || $retrieved->getKey() !== $media->getKey()) {
+                return;
+            }
+
+            $removed = true;
+            $retrieved->newQueryWithoutScopes()->whereKey($retrieved->getKey())->delete();
+        });
+
+        $this->artisan('mediaman:rotate-paths', ['--old-key' => $oldKey, '--force' => true])
+            ->expectsOutputToContain('record no longer exists, skipping')
+            ->expectsOutputToContain('Deleted records: 1')
+            ->assertExitCode(0);
+    } finally {
+        Media::setEventDispatcher($eventDispatcher);
+    }
 });
 
 it('actually moves files when --force is passed', function () {

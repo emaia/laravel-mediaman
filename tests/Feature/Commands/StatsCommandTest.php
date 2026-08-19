@@ -3,6 +3,7 @@
 use Emaia\MediaMan\Facades\Conversion;
 use Emaia\MediaMan\MediaUploader;
 use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveMetadataQuery;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Config;
@@ -144,4 +145,29 @@ it('shows coverage stats with --responsive flag', function () {
 
     $out = captureStatsOutput(['--responsive' => true]);
     expect($out)->toContain('Total images', 'With responsive', 'Without responsive', 'Coverage');
+});
+
+it('qualifies raw responsive metadata columns when joins are present', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->image('joined.jpg'))->upload();
+    $media->setCustomProperty(Media::PROPERTY_RESPONSIVE_IMAGES, [['path' => 'joined']])
+        ->setCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION, '01ARZ3NDEKTSV4RRFFQ69G5FAV')
+        ->save();
+    $table = $media->getTable();
+    $query = Media::query()->leftJoin(
+        "$table as joined_media",
+        "$table.id",
+        '=',
+        'joined_media.id',
+    );
+
+    expect(ResponsiveMetadataQuery::whereHasManifest(clone $query)->count())->toBe(1)
+        ->and(ResponsiveMetadataQuery::whereHasManagedGeneration(clone $query)->count())->toBe(1);
+});
+
+it('groups generation disk predicates beneath existing scopes', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->image('scoped.jpg'))->upload();
+    $media->setCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION_DISKS, ['archive'])->save();
+    $query = Media::query()->whereRaw('1 = 0');
+
+    expect(ResponsiveMetadataQuery::whereHasGenerationDiskMetadata($query)->count())->toBe(0);
 });

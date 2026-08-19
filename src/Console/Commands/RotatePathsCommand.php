@@ -12,6 +12,12 @@ use Symfony\Component\Uid\Ulid;
 
 class RotatePathsCommand extends Command
 {
+    private const string CLAIMED = 'claimed';
+
+    private const string BLOCKED = 'blocked';
+
+    private const string MISSING = 'missing';
+
     protected $signature = 'mediaman:rotate-paths
                             {--old-key= : The previous APP_KEY (the value config(\'app.key\') returned before rotation)}
                             {--disk= : Limit to a specific disk}
@@ -89,18 +95,28 @@ class RotatePathsCommand extends Command
         $renamed = 0;
         $skippedAlreadyMigrated = 0;
         $skippedMissing = 0;
+        $skippedDeleted = 0;
         $skippedConflict = 0;
         $blockedVersioned = 0;
         $moveFailures = 0;
 
         $query->lazy(100)->each(function (Media $media) use (
             $oldKey, $currentKey, $dryRun, $generationConfig,
-            &$renamed, &$skippedAlreadyMigrated, &$skippedMissing, &$skippedConflict, &$blockedVersioned, &$moveFailures
+            &$renamed, &$skippedAlreadyMigrated, &$skippedMissing, &$skippedDeleted, &$skippedConflict, &$blockedVersioned, &$moveFailures
         ) {
-            $rotationToken = $dryRun ? null : $this->claimRotation($media, $generationConfig);
+            $claim = $dryRun ? null : $this->claimRotation($media, $generationConfig);
+            $rotationToken = $claim['token'] ?? null;
+
+            if (($claim['status'] ?? null) === self::MISSING) {
+                $this->line("  <fg=blue>Media {$media->getKey()}</>: record no longer exists, skipping.");
+                $skippedDeleted++;
+
+                return;
+            }
+
             $rotationAllowed = $dryRun
                 ? $this->canRotate($media, $generationConfig)
-                : $rotationToken !== null;
+                : ($claim['status'] ?? null) === self::CLAIMED;
 
             if (! $rotationAllowed) {
                 $this->error(
@@ -227,6 +243,10 @@ class RotatePathsCommand extends Command
             $this->line("Missing on disk:  $skippedMissing");
         }
 
+        if ($skippedDeleted > 0) {
+            $this->line("Deleted records: $skippedDeleted");
+        }
+
         if ($skippedConflict > 0) {
             $this->warn("Conflicts (both old + new exist): $skippedConflict");
         }
@@ -249,18 +269,19 @@ class RotatePathsCommand extends Command
             : self::SUCCESS;
     }
 
-    private function claimRotation(Media $media, ResponsiveGenerationConfig $config): ?string
+    /** @return array{status: self::CLAIMED|self::BLOCKED|self::MISSING, token: string|null} */
+    private function claimRotation(Media $media, ResponsiveGenerationConfig $config): array
     {
-        return DB::connection($media->getConnectionName())->transaction(function () use ($media, $config): ?string {
+        return DB::connection($media->getConnectionName())->transaction(function () use ($media, $config): array {
             /** @var Media|null $fresh */
             $fresh = $media->newQueryWithoutScopes()->whereKey($media->getKey())->lockForUpdate()->first();
 
             if ($fresh === null) {
-                return null;
+                return ['status' => self::MISSING, 'token' => null];
             }
 
             if (! $this->canRotate($fresh, $config)) {
-                return null;
+                return ['status' => self::BLOCKED, 'token' => null];
             }
 
             $properties = is_array($fresh->custom_properties) ? $fresh->custom_properties : [];
@@ -277,7 +298,7 @@ class RotatePathsCommand extends Command
             $fresh->custom_properties = $properties;
             $fresh->save();
 
-            return $token;
+            return ['status' => self::CLAIMED, 'token' => $token];
         });
     }
 

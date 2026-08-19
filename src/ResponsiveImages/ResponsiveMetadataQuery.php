@@ -7,9 +7,41 @@ use Illuminate\Database\Eloquent\Builder;
 
 final class ResponsiveMetadataQuery
 {
+    public static function whereHasGenerationDiskMetadata(Builder $query): Builder
+    {
+        $qualifiedColumn = $query->getModel()->qualifyColumn('custom_properties');
+        $column = $query->getQuery()->getGrammar()->wrap($qualifiedColumn);
+
+        return match ($query->getModel()->getConnection()->getDriverName()) {
+            'mysql', 'mariadb' => $query->whereRaw(
+                "(JSON_TYPE(JSON_EXTRACT($column, '$.responsive_generation_disk')) = 'STRING' "
+                ."OR JSON_TYPE(JSON_EXTRACT($column, '$.responsive_generation_disks')) = 'ARRAY')"
+            ),
+            'pgsql' => $query->whereRaw(
+                "(json_typeof(($column)::json -> 'responsive_generation_disk') = 'string' "
+                ."OR json_typeof(($column)::json -> 'responsive_generation_disks') = 'array')"
+            ),
+            'sqlite' => $query->whereRaw(
+                "(json_type($column, '$.responsive_generation_disk') = 'text' "
+                ."OR json_type($column, '$.responsive_generation_disks') = 'array')"
+            ),
+            'sqlsrv' => $query->whereRaw(
+                "EXISTS (SELECT 1 FROM OPENJSON($column) WHERE "
+                ."([key] = 'responsive_generation_disk' AND [type] = 1) OR "
+                ."([key] = 'responsive_generation_disks' AND [type] = 4))"
+            ),
+            default => $query->where(function (Builder $query) use ($qualifiedColumn): void {
+                $query
+                    ->whereNotNull($qualifiedColumn.'->'.Media::PROPERTY_RESPONSIVE_GENERATION_DISK)
+                    ->orWhereNotNull($qualifiedColumn.'->'.Media::PROPERTY_RESPONSIVE_GENERATION_DISKS);
+            }),
+        };
+    }
+
     public static function whereHasManifest(Builder $query): Builder
     {
-        $column = $query->getQuery()->getGrammar()->wrap('custom_properties');
+        $qualifiedColumn = $query->getModel()->qualifyColumn('custom_properties');
+        $column = $query->getQuery()->getGrammar()->wrap($qualifiedColumn);
 
         return match ($query->getModel()->getConnection()->getDriverName()) {
             'mysql', 'mariadb' => $query->whereRaw(
@@ -29,7 +61,7 @@ final class ResponsiveMetadataQuery
                 ."THEN JSON_QUERY($column, '$.responsive_images') ELSE '[]' END))"
             ),
             default => $query->whereJsonLength(
-                'custom_properties->'.Media::PROPERTY_RESPONSIVE_IMAGES,
+                $qualifiedColumn.'->'.Media::PROPERTY_RESPONSIVE_IMAGES,
                 '>',
                 0,
             ),
@@ -38,14 +70,15 @@ final class ResponsiveMetadataQuery
 
     public static function whereHasManagedGeneration(Builder $query): Builder
     {
-        $column = $query->getQuery()->getGrammar()->wrap('custom_properties');
+        $qualifiedColumn = $query->getModel()->qualifyColumn('custom_properties');
+        $column = $query->getQuery()->getGrammar()->wrap($qualifiedColumn);
         $nil = '00000000000000000000000000';
         $max = '7ZZZZZZZZZZZZZZZZZZZZZZZZZ';
 
         return match ($query->getModel()->getConnection()->getDriverName()) {
             'mysql', 'mariadb' => $query->whereRaw(
                 "JSON_TYPE(JSON_EXTRACT($column, '$.responsive_generation')) = 'STRING' "
-                ."AND JSON_UNQUOTE(JSON_EXTRACT($column, '$.responsive_generation')) "
+                ."AND JSON_UNQUOTE(JSON_EXTRACT($column, '$.responsive_generation')) COLLATE utf8mb4_bin "
                 ."REGEXP '^[0-7][0-9A-HJKMNP-TV-Z]{25}$' "
                 ."AND JSON_UNQUOTE(JSON_EXTRACT($column, '$.responsive_generation')) NOT IN (?, ?)",
                 [$nil, $max],
@@ -73,8 +106,8 @@ final class ResponsiveMetadataQuery
                 [$nil, $max],
             ),
             default => $query
-                ->whereNotNull('custom_properties->'.Media::PROPERTY_RESPONSIVE_GENERATION)
-                ->where('custom_properties->'.Media::PROPERTY_RESPONSIVE_GENERATION, '!=', ''),
+                ->whereNotNull($qualifiedColumn.'->'.Media::PROPERTY_RESPONSIVE_GENERATION)
+                ->where($qualifiedColumn.'->'.Media::PROPERTY_RESPONSIVE_GENERATION, '!=', ''),
         };
     }
 }

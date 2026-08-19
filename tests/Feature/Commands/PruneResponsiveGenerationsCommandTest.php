@@ -4,9 +4,15 @@ use Emaia\MediaMan\MediaUploader;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Illuminate\Contracts\Filesystem\Filesystem;
+use Illuminate\Filesystem\FilesystemAdapter as LaravelFilesystemAdapter;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Storage;
+use League\Flysystem\DirectoryAttributes;
+use League\Flysystem\DirectoryListing;
+use League\Flysystem\FileAttributes;
+use League\Flysystem\FilesystemAdapter as FlysystemAdapter;
+use League\Flysystem\FilesystemOperator;
 use Symfony\Component\Uid\Ulid;
 
 function oldResponsiveGeneration(int $days = 10): string
@@ -195,6 +201,76 @@ it('reports generation file count and bytes when the filesystem provides metadat
     $this->artisan('mediaman:prune-responsive-generations', ['--older-than' => '0'])
         ->expectsOutputToContain('1 file, 7 B')
         ->assertExitCode(0);
+});
+
+it('uses one recursive listing for metrics across all candidates on a media disk', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+    $base = $media->getDirectory().'/responsive';
+    $first = oldResponsiveGeneration(10);
+    $second = oldResponsiveGeneration(11);
+    $operator = Mockery::mock(FilesystemOperator::class);
+    $operator->shouldReceive('listContents')
+        ->once()
+        ->with($base, true)
+        ->andReturn(new DirectoryListing([
+            new FileAttributes("$base/$first/photo.jpg", 7),
+            new FileAttributes("$base/$second/photo.jpg", 9),
+        ]));
+    $operator->shouldReceive('listContents')
+        ->once()
+        ->with($base, false)
+        ->andReturn(new DirectoryListing([
+            new DirectoryAttributes("$base/$first"),
+            new DirectoryAttributes("$base/$second"),
+        ]));
+    $operator->shouldReceive('listContents')
+        ->once()
+        ->with("$base/$first", false)
+        ->andReturn(new DirectoryListing([
+            new FileAttributes("$base/$first/photo.jpg", 7),
+        ]));
+    $operator->shouldReceive('listContents')
+        ->once()
+        ->with("$base/$second", false)
+        ->andReturn(new DirectoryListing([
+            new FileAttributes("$base/$second/photo.jpg", 9),
+        ]));
+    $adapter = new LaravelFilesystemAdapter(
+        $operator,
+        Mockery::mock(FlysystemAdapter::class),
+    );
+    Storage::set('listing-spy', $adapter);
+
+    $this->artisan('mediaman:prune-responsive-generations', [
+        '--disk' => 'listing-spy',
+        '--older-than' => '0',
+    ])
+        ->expectsOutputToContain('1 file, 7 B')
+        ->expectsOutputToContain('1 file, 9 B')
+        ->assertExitCode(0);
+});
+
+it('does not recursively list files when no generation is old enough', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+    $base = $media->getDirectory().'/responsive';
+    $recent = Ulid::generate(now());
+    $operator = Mockery::mock(FilesystemOperator::class);
+    $operator->shouldReceive('listContents')
+        ->once()
+        ->with($base, false)
+        ->andReturn(new DirectoryListing([
+            new DirectoryAttributes("$base/$recent"),
+        ]));
+    $operator->shouldNotReceive('listContents')->with($base, true);
+    Storage::set('recent-listing-spy', new LaravelFilesystemAdapter(
+        $operator,
+        Mockery::mock(FlysystemAdapter::class),
+    ));
+
+    $this->artisan('mediaman:prune-responsive-generations', [
+        '--disk' => 'recent-listing-spy',
+        '--older-than' => '7',
+    ])->assertExitCode(0);
 });
 
 it('retains future and non-canonical lowercase ULID directories', function () {

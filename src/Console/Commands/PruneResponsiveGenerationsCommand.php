@@ -154,6 +154,8 @@ class PruneResponsiveGenerationsCommand extends Command
         $filesystem = Storage::disk($disk);
         $base = rtrim(app(MediaResolver::class)->pathForResponsive($media), '/');
         $threshold = now()->subDays($olderThan);
+        $generationListing = null;
+        $generationListingLoaded = false;
 
         foreach ($filesystem->directories($base) as $directory) {
             $generation = basename($directory);
@@ -209,7 +211,14 @@ class PruneResponsiveGenerationsCommand extends Command
             $this->candidates++;
             $age = $generatedAt->diff(now())->days;
             $action = $dryRun ? 'would delete' : 'deleting';
-            $metrics = $this->generationMetrics($filesystem, $directory);
+            if (! $generationListingLoaded) {
+                $generationListing = $this->generationListing($filesystem, $base);
+                $generationListingLoaded = true;
+            }
+            $listedGeneration = $generationListing !== null
+                ? ($generationListing[$generation] ?? ['files' => 0, 'bytes' => 0])
+                : null;
+            $metrics = $this->generationMetrics($listedGeneration);
             $this->line("  #{$media->getKey()} [$disk] $generation: $action ({$age}d, $metrics)");
 
             if (! $dryRun) {
@@ -412,37 +421,62 @@ class PruneResponsiveGenerationsCommand extends Command
         return array_keys($protected);
     }
 
-    private function generationMetrics(Filesystem $filesystem, string $directory): string
+    /** @return array<string, array{files: int, bytes: int|null}>|null */
+    private function generationListing(Filesystem $filesystem, string $base): ?array
     {
         if (! $filesystem instanceof FilesystemAdapter) {
-            return 'files/bytes n/a';
+            return null;
         }
 
         try {
-            $files = 0;
-            $bytes = 0;
+            $listing = [];
+            $prefix = $base.'/';
 
-            foreach ($filesystem->getDriver()->listContents($directory, true) as $attributes) {
+            foreach ($filesystem->getDriver()->listContents($base, true) as $attributes) {
                 if (! $attributes instanceof FileAttributes) {
                     continue;
                 }
 
-                $size = $attributes->fileSize();
+                $path = $attributes->path();
 
-                if ($size === null) {
-                    return 'files/bytes n/a';
+                if (! str_starts_with($path, $prefix)) {
+                    continue;
                 }
 
-                $files++;
-                $bytes += $size;
+                $generation = explode('/', substr($path, strlen($prefix)), 2)[0];
+
+                if (! ResponsiveGeneration::isManaged($generation)) {
+                    continue;
+                }
+
+                $listing[$generation] ??= ['files' => 0, 'bytes' => 0];
+                $size = $attributes->fileSize();
+                $listing[$generation]['files']++;
+
+                if ($size === null) {
+                    $listing[$generation]['bytes'] = null;
+                } elseif ($listing[$generation]['bytes'] !== null) {
+                    $listing[$generation]['bytes'] += $size;
+                }
             }
 
-            $label = $files === 1 ? 'file' : 'files';
-
-            return "$files $label, ".$this->formatBytes($bytes);
+            return $listing;
         } catch (Throwable) {
+            return null;
+        }
+    }
+
+    /** @param array{files: int, bytes: int|null}|null $metrics */
+    private function generationMetrics(?array $metrics): string
+    {
+        if ($metrics === null) {
             return 'files/bytes n/a';
         }
+
+        $label = $metrics['files'] === 1 ? 'file' : 'files';
+        $bytes = $metrics['bytes'] === null ? 'bytes n/a' : $this->formatBytes($metrics['bytes']);
+
+        return "{$metrics['files']} $label, $bytes";
     }
 
     private function resolveOlderThan(int $default): int

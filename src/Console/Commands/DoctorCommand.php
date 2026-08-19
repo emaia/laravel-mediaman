@@ -190,7 +190,11 @@ class DoctorCommand extends Command
         }
 
         try {
-            foreach ($this->mediaQuery()->select('custom_properties')->cursor() as $media) {
+            $query = $this->mediaQuery();
+            $properties = $query->getModel()->qualifyColumn('custom_properties');
+            ResponsiveMetadataQuery::whereHasGenerationDiskMetadata($query)->select($properties);
+
+            foreach ($query->cursor() as $media) {
                 if (! $media instanceof Media) {
                     continue;
                 }

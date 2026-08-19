@@ -3,6 +3,7 @@
 use Emaia\MediaMan\ConversionRegistry;
 use Emaia\MediaMan\Facades\Conversion;
 use Emaia\MediaMan\MediaUploader;
+use Emaia\MediaMan\Models\Media;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Config;
@@ -133,6 +134,31 @@ it('probes disks persisted by active responsive generations', function () {
         ->toContain("Responsive disk 'persisted-responsive'")
         ->toContain('OK')
         ->and(substr_count($out, "Responsive disk 'persisted-responsive'"))->toBe(1);
+});
+
+it('hydrates only media rows that can contain persisted responsive disks', function () {
+    Storage::fake('persisted-responsive');
+
+    foreach (range(1, 5) as $index) {
+        MediaUploader::source(UploadedFile::fake()->image("plain-$index.jpg"))->upload();
+    }
+
+    $persisted = MediaUploader::source(UploadedFile::fake()->image('persisted.jpg'))->upload();
+    $persisted->setCustomProperty('responsive_generation_disk', 'persisted-responsive')->save();
+    $eventDispatcher = clone Media::getEventDispatcher();
+    $retrieved = 0;
+
+    try {
+        Media::retrieved(function () use (&$retrieved): void {
+            $retrieved++;
+        });
+
+        captureDoctorOutput();
+    } finally {
+        Media::setEventDispatcher($eventDispatcher);
+    }
+
+    expect($retrieved)->toBe(1);
 });
 
 it('reports the config file as published when config/mediaman.php exists', function () {

@@ -139,6 +139,7 @@ class Media extends Model implements Attachable
             return parent::delete();
         }
 
+        // Intentionally mirrors Eloquent's hard-delete pipeline so only the fresh row lock and SQL delete run in-transaction. Review this sequence on each supported Laravel major.
         $this->mergeAttributesFromCachedCasts();
 
         if (! $this->exists) {
