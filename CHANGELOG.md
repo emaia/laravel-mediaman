@@ -4,6 +4,10 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ## [Unreleased]
 
+## [3.1.0] — 2026-08-19
+
+Adds immutable-safe responsive generation paths with atomic publication, lifecycle coordination, and retention-aware pruning.
+
 ### Added
 
 - Responsive images can opt into immutable-safe generation paths with `MEDIAMAN_RESPONSIVE_VERSIONING=generation`. Every complete generation is written beneath one ULID directory and published through a single locked media save; legacy stable paths remain the default.
@@ -31,6 +35,8 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 - Clear tombstones accept Laravel's `APP_PREVIOUS_KEYS` key ring during `APP_KEY` rotation, and responsive metadata is validated before path derivation.
 - Force-delete coordinates against fresh lifecycle state without firing model update observers; its row lock is released after the database delete and before storage cleanup begins.
 - Responsive doctor/stats counts remain database-driven, pruning isolates malformed markers per generation, and dry-run lifecycle commands no longer acquire write claims.
+
+**Full Changelog**: https://github.com/emaia/laravel-mediaman/compare/v3.0.2...v3.1.0
 
 ## [3.0.2] — 2026-07-30
 
