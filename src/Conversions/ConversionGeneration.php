@@ -1,10 +1,10 @@
 <?php
 
-namespace Emaia\MediaMan\ResponsiveImages;
+namespace Emaia\MediaMan\Conversions;
 
 use Emaia\MediaMan\Support\GenerationToken;
 
-final class ResponsiveGeneration
+final class ConversionGeneration
 {
     public static function isManaged(string $generation): bool
     {

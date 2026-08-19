@@ -100,6 +100,41 @@ The default `Emaia\MediaMan\Resolvers\DefaultMediaResolver` stores conversions u
 
 Custom filenames (e.g., `photo-thumb.jpg` instead of `photo.jpg`) are controlled by overriding `MediaResolver::conversionFileName()`.
 
+## Immutable-safe generation paths
+
+Conversions keep their stable legacy paths by default. Opt into generation paths when the conversion subtree is served with long-lived immutable cache headers:
+
+```dotenv
+MEDIAMAN_CONVERSION_VERSIONING=generation
+MEDIAMAN_CONVERSION_VERSION_RETENTION_DAYS=7
+MEDIAMAN_CONVERSION_GENERATION_TIMEOUT_MINUTES=1440
+```
+
+Each conversion receives an independent ULID and is published only after its file exists:
+
+```text
+{media_dir}/conversions/thumb/01ARZ3NDEKTSV4RRFFQ69G5FAV/photo.webp
+```
+
+Forced regeneration writes a new directory and atomically switches persisted active metadata. The previous file remains available for cached pages until `mediaman:prune-conversion-generations --force` removes it after retention. Active generations and fresh in-progress work are never pruned.
+
+Reads remain pinned to the published path and disk even if a registration is removed or its write disk changes. New generations use the current registration/configuration disk. Disable versioning and regenerate successfully before expecting legacy stable paths again.
+
+The manifest signature authenticates the persisted disk and complete path. Read validation requires the conversion directory returned by `pathForConversion()` to end with that conversion's name, followed by the signed generation/filename pair; it does not require the default literal `conversions/` segment. This preserves custom resolver layouts and deliberately avoids recomputing the media directory from the current `APP_KEY`, so active URLs remain readable while the signing key is retained in `APP_PREVIOUS_KEYS`.
+
+Match the canonical ULID segment before sending immutable cache headers. Do not mark the complete `/conversions/*` subtree immutable because legacy conversion URLs remain stable:
+
+```caddyfile
+@versioned_conversions path_regexp conversions ^/media/[^/]+/conversions/[^/]+/[0-9A-HJKMNP-TV-Z]{26}/[^/]+$
+header @versioned_conversions Cache-Control "public, max-age=31536000, immutable"
+```
+
+```nginx
+location ~ ^/media/[^/]+/conversions/[^/]+/[0-9A-HJKMNP-TV-Z]{26}/[^/]+$ {
+    add_header Cache-Control "public, max-age=31536000, immutable" always;
+}
+```
+
 ## Conversion disk
 
 Conversions can opt into a different filesystem disk than the original — useful for hot/cold storage tiering (originals on S3, hot variants served from local). Resolution chain, most specific wins:
@@ -121,6 +156,6 @@ Conversion::register('archive', fn ($img) => $img->scaleDown(4096), disk: 's3-gl
 
 Or skip the config and use per-registration disks only — both styles work, the override always wins.
 
-URLs, temporary URLs, HTTP responses, mail attachments, and `mediaman:clean` / `mediaman:doctor` / `mediaman:rotate-paths` all respect the resolved disk automatically.
+URLs, temporary URLs, HTTP responses, mail attachments, `mediaman:doctor`, and lifecycle commands respect the resolved active disk automatically.
 
-> Changing the disk of an already-registered conversion does **not** migrate existing files. Old conversion files remain on the previous disk. Run `mediaman:clean --disk=old-disk` to scan for leftovers, or copy files manually before switching.
+> Changing the disk does not migrate files. Versioned active metadata remains readable on its persisted disk and future generations use the new disk. Use `mediaman:prune-conversion-generations --disk=old-disk` for retained generation cleanup; `mediaman:clean` intentionally does not treat nested files in valid media directories as orphans.

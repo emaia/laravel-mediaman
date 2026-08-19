@@ -4,6 +4,8 @@ namespace Emaia\MediaMan\Console\Commands;
 
 use Emaia\MediaMan\Console\Concerns\CommandOutputStyle;
 use Emaia\MediaMan\ConversionRegistry;
+use Emaia\MediaMan\Conversions\ConversionGenerationConfig;
+use Emaia\MediaMan\Conversions\ConversionMetadataQuery;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveGenerationConfig;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveMetadataQuery;
@@ -505,6 +507,47 @@ class DoctorCommand extends Command
         $registry = app(ConversionRegistry::class);
 
         $this->statusLine('Registered', 'info', (string) count($registry->all()));
+
+        try {
+            $config = ConversionGenerationConfig::fromConfig();
+            $this->statusLine('Versioning', 'info', $config->isVersioned() ? 'generation' : 'disabled (legacy paths)');
+            $this->statusLine('Generation retention', 'info', $config->retentionDays.' day(s)');
+            $this->statusLine('In-progress timeout', 'info', $config->generationTimeoutMinutes.' minute(s)');
+
+            if ($config->isVersioned()) {
+                $this->statusLine(
+                    'Generation pruning',
+                    'warn',
+                    'schedule `mediaman:prune-conversion-generations --force` after rollout',
+                );
+            }
+        } catch (\InvalidArgumentException $e) {
+            $this->statusLine('Versioning', 'error', $e->getMessage());
+        }
+
+        try {
+            $manifestQuery = ConversionMetadataQuery::whereHasManifest($this->mediaQuery());
+            $active = (clone $manifestQuery)->count();
+            $invalid = 0;
+            $sampleLimit = 10000;
+
+            foreach ((clone $manifestQuery)->limit($sampleLimit)->cursor() as $media) {
+                if ($media instanceof Media && ! $media->conversionManifestIsValid()) {
+                    $invalid++;
+                }
+            }
+
+            $this->statusLine('Versioned media', 'info', number_format($active));
+
+            if ($invalid > 0) {
+                $label = $active > $sampleLimit
+                    ? 'Invalid conversion manifests (10k sample)'
+                    : 'Invalid conversion manifests';
+                $this->statusLine($label, 'error', number_format($invalid).' media');
+            }
+        } catch (Throwable $e) {
+            $this->statusLine('Versioned media', 'warn', 'query failed: '.$e->getMessage());
+        }
     }
 
     protected function checkMediaInventory(): void

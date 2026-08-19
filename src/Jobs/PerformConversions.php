@@ -23,6 +23,8 @@ class PerformConversions implements ShouldQueue
 
     protected array $conversions;
 
+    protected bool $force = false;
+
     /**
      * Failures from the most recent `handle()` invocation that triggered an
      * all-failed throw. Consumed by `failed()` after Laravel exhausts retries.
@@ -31,11 +33,13 @@ class PerformConversions implements ShouldQueue
      */
     protected array $deferredFailures = [];
 
-    public function __construct(Media $media, array $conversions)
+    public function __construct(Media $media, array $conversions, bool $force = false)
     {
         $this->media = $media;
 
         $this->conversions = $conversions;
+
+        $this->force = $force;
 
         $this->onConnection(config('mediaman.queue'));
     }
@@ -46,7 +50,16 @@ class PerformConversions implements ShouldQueue
             return;
         }
 
-        $report = $manipulator->manipulate($this->media, $this->conversions);
+        try {
+            $report = $manipulator->manipulate($this->media, $this->conversions, ! $this->force);
+        } catch (Throwable $e) {
+            $this->deferredFailures = array_map(
+                fn (string $conversion) => ['conversion' => $conversion, 'exception' => $e],
+                $this->conversions,
+            );
+
+            throw $e;
+        }
 
         foreach ($report['failed'] as $failure) {
             Log::warning('MediaMan: Conversion failed', [
@@ -113,5 +126,10 @@ class PerformConversions implements ShouldQueue
     public function getConversions(): array
     {
         return $this->conversions;
+    }
+
+    public function isForced(): bool
+    {
+        return $this->force;
     }
 }

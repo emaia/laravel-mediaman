@@ -10,6 +10,7 @@ use Emaia\MediaMan\Facades\Conversion;
 use Emaia\MediaMan\Jobs\GenerateResponsiveImages;
 use Emaia\MediaMan\Jobs\PerformConversions;
 use Emaia\MediaMan\MediaUploader;
+use Emaia\MediaMan\Models\Media;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Event;
@@ -57,6 +58,40 @@ it('dispatches ConversionCompleted event with the conversions that succeeded', f
     });
 });
 
+it('defaults force to false when hydrating a job payload created before the property existed', function () {
+    $job = (new ReflectionClass(PerformConversions::class))->newInstanceWithoutConstructor();
+
+    expect($job->isForced())->toBeFalse();
+});
+
+it('preserves queued force and non-force conversion semantics', function () {
+    Event::fake(ConversionCompleted::class);
+    config(['mediaman.conversions.versioning' => 'generation']);
+    $invocations = 0;
+    Conversion::register('thumb', function ($image) use (&$invocations) {
+        $invocations++;
+
+        return $image->resize(100, 100);
+    });
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+    $forced = new PerformConversions($media, ['thumb'], force: true);
+    app()->call([$forced, 'handle']);
+    $first = $media->getConversionFile('thumb');
+
+    $nonForced = new PerformConversions($media, ['thumb']);
+    app()->call([$nonForced, 'handle']);
+
+    expect($nonForced->isForced())->toBeFalse()
+        ->and($invocations)->toBe(1)
+        ->and($media->getConversionFile('thumb'))->toBe($first);
+
+    app()->call([$forced, 'handle']);
+
+    expect($forced->isForced())->toBeTrue()
+        ->and($invocations)->toBe(2)
+        ->and($media->getConversionFile('thumb')['generation'])->not->toBe($first['generation']);
+});
+
 it('logs and rethrows on all-failed but defers ConversionFailed until retries exhaust', function () {
     Event::fake([ConversionCompleted::class, ConversionFailed::class]);
     Log::spy();
@@ -88,6 +123,36 @@ it('logs and rethrows on all-failed but defers ConversionFailed until retries ex
             && $event->conversion === 'not-registered'
             && $event->exception instanceof InvalidConversion;
     });
+});
+
+it('defers manifest publication failures until conversion job retries exhaust', function () {
+    Event::fake([ConversionCompleted::class, ConversionFailed::class]);
+    config(['mediaman.conversions.versioning' => 'generation']);
+    Conversion::register('thumb', fn ($image) => $image->resize(100, 100));
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+    Media::saving(function (Media $saving): void {
+        if ($saving->hasCustomProperty(Media::PROPERTY_CONVERSION_FILES)) {
+            throw new RuntimeException('manifest unavailable');
+        }
+    });
+    $job = new PerformConversions($media, ['thumb']);
+    $failure = null;
+
+    try {
+        app()->call([$job, 'handle']);
+    } catch (Throwable $e) {
+        $failure = $e;
+    }
+
+    expect($failure)->toBeInstanceOf(RuntimeException::class)
+        ->and($failure->getMessage())->toBe('manifest unavailable');
+    Event::assertNotDispatched(ConversionCompleted::class);
+    Event::assertNotDispatched(ConversionFailed::class);
+
+    $job->failed($failure);
+
+    Event::assertDispatched(ConversionFailed::class, fn ($event) => $event->conversion === 'thumb'
+        && $event->exception === $failure);
 });
 
 it('does not rethrow on partial-batch failures — surviving conversions ship', function () {

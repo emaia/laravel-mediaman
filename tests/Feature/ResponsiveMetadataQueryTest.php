@@ -1,5 +1,6 @@
 <?php
 
+use Emaia\MediaMan\Conversions\ConversionMetadataQuery;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveMetadataQuery;
 use Illuminate\Database\Connection;
@@ -128,3 +129,20 @@ it('builds portable fallback predicates for unknown database drivers', function 
         'is not null',
     );
 });
+
+it('builds conversion manifest predicates for every database grammar', function (
+    string $driver,
+    string $fragment,
+) {
+    $query = responsiveMetadataBuilder($driver);
+
+    expect(ConversionMetadataQuery::whereHasManifest($query))->toBe($query)
+        ->and($query->toSql())->toContain('conversion_files', $fragment);
+})->with([
+    'mysql' => ['mysql', 'JSON_LENGTH'],
+    'mariadb' => ['mariadb', 'JSON_LENGTH'],
+    'pgsql' => ['pgsql', 'json_object_keys'],
+    'sqlite' => ['sqlite', 'json_each'],
+    'sqlsrv' => ['sqlsrv', 'OPENJSON'],
+    'fallback' => ['other', 'is not null'],
+]);

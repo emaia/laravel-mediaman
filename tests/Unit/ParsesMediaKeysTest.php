@@ -12,6 +12,11 @@ function mediaKeyParser(): object
         {
             return $this->parseMediaKeys($value, $limit);
         }
+
+        public function parseLegacy(string $value): array
+        {
+            return $this->parseMediaIds($value);
+        }
     };
 }
 
@@ -26,4 +31,10 @@ it('preserves opaque media keys and expands integer ranges', function () {
 
 it('enforces the media-key limit across multiple ranges', function () {
     expect(mediaKeyParser()->parse('1..3,10..12', 5))->toBe([]);
+});
+
+it('preserves legacy positive integer parsing semantics', function () {
+    expect(mediaKeyParser()->parseLegacy('1, 3..5'))->toBe([1, 3, 4, 5])
+        ->and(mediaKeyParser()->parseLegacy('5..3'))->toBe([])
+        ->and(mediaKeyParser()->parseLegacy('1,invalid'))->toBe([]);
 });

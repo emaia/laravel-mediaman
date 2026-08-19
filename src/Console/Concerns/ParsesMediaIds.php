@@ -2,14 +2,10 @@
 
 namespace Emaia\MediaMan\Console\Concerns;
 
+/** @deprecated Use ParsesMediaKeys for custom-model and bounded-range support. */
 trait ParsesMediaIds
 {
-    /**
-     * Parse a --media value into an array of IDs. Supports comma-separated
-     * individual IDs ("1,3,5"), ranges ("1..10"), or a mix ("1,3..5").
-     *
-     * Returns an empty array when any part is invalid.
-     */
+    /** Parse positive integer IDs and ranges using the legacy command semantics. */
     protected function parseMediaIds(string $value): array
     {
         $ids = [];
@@ -30,18 +26,20 @@ trait ParsesMediaIds
                     return [];
                 }
 
-                for ($i = $from; $i <= $to; $i++) {
-                    $ids[] = $i;
-                }
-            } else {
-                $id = (int) $part;
-
-                if ($id <= 0) {
-                    return [];
+                for ($id = $from; $id <= $to; $id++) {
+                    $ids[] = $id;
                 }
 
-                $ids[] = $id;
+                continue;
             }
+
+            $id = (int) $part;
+
+            if ($id <= 0) {
+                return [];
+            }
+
+            $ids[] = $id;
         }
 
         return $ids;

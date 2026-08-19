@@ -8,6 +8,7 @@ use Emaia\MediaMan\Console\Commands\ClearResponsiveImagesCommand;
 use Emaia\MediaMan\Console\Commands\DoctorCommand;
 use Emaia\MediaMan\Console\Commands\GenerateConversionsCommand;
 use Emaia\MediaMan\Console\Commands\GenerateResponsiveImagesCommand;
+use Emaia\MediaMan\Console\Commands\PruneConversionGenerationsCommand;
 use Emaia\MediaMan\Console\Commands\PruneResponsiveGenerationsCommand;
 use Emaia\MediaMan\Console\Commands\PublishCommand;
 use Emaia\MediaMan\Console\Commands\PublishConfigCommand;
@@ -87,6 +88,7 @@ class MediaManServiceProvider extends ServiceProvider
                 DoctorCommand::class,
                 RotatePathsCommand::class,
                 PruneResponsiveGenerationsCommand::class,
+                PruneConversionGenerationsCommand::class,
             ]);
         }
     }

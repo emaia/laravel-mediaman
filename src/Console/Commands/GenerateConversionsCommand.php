@@ -3,13 +3,15 @@
 namespace Emaia\MediaMan\Console\Commands;
 
 use Emaia\MediaMan\Console\Concerns\CommandOutputStyle;
-use Emaia\MediaMan\Console\Concerns\ParsesMediaIds;
+use Emaia\MediaMan\Console\Concerns\ParsesMediaKeys;
 use Emaia\MediaMan\ConversionRegistry;
+use Emaia\MediaMan\Conversions\ConversionGenerationConfig;
 use Emaia\MediaMan\Events\ConversionCompleted;
 use Emaia\MediaMan\Events\ConversionFailed;
 use Emaia\MediaMan\ImageManipulator;
 use Emaia\MediaMan\Jobs\PerformConversions;
 use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\Traits\ResolvesModels;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Log;
@@ -17,7 +19,8 @@ use Illuminate\Support\Facades\Log;
 class GenerateConversionsCommand extends Command
 {
     use CommandOutputStyle;
-    use ParsesMediaIds;
+    use ParsesMediaKeys;
+    use ResolvesModels;
 
     protected $signature = 'mediaman:generate-conversions
                             {--conversion= : Required. Comma-separated conversion names (e.g. "thumb,cover")}
@@ -30,6 +33,14 @@ class GenerateConversionsCommand extends Command
 
     public function handle(): int
     {
+        try {
+            ConversionGenerationConfig::fromConfig();
+        } catch (\InvalidArgumentException $e) {
+            $this->error($e->getMessage());
+
+            return self::FAILURE;
+        }
+
         if (empty($this->option('conversion'))) {
             $this->error('The --conversion option is required.');
 
@@ -47,10 +58,10 @@ class GenerateConversionsCommand extends Command
             return self::FAILURE;
         }
 
-        $query = Media::query()->raster();
+        $query = $this->mediaModel()::query()->raster();
 
-        if ($mediaOption = $this->option('media')) {
-            $ids = $this->parseMediaIds($mediaOption);
+        if ($this->option('media') !== null) {
+            $ids = $this->parseMediaKeys((string) $this->option('media'));
 
             if (empty($ids)) {
                 $this->error('Invalid --media value.');
@@ -58,7 +69,7 @@ class GenerateConversionsCommand extends Command
                 return self::FAILURE;
             }
 
-            $query->whereIn('id', $ids);
+            $query->whereKey($ids);
         }
 
         if ($collection = $this->option('collection')) {
@@ -91,7 +102,7 @@ class GenerateConversionsCommand extends Command
         $this->newLine();
 
         if ($this->option('queue')) {
-            $this->processQueued($mediaItems, $conversionNames);
+            $this->processQueued($mediaItems, $conversionNames, (bool) $this->option('force'));
 
             return self::SUCCESS;
         }
@@ -102,12 +113,12 @@ class GenerateConversionsCommand extends Command
     }
 
     /** @param  Collection<int, Media>  $mediaItems */
-    protected function processQueued(Collection $mediaItems, array $conversionNames): void
+    protected function processQueued(Collection $mediaItems, array $conversionNames, bool $force): void
     {
         $count = $mediaItems->count();
 
         foreach ($mediaItems as $media) {
-            PerformConversions::dispatch($media, $conversionNames);
+            PerformConversions::dispatch($media, $conversionNames, $force);
         }
 
         $this->statusLine('Dispatched', 'ok', "$count (queued)");

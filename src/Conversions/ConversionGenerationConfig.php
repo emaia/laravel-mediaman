@@ -1,10 +1,10 @@
 <?php
 
-namespace Emaia\MediaMan\ResponsiveImages;
+namespace Emaia\MediaMan\Conversions;
 
 use Emaia\MediaMan\Support\GenerationConfig;
 
-final readonly class ResponsiveGenerationConfig
+final readonly class ConversionGenerationConfig
 {
     public function __construct(
         public false|string $versioning,
@@ -14,7 +14,7 @@ final readonly class ResponsiveGenerationConfig
 
     public static function fromConfig(): self
     {
-        $values = GenerationConfig::values('mediaman.responsive_images');
+        $values = GenerationConfig::values('mediaman.conversions');
 
         return new self(
             $values['versioning'],

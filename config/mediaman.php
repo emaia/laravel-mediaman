@@ -262,6 +262,16 @@ return [
 
         'disk' => env('MEDIAMAN_CONVERSIONS_DISK'),
 
+        /*
+        | false        - preserve legacy stable conversion paths.
+        | 'generation' - publish each conversion to a unique ULID directory.
+        */
+        'versioning' => env('MEDIAMAN_CONVERSION_VERSIONING', false),
+
+        'version_retention_days' => env('MEDIAMAN_CONVERSION_VERSION_RETENTION_DAYS', 7),
+
+        'generation_timeout_minutes' => env('MEDIAMAN_CONVERSION_GENERATION_TIMEOUT_MINUTES', 1440),
+
     ],
 
     /*

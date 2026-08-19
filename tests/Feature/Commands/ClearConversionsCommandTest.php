@@ -51,6 +51,12 @@ it('exits with error for unknown conversion names', function () {
         ->assertExitCode(1);
 });
 
+it('rejects unsafe conversion names', function () {
+    $this->artisan('mediaman:clear-conversions', ['--conversion' => '../thumb'])
+        ->expectsOutputToContain('Invalid conversion name')
+        ->assertExitCode(1);
+});
+
 it('shows message when no media items found', function () {
     Conversion::register('thumb', function ($image) {
         return $image->resize(200, 200);
@@ -207,4 +213,20 @@ it('fails gracefully with invalid --media range (from > to)', function () {
     ])
         ->expectsOutputToContain('Invalid --media value')
         ->assertExitCode(1);
+});
+
+it('clears a persisted versioned conversion after its registration is removed', function () {
+    config(['mediaman.conversions.versioning' => 'generation']);
+    $media = createMediaWithConversion('thumb');
+    $active = $media->getConversionFile('thumb');
+    app()->instance(ConversionRegistry::class, new ConversionRegistry);
+
+    $this->artisan('mediaman:clear-conversions', [
+        '--conversion' => 'thumb',
+        '--media' => (string) $media->getKey(),
+        '--force' => true,
+    ])->assertExitCode(0);
+
+    expect($media->fresh()->getConversionFile('thumb'))->toBeNull()
+        ->and(Storage::disk($active['disk'])->exists($active['path']))->toBeFalse();
 });

@@ -324,7 +324,7 @@ Format is auto-detected at registration time via reflection on the closure's ret
 
 | Signature                                                                   | Description                                                                 |
 |-----------------------------------------------------------------------------|-----------------------------------------------------------------------------|
-| `manipulate(Media $media, array $conversions, bool $onlyIfMissing = true): void` | Run listed conversion closures against a media item. Skips existing files unless `$onlyIfMissing` is `false`. |
+| `manipulate(Media $media, array $conversions, bool $onlyIfMissing = true): array` | Run conversions and return `completed` names plus per-conversion `failed` exceptions. Versioned successes are reported only after manifest publication. |
 
 ---
 

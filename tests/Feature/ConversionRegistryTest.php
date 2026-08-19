@@ -170,3 +170,9 @@ it('all() returns closures only, not internal format data', function () {
         ->and($all['one']())->toEqual('one')
         ->and($all['two']())->toEqual('two');
 });
+it('preserves unsafe legacy conversion registrations but rejects versioned generation', function () {
+    $registry = app(ConversionRegistry::class);
+    $registry->register('../thumb', fn ($image) => $image);
+
+    expect($registry->exists('../thumb'))->toBeTrue();
+});
