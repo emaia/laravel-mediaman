@@ -284,6 +284,14 @@ Each run writes all widths and formats beneath one ULID before switching the man
 
 Concurrent jobs never overwrite each other's files. The last successful publisher becomes active, while previous generations remain readable until explicit pruning. A failed replacement preserves the previous manifest.
 
+The generator returns `ResponsiveGenerationResult`: `published` means every requested variant was stored, `partial` means supported variants were published while known unsupported encoders/formats were skipped, and `no-op` means no manifest was published. Storage and publication failures still throw. `ResponsiveImagesGenerated` is emitted only by queued jobs after `published` or `partial` results.
+
+Legacy stable-path mode preserves its pre-versioning semantics: a run where every format is skipped, or no width remains eligible, can publish an empty manifest and replace the previous one. Generation mode instead preserves the previous manifest when zero variants are produced.
+
+Direct inline calls synchronize the supplied `Media` instance to the row that atomically published the manifest. Save unrelated dirty model attributes before calling the generator service directly; otherwise that synchronization intentionally replaces the in-memory dirty state with the authoritative database row.
+
+The service method has no native return declaration to preserve compatibility with 3.x subclasses that override it as `void`. The built-in implementation returns `ResponsiveGenerationResult`; queued jobs treat a legacy `null` subclass return as the prior successful behavior and expose a `null` event result.
+
 MediaMan also retains the set of disks that have held versioned generations. If the responsive disk changes more than once, clear, force-delete, doctor, and default pruning can still discover older retained files without migrating them during a model save.
 
 Rollout existing media after enabling the setting:

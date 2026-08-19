@@ -38,7 +38,17 @@ The pruning command is a dry run unless `--force` is present. Schedule it only a
 
 `mediaman:rotate-paths` refuses to run while responsive generation versioning is enabled or retained lifecycle state remains. Moving those directories would invalidate immutable URLs and race with new generation. Before rotating `APP_KEY`, restore revalidating cache headers, wait for cached HTML to expire, disable responsive versioning, clear responsive variants and retained generations, rotate paths, then re-enable and regenerate them.
 
+Keep the old key in Laravel's `APP_PREVIOUS_KEYS` during this workflow. Retryable responsive-clear tombstones are authenticated against the current and previous key ring, so removing the old key before a failed storage cleanup is retried intentionally causes the retry to fail closed.
+
 Responsive generation and clear commands now return exit code `1` when one or more inline media operations fail, while continuing to process the remaining records. Automation that previously parsed only textual `Failed` output should use the exit code.
+
+`mediaman:rotate-paths` now returns exit code `1` when old and new directories both exist, when responsive lifecycle state blocks rotation, or when a filesystem move fails. Its default dry-run remains strictly read-only. Automation that previously treated a reported path conflict as success must handle the non-zero exit.
+
+Queued `ResponsiveImagesGenerated` listeners now run only after a manifest is actually published. Missing sources, non-raster media, and versioned runs with no eligible widths are reported as no-ops and do not emit the event. Successful events expose `$event->result`; existing `$event->media` and `$event->options` payloads remain unchanged.
+
+The global `mediaman.queue` connection is now applied by both image job constructors. Jobs dispatched from model helpers and channel attachments therefore use the same connection as command-dispatched jobs.
+
+`ResponsiveImageGenerator::generateResponsiveImages()` intentionally omits a native return declaration so existing 3.x subclasses with `void` overrides remain loadable. The built-in generator returns `ResponsiveGenerationResult`; jobs also accept a legacy `null` return and expose `null` as the event result for those custom subclasses.
 
 ---
 

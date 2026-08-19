@@ -57,7 +57,7 @@ Public surface of the package, organized by class/trait. Each entry links back t
 | Signature                                                                | Description                               |
 |--------------------------------------------------------------------------|-------------------------------------------|
 | `hasConversion(string $conversion): bool`                                | Conversion file exists.                   |
-| `generateResponsiveImages(array $options = []): void`                    | Generate responsive variants.             |
+| `generateResponsiveImages(array $options = []): self`                    | Dispatch or synchronously generate responsive variants. |
 | `hasResponsiveImages(): bool`                                            | Any responsive variants exist.            |
 | `getResponsiveImages(): Collection`                                      | Collection of variant descriptors.        |
 | `getResponsiveUrl(?int $width = null, ?string $format = null): string`   | URL of the best (or specified) variant.   |
@@ -134,7 +134,6 @@ Public surface of the package, organized by class/trait. Each entry links back t
 | `PROPERTY_RESPONSIVE_CLEARING` | `'responsive_clearing'` | Internal retryable clear-operation tombstone. |
 | `PROPERTY_RESPONSIVE_PRUNING` | `'responsive_pruning'` | Internal per-generation pruning claims. |
 | `PROPERTY_RESPONSIVE_ROTATING` | `'responsive_rotating'` | Internal path-rotation claim. |
-| `PROPERTY_RESPONSIVE_DELETING` | `'responsive_deleting'` | Internal force-delete claim. |
 
 ---
 
@@ -335,7 +334,7 @@ Format is auto-detected at registration time via reflection on the closure's ret
 
 | Signature                                                                | Description                                           |
 |--------------------------------------------------------------------------|-------------------------------------------------------|
-| `generateResponsiveImages(Media $media, array $options = []): void`      | Generate responsive variants for a media item.        |
+| `generateResponsiveImages(Media $media, array $options = []): ResponsiveGenerationResult` | Generate and atomically publish variants; hard failures throw. |
 | `clearResponsiveImages(Media $media): void`                              | Remove all responsive variant files from disk.        |
 | `setWidthCalculator(WidthCalculator $calculator): self`                  | Swap the width calculation strategy for this instance. |
 
@@ -508,7 +507,11 @@ See [Security → SSRF protection](security.md#ssrf-protection-for-remote-urls).
 
 ## Enums
 
-`Emaia\MediaMan\Enums\MediaFormat` and `Emaia\MediaMan\Enums\MediaType`.
+`Emaia\MediaMan\Enums\MediaFormat`, `Emaia\MediaMan\Enums\MediaType`, and `Emaia\MediaMan\ResponsiveImages\ResponsiveGenerationStatus`.
+
+`ResponsiveGenerationStatus` has `NoOp`, `Published`, and `Partial` cases. `ResponsiveGenerationResult` carries the status, generation, disk, attempted/published counts, skipped format details, and an optional no-op reason. Hard failures are represented by the original exception rather than a result so queue retry behavior remains intact.
+
+The generator's native return declaration is intentionally omitted for compatibility with existing 3.x subclasses that override the method as `void`. The built-in implementation returns the documented result; a legacy subclass may still return `null`.
 
 ### `MediaFormat` (backed string enum)
 
@@ -542,7 +545,7 @@ Broad bucket classification used by `Media::isOfType()` and `$media->type` acces
 | `Emaia\MediaMan\Events\MediaPrunedFromCollection` | When `enforceMaxItems()` auto-detaches media.     |
 | `Emaia\MediaMan\Events\ConversionCompleted`       | At the end of the conversion queued job (carries the conversions that succeeded). |
 | `Emaia\MediaMan\Events\ConversionFailed`          | One per failed conversion inside a batch (carries the failing name + exception). |
-| `Emaia\MediaMan\Events\ResponsiveImagesGenerated` | At the end of the responsive variants queued job. |
+| `Emaia\MediaMan\Events\ResponsiveImagesGenerated` | After a queued responsive job publishes a complete or partial manifest. |
 
 See [Events](events.md).
 

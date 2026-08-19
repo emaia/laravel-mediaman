@@ -116,6 +116,8 @@ clear responsive images and retained generations, rotate paths, then re-enable a
 retained generation-disk history, unverified markers, and old/new path conflicts also return a non-zero exit instead of
 silently creating responsive 404s.
 
+Dry-run is strictly read-only: it does not persist rotation claims, bump `updated_at`, or increment the responsive generation epoch.
+
 ## Stats (consolidated)
 
 Show media, conversion, and responsive image statistics. Without flags, a consolidated dashboard is shown. Use
@@ -239,7 +241,7 @@ php artisan mediaman:clear-responsive --collection="Blog Posts"
 php artisan mediaman:clear-responsive --media=1,3,5..10
 ```
 
-Clear first unpublishes responsive metadata and invalidates already-running generation jobs, then removes files. A storage cleanup failure leaves a retryable tombstone containing the original disk/base information; generation remains blocked until a later clear retry succeeds. The command continues across media and returns exit code `1` when any item fails.
+Clear evaluates every selected media record, including non-raster records whose MIME type changed after responsive metadata was created. It first unpublishes responsive metadata and invalidates already-running generation jobs, then removes files. A storage cleanup failure leaves a retryable tombstone containing the original disk/base information, and generation stays blocked until a later clear retry succeeds. During `APP_KEY` rotation, keep the old key in Laravel's `APP_PREVIOUS_KEYS` until every tombstone has cleared; retries authenticate against that key ring and fail closed if the issuing key is unavailable. The command continues across media and returns exit code `1` when any item fails.
 
 ## Prune responsive generations
 
@@ -260,7 +262,7 @@ php artisan mediaman:prune-responsive-generations --collection="Blog Posts"
 php artisan mediaman:prune-responsive-generations --disk=old-responsive --force
 ```
 
-The command returns non-zero when configuration, listing, active-state validation, or deletion fails, while continuing with other media where safe. It streams media records rather than loading the full catalog.
+The command returns non-zero when configuration, listing, marker validation, active-state validation, or deletion fails, while continuing with other generations and media where safe. Candidate output includes file count and bytes when the filesystem adapter exposes both values. It streams media records rather than loading the full catalog, and dry-run reads current state without acquiring row locks or pruning claims.
 
 Scheduling is application-owned:
 
