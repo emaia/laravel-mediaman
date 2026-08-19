@@ -243,17 +243,22 @@ When off, `Media::getPlaceholder()` returns `null`, `getUrlOrPlaceholder()` beha
 
 **Per-generator tuning is scoped to its own sub-block.** `mediaman.placeholder.blurred_svg.{width, blur, quality}` only applies when the active `generator` is `BlurredSvgPlaceholder`; `mediaman.placeholder.geometric_blur.{grid_size, blur_std_deviation}` only applies to `GeometricBlurPlaceholder`. Swapping generators ignores knobs that don't belong to them — no silent reuse, no namespace collisions.
 
-## Conversions disk
+## Conversions
 
 Default disk for conversion variants. When set, every `Conversion::register()` writes its output here unless the registration overrides it with its own `disk:` argument.
 
 ```php
 'conversions' => [
     'disk' => env('MEDIAMAN_CONVERSIONS_DISK'),
+    'versioning' => env('MEDIAMAN_CONVERSION_VERSIONING', false),
+    'version_retention_days' => env('MEDIAMAN_CONVERSION_VERSION_RETENTION_DAYS', 7),
+    'generation_timeout_minutes' => env('MEDIAMAN_CONVERSION_GENERATION_TIMEOUT_MINUTES', 1440),
 ],
 ```
 
 Resolution order, most specific wins: per-conversion `disk:` argument → this config default → media's own disk. Typical use case: keep originals on a durable cloud disk (S3, GCS) while serving the hot, read-heavy variants from a faster local disk — without repeating `disk: 'X'` on every registration.
+
+`versioning` accepts `false` (the backward-compatible default) or `'generation'`. Generation mode writes each named conversion beneath its own ULID directory and publishes active path/disk metadata atomically. `version_retention_days` controls pruning eligibility; `generation_timeout_minutes` protects fresh in-progress markers. Invalid values fail generation and are reported by doctor/stats.
 
 See [Conversions → Conversion disk](conversions.md#conversion-disk) for the full resolution rules and per-registration overrides.
 

@@ -3,16 +3,17 @@
 namespace Emaia\MediaMan\Console\Commands;
 
 use Emaia\MediaMan\Console\Concerns\CommandOutputStyle;
-use Emaia\MediaMan\Console\Concerns\ParsesMediaIds;
+use Emaia\MediaMan\Console\Concerns\ParsesMediaKeys;
 use Emaia\MediaMan\ConversionRegistry;
-use Emaia\MediaMan\Models\Media;
-use Emaia\MediaMan\Resolvers\MediaResolver;
+use Emaia\MediaMan\Conversions\ConversionClearer;
+use Emaia\MediaMan\Traits\ResolvesModels;
 use Illuminate\Console\Command;
 
 class ClearConversionsCommand extends Command
 {
     use CommandOutputStyle;
-    use ParsesMediaIds;
+    use ParsesMediaKeys;
+    use ResolvesModels;
 
     protected $signature = 'mediaman:clear-conversions
                             {--conversion= : Required. Comma-separated conversion names (e.g. "thumb,cover")}
@@ -32,19 +33,21 @@ class ClearConversionsCommand extends Command
 
         $conversionNames = array_map('trim', explode(',', $this->option('conversion')));
 
-        $registry = app(ConversionRegistry::class);
-        $invalid = array_filter($conversionNames, fn ($name) => ! $registry->exists($name));
+        $unsafe = array_filter(
+            $conversionNames,
+            fn ($name) => preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/', $name) !== 1,
+        );
 
-        if (! empty($invalid)) {
-            $this->error('Unknown conversion(s): '.implode(', ', $invalid));
+        if ($unsafe !== []) {
+            $this->error('Invalid conversion name(s): '.implode(', ', $unsafe));
 
             return self::FAILURE;
         }
 
-        $query = Media::query()->raster();
+        $query = $this->mediaModel()::query();
 
-        if ($mediaOption = $this->option('media')) {
-            $ids = $this->parseMediaIds($mediaOption);
+        if ($this->option('media') !== null) {
+            $ids = $this->parseMediaKeys((string) $this->option('media'));
 
             if (empty($ids)) {
                 $this->error('Invalid --media value.');
@@ -52,7 +55,7 @@ class ClearConversionsCommand extends Command
                 return self::FAILURE;
             }
 
-            $query->whereIn('id', $ids);
+            $query->whereKey($ids);
         }
 
         if ($collection = $this->option('collection')) {
@@ -62,6 +65,27 @@ class ClearConversionsCommand extends Command
         }
 
         $mediaItems = $query->get();
+
+        $registry = app(ConversionRegistry::class);
+        $invalid = array_filter($conversionNames, function ($name) use ($registry, $mediaItems): bool {
+            if ($registry->exists($name)) {
+                return false;
+            }
+
+            return ! $mediaItems->contains(function ($media) use ($name): bool {
+                $files = $media->getCustomProperty($media::PROPERTY_CONVERSION_FILES, []);
+                $clearing = $media->getCustomProperty($media::PROPERTY_CONVERSION_CLEARING, []);
+
+                return (is_array($files) && array_key_exists($name, $files))
+                    || (is_array($clearing) && array_key_exists($name, $clearing));
+            });
+        });
+
+        if ($invalid !== []) {
+            $this->error('Unknown conversion(s): '.implode(', ', $invalid));
+
+            return self::FAILURE;
+        }
 
         if ($mediaItems->isEmpty()) {
             $this->info('No media items found to process.');
@@ -87,26 +111,19 @@ class ClearConversionsCommand extends Command
         $cleared = 0;
         $skipped = 0;
         $failures = [];
-        $resolver = app(MediaResolver::class);
+        $clearer = app(ConversionClearer::class);
 
         foreach ($mediaItems as $media) {
             foreach ($conversionNames as $conv) {
-                $filesystem = $media->conversionFilesystem($conv);
-                $conversionDir = $resolver->pathForConversion($media, $conv);
-
                 try {
-                    if (! $filesystem->exists($conversionDir)) {
+                    if (! $clearer->clear($media, $conv)) {
                         $skipped++;
 
                         continue;
                     }
 
-                    if ($filesystem->deleteDirectory($conversionDir)) {
-                        $cleared++;
-                    } else {
-                        $failures[] = ['id' => $media->getKey(), 'name' => $media->name, 'error' => "failed to delete '$conv' directory"];
-                    }
-                } catch (\Exception $e) {
+                    $cleared++;
+                } catch (\Throwable $e) {
                     $failures[] = ['id' => $media->getKey(), 'name' => $media->name, 'error' => $e->getMessage()];
                 }
             }
@@ -135,6 +152,6 @@ class ClearConversionsCommand extends Command
             $this->statusLine('Result', 'info', 'nothing to do');
         }
 
-        return self::SUCCESS;
+        return $failures === [] ? self::SUCCESS : self::FAILURE;
     }
 }

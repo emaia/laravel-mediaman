@@ -2,6 +2,7 @@
 
 namespace Emaia\MediaMan\Console\Commands;
 
+use Emaia\MediaMan\Conversions\ConversionGenerationConfig;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveGenerationConfig;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
@@ -46,11 +47,12 @@ class RotatePathsCommand extends Command
 
         try {
             $generationConfig = ResponsiveGenerationConfig::fromConfig();
+            $conversionConfig = ConversionGenerationConfig::fromConfig();
 
-            if ($generationConfig->isVersioned()) {
+            if ($generationConfig->isVersioned() || $conversionConfig->isVersioned()) {
                 $this->error(
-                    'Path rotation is blocked while responsive generation versioning is enabled. '
-                    .'Disable versioning, clear retained responsive generations, then retry.'
+                    'Path rotation is blocked while derived-media generation versioning is enabled. '
+                    .'Disable versioning, clear retained generations, then retry.'
                 );
 
                 return self::FAILURE;
@@ -309,6 +311,10 @@ class RotatePathsCommand extends Command
             || $media->responsiveGenerationDisks() !== []
             || $media->hasCustomProperty(Media::PROPERTY_RESPONSIVE_CLEARING)
             || $media->hasCustomProperty(Media::PROPERTY_RESPONSIVE_PRUNING)
+            || $media->conversionFiles() !== []
+            || $media->hasCustomProperty(Media::PROPERTY_CONVERSION_GENERATION_DISKS)
+            || $media->hasCustomProperty(Media::PROPERTY_CONVERSION_CLEARING)
+            || $media->hasCustomProperty(Media::PROPERTY_CONVERSION_PRUNING)
         ) {
             return false;
         }

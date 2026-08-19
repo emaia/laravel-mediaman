@@ -10,12 +10,15 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 - Added `mediaman:prune-responsive-generations`, a dry-run-first command that removes inactive and abandoned ULID generations after retention while protecting active manifests and in-progress work.
 - `mediaman:doctor` and `mediaman:stats --responsive` now report generation strategy, retention, timeout, and legacy/versioned manifest coverage.
 - Responsive generation returns a structured `ResponsiveGenerationResult` describing no-op, complete, or partial publication outcomes. Hard failures continue to throw so queued retries remain unchanged.
+- Conversions can opt into immutable-safe per-conversion ULID paths with `MEDIAMAN_CONVERSION_VERSIONING=generation`, persisted active metadata, independent retention, and in-progress timeout settings.
+- Added `mediaman:prune-conversion-generations`, a dry-run-first command for inactive conversion generations.
 
 ### Changed
 
 - `ResponsiveImagesGenerated` is emitted only after a queued job publishes a manifest; no-op jobs for non-raster or missing source media no longer emit it. The event now exposes the structured result as `$event->result`.
 - Responsive and conversion jobs consistently use the connection configured by `mediaman.queue`, regardless of whether dispatch originates from a command, upload, model helper, or channel attachment.
 - `mediaman:clear-responsive` scans every selected media record rather than only raster images, allowing stale responsive metadata and retry tombstones to be cleared after a record's MIME type changes.
+- Conversion completion now follows successful manifest publication, queued `--force` requests preserve force semantics, and versioned skips emit no completion event.
 - `deleteQuietly()` and `forceDeleteQuietly()` now suppress model/package events but still remove physical media files. Hard-delete cleanup and `MediaDeleted` are deferred until an enclosing application transaction commits; rollback preserves both the row and its files.
 
 ### Fixed
@@ -31,6 +34,8 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 - Clear tombstones accept Laravel's `APP_PREVIOUS_KEYS` key ring during `APP_KEY` rotation, and responsive metadata is validated before path derivation.
 - Force-delete coordinates against fresh lifecycle state without firing model update observers; its row lock is released after the database delete and before storage cleanup begins.
 - Responsive doctor/stats counts remain database-driven, pruning isolates malformed markers per generation, and dry-run lifecycle commands no longer acquire write claims.
+- Conversion reads remain pinned to persisted active paths and disks after registration/configuration changes; generation, clear, pruning, copy, delete, and path rotation now coordinate around versioned conversion state.
+- Conversion writes treat filesystem `false` results as failures, merge manifests through a fresh locked row, and preserve the previous active generation until replacement publication succeeds.
 
 ## [3.0.2] — 2026-07-30
 

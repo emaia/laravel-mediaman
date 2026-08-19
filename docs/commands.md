@@ -139,8 +139,8 @@ php artisan mediaman:stats --responsive --conversions
 
 The consolidated view shows media inventory (records, total size, image records), registered conversion names, and
 responsive coverage with current config. The `--responsive` detail adds per-format configuration, generation strategy,
-retention, and legacy/versioned manifest counts. The `--conversions` detail shows each registered conversion with its
-detected output format.
+retention, and legacy/versioned manifest counts. The `--conversions` detail shows registrations, output formats,
+generation configuration, and the number of media records with active versioned conversions.
 
 ## Generate conversions
 
@@ -166,7 +166,7 @@ Behavior:
 
 | Flag      | Default | Effect                                                                                                                                              |
 |-----------|---------|-----------------------------------------------------------------------------------------------------------------------------------------------------|
-| `--force` | off     | Overwrite existing conversion files. Default skips when the target already exists on disk.                                                          |
+| `--force` | off     | Regenerate existing conversions. In generation mode this publishes a new ULID path; queued jobs preserve this policy.                              |
 | `--queue` | off     | Dispatch each item as a `PerformConversions` job instead of running synchronously. Useful for large catalogs where you don't want to block the CLI. |
 
 A confirmation prompt fires when the operation count (`media × conversions`) crosses 100, so a typo in `--media` doesn't
@@ -181,8 +181,8 @@ conversions.
 php artisan mediaman:clear-conversions --conversion=thumb,cover
 ```
 
-The `--conversion` flag is required. Names are validated against the `ConversionRegistry` — unknown names short-circuit
-before any work starts.
+The `--conversion` flag is required. Registered names and persisted versioned entries are accepted, so an old conversion
+can still be cleared after its registration is removed.
 
 Filters:
 
@@ -197,8 +197,19 @@ Behavior:
 |-----------|---------|-------------------------------|
 | `--force` | off     | Skip the confirmation prompt. |
 
-A confirmation prompt fires when the operation count crosses 100. Converted files are deleted from disk (conversions are
-filesystem-only — there is no database metadata to reset).
+A confirmation prompt fires when the operation count crosses 100. Versioned entries are unpublished under a row lock
+before storage cleanup, and a retryable tombstone prevents stale generators from republishing after clear.
+
+## Prune conversion generations
+
+List inactive ULID generations without changing storage:
+
+```bash
+php artisan mediaman:prune-conversion-generations --older-than=7
+```
+
+Add `--force` to delete candidates. Filters are `--media`, `--collection`, `--conversion`, and `--disk`. The active
+manifest generation, future ULIDs, malformed directories, legacy files, and fresh in-progress markers are retained.
 
 ## Generate responsive
 

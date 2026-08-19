@@ -90,3 +90,11 @@ it('ships backward-compatible responsive generation defaults', function () {
         ->and($packageConfig['responsive_images']['version_retention_days'])->toBe(7)
         ->and($packageConfig['responsive_images']['generation_timeout_minutes'])->toBe(1440);
 });
+
+it('ships backward-compatible conversion generation defaults', function () {
+    $packageConfig = require dirname(__DIR__, 2).'/config/mediaman.php';
+
+    expect($packageConfig['conversions']['versioning'])->toBeFalse()
+        ->and($packageConfig['conversions']['version_retention_days'])->toBe(7)
+        ->and($packageConfig['conversions']['generation_timeout_minutes'])->toBe(1440);
+});

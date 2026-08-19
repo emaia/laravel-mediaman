@@ -4,6 +4,8 @@ namespace Emaia\MediaMan\Console\Commands;
 
 use Emaia\MediaMan\Console\Concerns\CommandOutputStyle;
 use Emaia\MediaMan\ConversionRegistry;
+use Emaia\MediaMan\Conversions\ConversionGenerationConfig;
+use Emaia\MediaMan\Conversions\ConversionMetadataQuery;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveGenerationConfig;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveMetadataQuery;
@@ -24,6 +26,7 @@ class StatsCommand extends Command
     {
         try {
             ResponsiveGenerationConfig::fromConfig();
+            ConversionGenerationConfig::fromConfig();
         } catch (\InvalidArgumentException $e) {
             $this->error($e->getMessage());
 
@@ -62,6 +65,8 @@ class StatsCommand extends Command
         $this->section('Conversions');
 
         $this->statusLine('Registered', 'info', (string) $count);
+        $config = ConversionGenerationConfig::fromConfig();
+        $this->statusLine('Versioning', 'info', $config->isVersioned() ? 'generation' : 'disabled (legacy paths)');
 
         if (! $detailed) {
             if ($count > 0) {
@@ -73,14 +78,20 @@ class StatsCommand extends Command
 
         if ($count === 0) {
             $this->statusLine('Result', 'info', 'no conversions registered');
-
-            return;
+        } else {
+            foreach ($names as $name) {
+                $format = $registry->getFormat($name) ?? 'auto-detect';
+                $this->statusLine("  $name", 'info', "<fg=gray>$format</>");
+            }
         }
 
-        foreach ($names as $name) {
-            $format = $registry->getFormat($name) ?? 'auto-detect';
-            $this->statusLine("  $name", 'info', "<fg=gray>$format</>");
-        }
+        $this->statusLine(
+            'Versioned media',
+            'info',
+            number_format(ConversionMetadataQuery::whereHasManifest($this->mediaQuery())->count()),
+        );
+        $this->statusLine('Generation retention', 'info', $config->retentionDays.' day(s)');
+        $this->statusLine('In-progress timeout', 'info', $config->generationTimeoutMinutes.' minute(s)');
     }
 
     protected function showResponsiveSummary(bool $detailed): void

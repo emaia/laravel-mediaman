@@ -208,3 +208,19 @@ it('fails gracefully with invalid --media range (from > to)', function () {
         ->expectsOutputToContain('Invalid --media value')
         ->assertExitCode(1);
 });
+
+it('clears a persisted versioned conversion after its registration is removed', function () {
+    config(['mediaman.conversions.versioning' => 'generation']);
+    $media = createMediaWithConversion('thumb');
+    $active = $media->getConversionFile('thumb');
+    app()->instance(ConversionRegistry::class, new ConversionRegistry);
+
+    $this->artisan('mediaman:clear-conversions', [
+        '--conversion' => 'thumb',
+        '--media' => (string) $media->getKey(),
+        '--force' => true,
+    ])->assertExitCode(0);
+
+    expect($media->fresh()->getConversionFile('thumb'))->toBeNull()
+        ->and(Storage::disk($active['disk'])->exists($active['path']))->toBeFalse();
+});

@@ -4,6 +4,8 @@ namespace Emaia\MediaMan\Console\Commands;
 
 use Emaia\MediaMan\Console\Concerns\CommandOutputStyle;
 use Emaia\MediaMan\ConversionRegistry;
+use Emaia\MediaMan\Conversions\ConversionGenerationConfig;
+use Emaia\MediaMan\Conversions\ConversionMetadataQuery;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveGenerationConfig;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveMetadataQuery;
@@ -505,6 +507,30 @@ class DoctorCommand extends Command
         $registry = app(ConversionRegistry::class);
 
         $this->statusLine('Registered', 'info', (string) count($registry->all()));
+
+        try {
+            $config = ConversionGenerationConfig::fromConfig();
+            $this->statusLine('Versioning', 'info', $config->isVersioned() ? 'generation' : 'disabled (legacy paths)');
+            $this->statusLine('Generation retention', 'info', $config->retentionDays.' day(s)');
+            $this->statusLine('In-progress timeout', 'info', $config->generationTimeoutMinutes.' minute(s)');
+
+            if ($config->isVersioned()) {
+                $this->statusLine(
+                    'Generation pruning',
+                    'warn',
+                    'schedule `mediaman:prune-conversion-generations --force` after rollout',
+                );
+            }
+        } catch (\InvalidArgumentException $e) {
+            $this->statusLine('Versioning', 'error', $e->getMessage());
+        }
+
+        try {
+            $active = ConversionMetadataQuery::whereHasManifest($this->mediaQuery())->count();
+            $this->statusLine('Versioned media', 'info', number_format($active));
+        } catch (Throwable $e) {
+            $this->statusLine('Versioned media', 'warn', 'query failed: '.$e->getMessage());
+        }
     }
 
     protected function checkMediaInventory(): void

@@ -6,6 +6,35 @@ For non-breaking additions, see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
+## From v3.1 to v3.2
+
+Conversion generation versioning is opt-in and requires no database migration. Existing records and stable conversion paths remain unchanged while `versioning` is `false`.
+
+Published configs must add the new nested keys before enabling the feature:
+
+```php
+'conversions' => [
+    'disk' => env('MEDIAMAN_CONVERSIONS_DISK'),
+    'versioning' => env('MEDIAMAN_CONVERSION_VERSIONING', false),
+    'version_retention_days' => env('MEDIAMAN_CONVERSION_VERSION_RETENTION_DAYS', 7),
+    'generation_timeout_minutes' => env('MEDIAMAN_CONVERSION_GENERATION_TIMEOUT_MINUTES', 1440),
+],
+```
+
+Enable generation mode, regenerate, verify URLs, then schedule pruning after the longest cache and rollback window:
+
+```bash
+php artisan mediaman:doctor
+php artisan mediaman:generate-conversions --conversion=thumb,cover --force
+php artisan mediaman:prune-conversion-generations
+```
+
+`mediaman:prune-conversion-generations` is dry-run-only without `--force`. Do not apply immutable cache headers to legacy conversion paths. Path rotation is blocked while conversion versioning or retained conversion lifecycle state is active.
+
+Filesystem `false` writes and clear failures now produce failures instead of successful conversion outcomes. Queued `generate-conversions --force` now actually regenerates, and completion events fire only after versioned metadata is published.
+
+---
+
 ## From v3.0 to v3.1
 
 Responsive generation versioning is opt-in and requires no database migration. Existing manifests, stable responsive paths, and custom `MediaResolver` implementations continue to work unchanged.

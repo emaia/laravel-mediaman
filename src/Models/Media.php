@@ -5,12 +5,17 @@ namespace Emaia\MediaMan\Models;
 use DateTimeInterface;
 use Emaia\MediaMan\Casts\Json;
 use Emaia\MediaMan\ConversionRegistry;
+use Emaia\MediaMan\Conversions\ConversionClearer;
+use Emaia\MediaMan\Conversions\ConversionGeneration;
+use Emaia\MediaMan\Conversions\ConversionManifest;
+use Emaia\MediaMan\Conversions\ConversionPath;
 use Emaia\MediaMan\Database\Factories\MediaFactory;
 use Emaia\MediaMan\Enums\MediaFormat;
 use Emaia\MediaMan\Enums\MediaType;
 use Emaia\MediaMan\Events\MediaDeleted;
 use Emaia\MediaMan\Exceptions\InvalidCopyTarget;
 use Emaia\MediaMan\Exceptions\TemporaryUrlNotSupported;
+use Emaia\MediaMan\ImageManipulator;
 use Emaia\MediaMan\Resolvers\MediaResolver;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveGeneration;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
@@ -73,6 +78,18 @@ class Media extends Model implements Attachable
 
     const string PROPERTY_RESPONSIVE_ROTATING = 'responsive_rotating';
 
+    const string PROPERTY_CONVERSION_FILES = 'conversion_files';
+
+    const string PROPERTY_CONVERSION_GENERATION_DISKS = 'conversion_generation_disks';
+
+    const string PROPERTY_CONVERSION_GENERATION_EPOCHS = 'conversion_generation_epochs';
+
+    const string PROPERTY_CONVERSION_MANIFEST_SIGNATURE = 'conversion_manifest_signature';
+
+    const string PROPERTY_CONVERSION_CLEARING = 'conversion_clearing';
+
+    const string PROPERTY_CONVERSION_PRUNING = 'conversion_pruning';
+
     const string PROPERTY_IMAGE_META = 'image_meta';
 
     protected $fillable = [
@@ -92,6 +109,9 @@ class Media extends Model implements Attachable
 
     /** @var array<int, array{disk: string, path: string}> */
     protected array $deletionResponsivePaths = [];
+
+    /** @var array<int, array{disk: string, path: string}> */
+    protected array $deletionConversionPaths = [];
 
     protected ?string $deletionPrimaryDisk = null;
 
@@ -195,18 +215,42 @@ class Media extends Model implements Attachable
         )));
         $clearState = $state->getCustomProperty(self::PROPERTY_RESPONSIVE_CLEARING);
 
-        if (! is_array($clearState) || ! ResponsiveImageGenerator::isValidClearState($state, $clearState)) {
+        if (is_array($clearState) && ResponsiveImageGenerator::isValidClearState($state, $clearState)) {
+            foreach ($clearState['disks'] as $disk) {
+                if (is_string($disk) && $disk !== '' && is_string($clearState['base_path'])) {
+                    $media->deletionResponsivePaths[] = [
+                        'disk' => $disk,
+                        'path' => $clearState['base_path'],
+                    ];
+                }
+            }
+        }
+
+        $conversionClearing = $state->getCustomProperty(self::PROPERTY_CONVERSION_CLEARING, []);
+
+        if (! is_array($conversionClearing)) {
             return;
         }
 
-        foreach ($clearState['disks'] as $disk) {
-            if (is_string($disk) && $disk !== '' && is_string($clearState['base_path'])) {
-                $media->deletionResponsivePaths[] = [
+        foreach ($conversionClearing as $conversion => $conversionState) {
+            if (
+                ! is_string($conversion)
+                || ! is_array($conversionState)
+                || ! ConversionClearer::isValidClearState($state, $conversion, $conversionState)
+            ) {
+                continue;
+            }
+
+            foreach ($conversionState['disks'] as $disk) {
+                $media->deletionVariantDisks[] = $disk;
+                $media->deletionConversionPaths[] = [
                     'disk' => $disk,
-                    'path' => $clearState['base_path'],
+                    'path' => $conversionState['base_path'],
                 ];
             }
         }
+
+        $media->deletionVariantDisks = array_values(array_unique($media->deletionVariantDisks));
     }
 
     private static function deleteCapturedFiles(Media $media, bool $dispatchEvent): void
@@ -235,6 +279,10 @@ class Media extends Model implements Attachable
             Storage::disk($responsivePath['disk'])->deleteDirectory($responsivePath['path']);
         }
 
+        foreach ($media->deletionConversionPaths as $conversionPath) {
+            Storage::disk($conversionPath['disk'])->deleteDirectory($conversionPath['path']);
+        }
+
         if ($dispatchEvent) {
             event(new MediaDeleted($media));
         }
@@ -255,6 +303,12 @@ class Media extends Model implements Attachable
     protected function getPathWithCorrectExtension(string $conversion = ''): string
     {
         if ($conversion) {
+            $active = $this->getConversionFile($conversion);
+
+            if ($active !== null) {
+                return $active['path'];
+            }
+
             $directory = app(MediaResolver::class)->pathForConversion($this, $conversion);
             $originalName = $this->file_name ?? '';
             $extension = $this->detectConversionFormat($conversion)
@@ -274,6 +328,12 @@ class Media extends Model implements Attachable
 
     protected function detectConversionFormat(string $conversion): ?string
     {
+        $active = $this->getConversionFile($conversion);
+
+        if ($active !== null) {
+            return $active['format'];
+        }
+
         if (isset($this->conversionFormatCache[$conversion])) {
             return $this->conversionFormatCache[$conversion];
         }
@@ -414,12 +474,14 @@ class Media extends Model implements Attachable
         return Storage::disk($this->disk);
     }
 
-    /**
-     * Resolution chain (most specific wins): per-register `disk:` →
-     * `mediaman.conversions.disk` → media's own disk → `mediaman.disk` →
-     * Laravel's `filesystems.default`.
-     */
+    /** Resolve the active conversion disk, preferring persisted generation metadata. */
     public function getConversionDisk(string $conversion): string
+    {
+        return $this->getConversionFile($conversion)['disk'] ?? $this->getConversionWriteDisk($conversion);
+    }
+
+    /** Resolve where a newly generated conversion should be written. */
+    public function getConversionWriteDisk(string $conversion): string
     {
         $disk = app(ConversionRegistry::class)->getDisk($conversion)
             ?? config('mediaman.conversions.disk');
@@ -430,6 +492,11 @@ class Media extends Model implements Attachable
     public function conversionFilesystem(string $conversion): Filesystem
     {
         return Storage::disk($this->getConversionDisk($conversion));
+    }
+
+    public function conversionWriteFilesystem(string $conversion): Filesystem
+    {
+        return Storage::disk($this->getConversionWriteDisk($conversion));
     }
 
     /**
@@ -446,7 +513,23 @@ class Media extends Model implements Attachable
         $disks = [];
 
         foreach (array_keys($registry->all()) as $conversion) {
-            $disks[$this->getConversionDisk($conversion)] = true;
+            $disks[$this->getConversionWriteDisk($conversion)] = true;
+        }
+
+        foreach ($this->conversionFiles() as $file) {
+            $disks[$file['disk']] = true;
+        }
+
+        $knownDisks = $this->conversionManifestIsValid()
+            ? $this->getCustomProperty(self::PROPERTY_CONVERSION_GENERATION_DISKS, [])
+            : [];
+
+        if (is_array($knownDisks)) {
+            foreach ($knownDisks as $disk) {
+                if (is_string($disk) && $disk !== '') {
+                    $disks[$disk] = true;
+                }
+            }
         }
 
         return array_keys($disks);
@@ -580,7 +663,9 @@ class Media extends Model implements Attachable
     /** Absolute on-disk path with the conversion's resolved extension. */
     public function getFullPath(string $conversion = ''): string
     {
-        return $this->filesystem()->path(
+        $filesystem = $conversion !== '' ? $this->conversionFilesystem($conversion) : $this->filesystem();
+
+        return $filesystem->path(
             $this->getPathWithCorrectExtension($conversion)
         );
     }
@@ -589,6 +674,12 @@ class Media extends Model implements Attachable
     public function getOriginalPath(string $conversion = ''): string
     {
         if ($conversion) {
+            $active = $this->getConversionFile($conversion);
+
+            if ($active !== null) {
+                return $active['path'];
+            }
+
             $directory = app(MediaResolver::class)->pathForConversion($this, $conversion);
         } else {
             $directory = $this->getDirectory();
@@ -682,6 +773,104 @@ class Media extends Model implements Attachable
     public function clearConversionFormatCache(): void
     {
         $this->conversionFormatCache = [];
+    }
+
+    /** Return the validated active metadata for a conversion, or null for legacy/unsafe data. */
+    public function getConversionFile(string $conversion): ?array
+    {
+        try {
+            ConversionPath::name($conversion);
+        } catch (InvalidArgumentException) {
+            return null;
+        }
+
+        $files = $this->getCustomProperty(self::PROPERTY_CONVERSION_FILES, []);
+        $entry = is_array($files) ? ($files[$conversion] ?? null) : null;
+
+        if (! is_array($entry) || ! $this->conversionManifestIsValid()) {
+            return null;
+        }
+
+        foreach (['generation', 'disk', 'path', 'format', 'file_name', 'mime_type'] as $key) {
+            if (! isset($entry[$key]) || ! is_string($entry[$key]) || $entry[$key] === '') {
+                return null;
+            }
+        }
+
+        if (! isset($entry['size']) || ! is_int($entry['size']) || $entry['size'] <= 0) {
+            return null;
+        }
+
+        if (! ConversionGeneration::isManaged($entry['generation'])) {
+            return null;
+        }
+
+        $format = MediaFormat::tryFromValue($entry['format']);
+
+        if ($format === null || $format->mimeType() !== $entry['mime_type']) {
+            return null;
+        }
+
+        try {
+            Storage::disk($entry['disk']);
+        } catch (Throwable) {
+            return null;
+        }
+
+        try {
+            $fileName = ConversionPath::fileName($entry['file_name']);
+            $base = ConversionPath::directory(app(MediaResolver::class)->pathForConversion($this, $conversion));
+        } catch (InvalidArgumentException) {
+            return null;
+        }
+
+        $expectedPath = $base.'/'.$entry['generation'].'/'.$fileName;
+
+        return $entry['path'] === $expectedPath ? $entry : null;
+    }
+
+    /** Return every valid active conversion manifest entry keyed by conversion name. */
+    public function conversionFiles(): array
+    {
+        $files = $this->getCustomProperty(self::PROPERTY_CONVERSION_FILES, []);
+
+        if (! is_array($files)) {
+            return [];
+        }
+
+        $valid = [];
+
+        foreach (array_keys($files) as $conversion) {
+            if (! is_string($conversion)) {
+                continue;
+            }
+
+            $entry = $this->getConversionFile($conversion);
+
+            if ($entry !== null) {
+                $valid[$conversion] = $entry;
+            }
+        }
+
+        return $valid;
+    }
+
+    /** Verify that package-owned conversion paths and disk history were published together. */
+    public function conversionManifestIsValid(): bool
+    {
+        $files = $this->getCustomProperty(self::PROPERTY_CONVERSION_FILES, []);
+        $disks = $this->getCustomProperty(self::PROPERTY_CONVERSION_GENERATION_DISKS, []);
+
+        if (! is_array($files) || ! is_array($disks)) {
+            return false;
+        }
+
+        return ConversionManifest::isValid(
+            $this,
+            $files,
+            $disks,
+            $this->getCustomProperty(self::PROPERTY_CONVERSION_MANIFEST_SIGNATURE),
+        );
     }
 
     /** Replace the media's collection associations (set `$detaching=false` to add only). */
@@ -870,7 +1059,11 @@ class Media extends Model implements Attachable
             ? $this->conversionFilesystem($conversion)
             : $this->filesystem();
 
-        return $fs->download($path, $this->file_name);
+        $fileName = $conversion !== null && $conversion !== ''
+            ? ($this->getConversionFile($conversion)['file_name'] ?? $this->file_name)
+            : $this->file_name;
+
+        return $fs->download($path, $fileName);
     }
 
     /**
@@ -883,7 +1076,11 @@ class Media extends Model implements Attachable
             ? $this->conversionFilesystem($conversion)
             : $this->filesystem();
 
-        return $fs->response($path, $this->file_name);
+        $fileName = $conversion !== null && $conversion !== ''
+            ? ($this->getConversionFile($conversion)['file_name'] ?? $this->file_name)
+            : $this->file_name;
+
+        return $fs->response($path, $fileName);
     }
 
     /**
@@ -938,9 +1135,13 @@ class Media extends Model implements Attachable
             ? $this->getConversionDisk($conversion)
             : $this->disk;
 
+        $active = $conversion !== null && $conversion !== ''
+            ? $this->getConversionFile($conversion)
+            : null;
+
         return Attachment::fromStorageDisk($disk, $this->getPath($conversion ?? ''))
-            ->as($this->file_name)
-            ->withMime($this->mime_type);
+            ->as($active['file_name'] ?? $this->file_name)
+            ->withMime($active['mime_type'] ?? $this->mime_type);
     }
 
     /** Laravel's Attachable contract — invoked by `$mailable->attach($media)`. */
@@ -979,6 +1180,12 @@ class Media extends Model implements Attachable
         $copy = $this->replicate(['id']);
         $copyProperties = is_array($copy->custom_properties) ? $copy->custom_properties : [];
         unset(
+            $copyProperties[self::PROPERTY_CONVERSION_FILES],
+            $copyProperties[self::PROPERTY_CONVERSION_GENERATION_DISKS],
+            $copyProperties[self::PROPERTY_CONVERSION_GENERATION_EPOCHS],
+            $copyProperties[self::PROPERTY_CONVERSION_MANIFEST_SIGNATURE],
+            $copyProperties[self::PROPERTY_CONVERSION_CLEARING],
+            $copyProperties[self::PROPERTY_CONVERSION_PRUNING],
             $copyProperties[self::PROPERTY_RESPONSIVE_IMAGES],
             $copyProperties[self::PROPERTY_RESPONSIVE_GENERATION],
             $copyProperties[self::PROPERTY_RESPONSIVE_GENERATION_DISK],
@@ -1053,45 +1260,215 @@ class Media extends Model implements Attachable
     {
         $registry = app(ConversionRegistry::class);
         $resolver = app(MediaResolver::class);
+        $rawFiles = $this->getCustomProperty(self::PROPERTY_CONVERSION_FILES, []);
+        $activeFiles = $this->conversionFiles();
 
-        foreach (array_keys($registry->all()) as $conversion) {
-            $sourceFs = $this->conversionFilesystem($conversion);
-            $sourceDir = $resolver->pathForConversion($this, $conversion);
+        if (! is_array($rawFiles) || count($rawFiles) !== count($activeFiles)) {
+            throw new RuntimeException('Cannot copy malformed conversion metadata.');
+        }
 
-            if (! $sourceFs->exists($sourceDir)) {
-                continue;
+        /** @var Media|null $freshSource */
+        $freshSource = $this->newQuery()->useWritePdo()->whereKey($this->getKey())->first();
+
+        if (
+            $freshSource === null
+            || $freshSource->hasCustomProperty(self::PROPERTY_CONVERSION_CLEARING)
+            || $freshSource->hasCustomProperty(self::PROPERTY_RESPONSIVE_ROTATING)
+        ) {
+            throw new RuntimeException("Media [{$this->getKey()}] cannot copy conversions during a lifecycle operation.");
+        }
+
+        $rebuiltFiles = [];
+        $markers = [];
+        $copiedVersionedFiles = [];
+        $versionedPublished = false;
+
+        try {
+            foreach ($activeFiles as $conversion => $entry) {
+                $sourceFs = Storage::disk($entry['disk']);
+                $targetDisk = $registry->exists($conversion)
+                    ? $target->getConversionWriteDisk($conversion)
+                    : $entry['disk'];
+                $targetFs = Storage::disk($targetDisk);
+                $targetBase = ConversionPath::directory($resolver->pathForConversion($target, $conversion));
+                $targetDir = $targetBase.'/'.$entry['generation'];
+                $targetFileName = ConversionPath::fileName($resolver->conversionFileName(
+                    $target->file_name,
+                    $conversion,
+                    $entry['format'],
+                ));
+                $targetPath = $targetDir.'/'.$targetFileName;
+                $markerName = ImageManipulator::IN_PROGRESS_MARKER.'-copy-'.strtoupper((string) Str::ulid());
+                $markerBody = json_encode([
+                    'operation' => 'copy',
+                    'started_at' => now()->toIso8601String(),
+                ], JSON_THROW_ON_ERROR);
+                $sourceMarker = dirname($entry['path']).'/'.$markerName;
+                $targetMarker = $targetDir.'/'.$markerName;
+
+                if (! $sourceFs->put($sourceMarker, $markerBody)) {
+                    throw new RuntimeException("Failed to protect conversion source [{$entry['path']}] during copy.");
+                }
+
+                $markers[] = [$sourceFs, $sourceMarker];
+
+                if (! $targetFs->put($targetMarker, $markerBody)) {
+                    throw new RuntimeException("Failed to protect conversion target [$targetPath] during copy.");
+                }
+
+                $markers[] = [$targetFs, $targetMarker];
+                $this->copyConversionFile(
+                    $sourceFs,
+                    $entry['path'],
+                    $targetFs,
+                    $targetPath,
+                    $entry['disk'] === $targetDisk,
+                );
+                $copiedVersionedFiles[] = [$targetFs, $targetPath];
+
+                $rebuiltFiles[$conversion] = [
+                    ...$entry,
+                    'disk' => $targetDisk,
+                    'path' => $targetPath,
+                    'file_name' => $targetFileName,
+                ];
             }
 
-            $targetFs = $target->conversionFilesystem($conversion);
-            $targetDir = $resolver->pathForConversion($target, $conversion);
-            $sameDisk = $this->getConversionDisk($conversion) === $target->getConversionDisk($conversion);
-
-            foreach ($sourceFs->allFiles($sourceDir) as $file) {
-                $relativePath = substr($file, strlen($sourceDir) + 1);
-                $targetPath = $targetDir.'/'.$relativePath;
-
-                if ($sameDisk) {
-                    if (! $sourceFs->copy($file, $targetPath)) {
-                        throw new RuntimeException("Failed to copy conversion file [$file].");
-                    }
-
+            foreach (array_keys($registry->all()) as $conversion) {
+                if (isset($activeFiles[$conversion])) {
                     continue;
                 }
 
-                $stream = $sourceFs->readStream($file);
+                $sourceFs = Storage::disk($this->getConversionWriteDisk($conversion));
+                $sourcePath = $this->getPath($conversion);
 
-                if (! is_resource($stream)) {
-                    throw new RuntimeException("Failed to read conversion file [$file].");
+                if (! $sourceFs->exists($sourcePath)) {
+                    continue;
                 }
 
-                try {
-                    if (! $targetFs->writeStream($targetPath, $stream)) {
-                        throw new RuntimeException("Failed to write copied conversion file [$targetPath].");
+                $targetDisk = $target->getConversionWriteDisk($conversion);
+                $targetFs = Storage::disk($targetDisk);
+                $targetPath = $target->getPath($conversion);
+                $this->copyConversionFile(
+                    $sourceFs,
+                    $sourcePath,
+                    $targetFs,
+                    $targetPath,
+                    $this->getConversionWriteDisk($conversion) === $targetDisk,
+                );
+            }
+
+            if ($rebuiltFiles === []) {
+                $versionedPublished = true;
+
+                return;
+            }
+
+            $published = DB::connection($target->getConnectionName())->transaction(function () use (
+                $target,
+                $rebuiltFiles,
+            ): Media {
+                /** @var Media|null $fresh */
+                $fresh = $target->newQuery()->whereKey($target->getKey())->lockForUpdate()->first();
+
+                if ($fresh === null) {
+                    throw new RuntimeException("Copied media [{$target->getKey()}] no longer exists.");
+                }
+
+                if (
+                    $fresh->hasCustomProperty(self::PROPERTY_CONVERSION_CLEARING)
+                    || $fresh->hasCustomProperty(self::PROPERTY_RESPONSIVE_ROTATING)
+                ) {
+                    throw new RuntimeException("Copied media [{$target->getKey()}] changed while conversions were copied.");
+                }
+
+                $properties = is_array($fresh->custom_properties) ? $fresh->custom_properties : [];
+                $pruning = $properties[self::PROPERTY_CONVERSION_PRUNING] ?? [];
+                $pruning = is_array($pruning) ? $pruning : [];
+
+                foreach ($rebuiltFiles as $conversion => $entry) {
+                    if (isset($pruning[$conversion][$entry['generation']])) {
+                        throw new RuntimeException("Copied conversion generation [{$entry['generation']}] is being pruned.");
                     }
-                } finally {
-                    fclose($stream);
+
+                    if (! Storage::disk($entry['disk'])->exists($entry['path'])) {
+                        throw new RuntimeException("Copied conversion [{$entry['path']}] disappeared before publication.");
+                    }
+                }
+
+                $properties[self::PROPERTY_CONVERSION_FILES] = $rebuiltFiles;
+                $properties[self::PROPERTY_CONVERSION_GENERATION_DISKS] = array_values(array_unique(array_column(
+                    $rebuiltFiles,
+                    'disk',
+                )));
+                $properties[self::PROPERTY_CONVERSION_MANIFEST_SIGNATURE] = ConversionManifest::sign(
+                    $fresh,
+                    $rebuiltFiles,
+                    $properties[self::PROPERTY_CONVERSION_GENERATION_DISKS],
+                );
+                $fresh->custom_properties = $properties;
+                $fresh->save();
+
+                return $fresh;
+            });
+            $target->setRawAttributes($published->getAttributes(), true);
+            $versionedPublished = true;
+        } finally {
+            foreach ($markers as [$filesystem, $path]) {
+                try {
+                    $filesystem->delete($path);
+                } catch (Throwable $e) {
+                    Log::warning('MediaMan: Failed to remove conversion copy marker', [
+                        'path' => $path,
+                        'error' => $e->getMessage(),
+                    ]);
                 }
             }
+
+            if (! $versionedPublished) {
+                foreach ($copiedVersionedFiles as [$filesystem, $path]) {
+                    try {
+                        if (! $filesystem->delete($path)) {
+                            Log::warning('MediaMan: Failed to roll back copied conversion file', ['path' => $path]);
+                        }
+                    } catch (Throwable $e) {
+                        Log::warning('MediaMan: Failed to roll back copied conversion file', [
+                            'path' => $path,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+                }
+            }
+        }
+    }
+
+    protected function copyConversionFile(
+        Filesystem $sourceFilesystem,
+        string $sourcePath,
+        Filesystem $targetFilesystem,
+        string $targetPath,
+        bool $sameDisk,
+    ): void {
+        if ($sameDisk) {
+            if (! $sourceFilesystem->copy($sourcePath, $targetPath)) {
+                throw new RuntimeException("Failed to copy conversion file [$sourcePath].");
+            }
+
+            return;
+        }
+
+        $stream = $sourceFilesystem->readStream($sourcePath);
+
+        if (! is_resource($stream)) {
+            throw new RuntimeException("Failed to read conversion file [$sourcePath].");
+        }
+
+        try {
+            if (! $targetFilesystem->writeStream($targetPath, $stream)) {
+                throw new RuntimeException("Failed to write copied conversion file [$targetPath].");
+            }
+        } finally {
+            fclose($stream);
         }
     }
 

@@ -228,7 +228,7 @@ it('can get the full path to a converted image', function () {
     // Assert filesystem calls a path with the correct path on disk...
     $filesystem->shouldReceive('path')->with($media->getPath('thumbnail'))->once()->andReturn('path');
 
-    $media->shouldReceive('filesystem')->once()->andReturn($filesystem);
+    $media->shouldReceive('conversionFilesystem')->with('thumbnail')->once()->andReturn($filesystem);
 
     expect($media->getFullPath('thumbnail'))->toEqual('path');
 });
