@@ -368,9 +368,7 @@ class ImageManipulator
                 throw new RuntimeException("Media [{$media->getKey()}] no longer exists.");
             }
 
-            if (
-                $fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_ROTATING)
-            ) {
+            if ($fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_ROTATING)) {
                 throw new RuntimeException("Media [{$media->getKey()}] has a conflicting conversion lifecycle operation.");
             }
 

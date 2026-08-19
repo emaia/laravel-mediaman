@@ -781,12 +781,6 @@ class Media extends Model implements Attachable
     /** Return the validated active metadata for a conversion, or null for legacy/unsafe data. */
     public function getConversionFile(string $conversion): ?array
     {
-        try {
-            ConversionPath::name($conversion);
-        } catch (InvalidArgumentException) {
-            return null;
-        }
-
         $files = $this->getCustomProperty(self::PROPERTY_CONVERSION_FILES, []);
         $entry = is_array($files) ? ($files[$conversion] ?? null) : null;
 
@@ -799,6 +793,11 @@ class Media extends Model implements Attachable
 
     private function validateConversionFile(string $conversion, array $entry): ?array
     {
+        try {
+            ConversionPath::name($conversion);
+        } catch (InvalidArgumentException) {
+            return null;
+        }
 
         foreach (['generation', 'disk', 'path', 'format', 'file_name', 'mime_type'] as $key) {
             if (! isset($entry[$key]) || ! is_string($entry[$key]) || $entry[$key] === '') {
@@ -830,7 +829,10 @@ class Media extends Model implements Attachable
             $fileName = ConversionPath::fileName($entry['file_name']);
             $suffix = '/'.$entry['generation'].'/'.$fileName;
 
-            if (! str_ends_with($entry['path'], $suffix)) {
+            if (
+                ! str_contains($entry['path'], '/'.self::CONVERSIONS_DIR.'/'.$conversion.'/')
+                || ! str_ends_with($entry['path'], $suffix)
+            ) {
                 return null;
             }
 

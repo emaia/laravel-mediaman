@@ -529,8 +529,9 @@ class DoctorCommand extends Command
             $manifestQuery = ConversionMetadataQuery::whereHasManifest($this->mediaQuery());
             $active = (clone $manifestQuery)->count();
             $invalid = 0;
+            $sampleLimit = 10000;
 
-            foreach ($manifestQuery->cursor() as $media) {
+            foreach ((clone $manifestQuery)->limit($sampleLimit)->cursor() as $media) {
                 if ($media instanceof Media && ! $media->conversionManifestIsValid()) {
                     $invalid++;
                 }
@@ -539,7 +540,10 @@ class DoctorCommand extends Command
             $this->statusLine('Versioned media', 'info', number_format($active));
 
             if ($invalid > 0) {
-                $this->statusLine('Invalid conversion manifests', 'error', number_format($invalid).' media');
+                $label = $active > $sampleLimit
+                    ? 'Invalid conversion manifests (10k sample)'
+                    : 'Invalid conversion manifests';
+                $this->statusLine($label, 'error', number_format($invalid).' media');
             }
         } catch (Throwable $e) {
             $this->statusLine('Versioned media', 'warn', 'query failed: '.$e->getMessage());

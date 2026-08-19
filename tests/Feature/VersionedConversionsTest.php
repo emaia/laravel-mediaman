@@ -2,6 +2,7 @@
 
 use Emaia\MediaMan\ConversionRegistry;
 use Emaia\MediaMan\Conversions\ConversionClearer;
+use Emaia\MediaMan\Conversions\ConversionManifest;
 use Emaia\MediaMan\Exceptions\ConversionFormatNotSupported;
 use Emaia\MediaMan\Facades\Conversion;
 use Emaia\MediaMan\ImageManipulator;
@@ -300,6 +301,44 @@ it('rejects tampered conversion metadata before using its path or disk', functio
 
     expect($media->getConversionFile('thumb'))->toBeNull()
         ->and($media->getPath('thumb'))->not->toBe($active['path']);
+});
+
+it('rejects a validly signed entry stored under another conversion segment', function () {
+    registerVersionedThumb();
+    $media = uploadVersionedConversionMedia();
+    app(ImageManipulator::class)->manipulate($media, ['thumb'], onlyIfMissing: false);
+    $properties = $media->custom_properties;
+    $properties[Media::PROPERTY_CONVERSION_FILES]['thumb']['path'] = str_replace(
+        '/conversions/thumb/',
+        '/conversions/cover/',
+        $properties[Media::PROPERTY_CONVERSION_FILES]['thumb']['path'],
+    );
+    $properties[Media::PROPERTY_CONVERSION_MANIFEST_SIGNATURE] = ConversionManifest::sign(
+        $media,
+        $properties[Media::PROPERTY_CONVERSION_FILES],
+        $properties[Media::PROPERTY_CONVERSION_GENERATION_DISKS],
+    );
+    $media->custom_properties = $properties;
+
+    expect($media->getConversionFile('thumb'))->toBeNull();
+});
+
+it('applies conversion-name grammar consistently when listing signed entries', function () {
+    registerVersionedThumb();
+    $media = uploadVersionedConversionMedia();
+    app(ImageManipulator::class)->manipulate($media, ['thumb'], onlyIfMissing: false);
+    $properties = $media->custom_properties;
+    $properties[Media::PROPERTY_CONVERSION_FILES]['../thumb'] =
+        $properties[Media::PROPERTY_CONVERSION_FILES]['thumb'];
+    unset($properties[Media::PROPERTY_CONVERSION_FILES]['thumb']);
+    $properties[Media::PROPERTY_CONVERSION_MANIFEST_SIGNATURE] = ConversionManifest::sign(
+        $media,
+        $properties[Media::PROPERTY_CONVERSION_FILES],
+        $properties[Media::PROPERTY_CONVERSION_GENERATION_DISKS],
+    );
+    $media->custom_properties = $properties;
+
+    expect($media->conversionFiles())->toBe([]);
 });
 
 it('does not replace an active generation with a stale legacy file in non-force mode', function () {
