@@ -12,6 +12,8 @@ use Emaia\MediaMan\Events\MediaDeleted;
 use Emaia\MediaMan\Exceptions\InvalidCopyTarget;
 use Emaia\MediaMan\Exceptions\TemporaryUrlNotSupported;
 use Emaia\MediaMan\Resolvers\MediaResolver;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveGeneration;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Emaia\MediaMan\Traits\ResolvesModels;
 use Emaia\MediaMan\Traits\ResponsiveImages;
 use Exception;
@@ -22,13 +24,16 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Events\NullDispatcher;
 use Illuminate\Mail\Attachment;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection as BaseCollection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
+use RuntimeException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
 
@@ -40,7 +45,7 @@ use Throwable;
  * @property string $disk
  * @property string $type
  * @property float|int $size
- * @property array $custom_properties
+ * @property array|null $custom_properties
  */
 class Media extends Model implements Attachable
 {
@@ -53,6 +58,20 @@ class Media extends Model implements Attachable
     const string RESPONSIVE_DIR = 'responsive';
 
     const string PROPERTY_RESPONSIVE_IMAGES = 'responsive_images';
+
+    const string PROPERTY_RESPONSIVE_GENERATION = 'responsive_generation';
+
+    const string PROPERTY_RESPONSIVE_GENERATION_DISK = 'responsive_generation_disk';
+
+    const string PROPERTY_RESPONSIVE_GENERATION_DISKS = 'responsive_generation_disks';
+
+    const string PROPERTY_RESPONSIVE_GENERATION_EPOCH = 'responsive_generation_epoch';
+
+    const string PROPERTY_RESPONSIVE_CLEARING = 'responsive_clearing';
+
+    const string PROPERTY_RESPONSIVE_PRUNING = 'responsive_pruning';
+
+    const string PROPERTY_RESPONSIVE_ROTATING = 'responsive_rotating';
 
     const string PROPERTY_IMAGE_META = 'image_meta';
 
@@ -68,37 +87,20 @@ class Media extends Model implements Attachable
 
     protected array $conversionFormatCache = [];
 
+    /** @var string[] */
+    protected array $deletionVariantDisks = [];
+
+    /** @var array<int, array{disk: string, path: string}> */
+    protected array $deletionResponsivePaths = [];
+
+    protected ?string $deletionPrimaryDisk = null;
+
+    protected ?string $deletionDirectory = null;
+
+    protected ?string $deletionFilePath = null;
+
     public static function booted(): void
     {
-        static::deleted(static function ($media) {
-            // Respect soft deletes: a soft delete fires the `deleted` event too,
-            // but the files must survive so a later restore() keeps working.
-            // Only a force delete (or a model without soft deletes) removes files.
-            if (method_exists($media, 'isForceDeleting') && ! $media->isForceDeleting()) {
-                return;
-            }
-
-            $mainDeleted = Storage::disk($media->disk)->deleteDirectory($media->getDirectory());
-            ! $mainDeleted && Storage::disk($media->disk)->delete($media->getPath());
-
-            // Deduplicate variant disks against the main disk and against each
-            // other — same disk must not be wiped twice.
-            $variantDisks = array_unique(array_merge(
-                $media->getConversionDisks(),
-                [$media->responsiveDisk()],
-            ));
-
-            foreach ($variantDisks as $variantDisk) {
-                if ($variantDisk === $media->disk) {
-                    continue;
-                }
-
-                Storage::disk($variantDisk)->deleteDirectory($media->getDirectory());
-            }
-
-            event(new MediaDeleted($media));
-        });
-
         static::updating(function ($media) {
             if ($media->isDirty('disk')) {
                 self::ensureDiskUsability($media->disk);
@@ -126,6 +128,116 @@ class Media extends Model implements Attachable
                 Storage::disk($newDisk)->move($path.'/'.$originalFileName, $path.'/'.$newFileName);
             }
         });
+    }
+
+    /** Delete the model while serializing hard-delete against responsive lifecycle operations. */
+    public function delete(): ?bool
+    {
+        $hardDelete = ! method_exists($this, 'isForceDeleting') || $this->isForceDeleting();
+
+        if (! $hardDelete) {
+            return parent::delete();
+        }
+
+        // Intentionally mirrors Eloquent's hard-delete pipeline so only the fresh row lock and SQL delete run in-transaction. Review this sequence on each supported Laravel major.
+        $this->mergeAttributesFromCachedCasts();
+
+        if (! $this->exists) {
+            return null;
+        }
+
+        if ($this->fireModelEvent('deleting') === false) {
+            return false;
+        }
+
+        $this->touchOwners();
+        $dispatchMediaDeleted = ! static::getEventDispatcher() instanceof NullDispatcher;
+
+        DB::connection($this->getConnectionName())->transaction(function (): void {
+            /** @var Media|null $fresh */
+            $fresh = $this->newQueryWithoutScopes()
+                ->useWritePdo()
+                ->whereKey($this->getKey())
+                ->lockForUpdate()
+                ->first();
+
+            if ($fresh === null) {
+                $this->exists = false;
+
+                return;
+            }
+
+            if ($fresh->hasCustomProperty(self::PROPERTY_RESPONSIVE_ROTATING)) {
+                throw new RuntimeException("Media [{$this->getKey()}] is rotating paths.");
+            }
+
+            self::captureDeletionState($this, $fresh);
+            $this->performDeleteOnModel();
+        });
+
+        DB::connection($this->getConnectionName())->afterCommit(
+            fn () => self::deleteCapturedFiles($this, $dispatchMediaDeleted),
+        );
+        $this->fireModelEvent('deleted', false);
+
+        return true;
+    }
+
+    private static function captureDeletionState(Media $media, Media $state): void
+    {
+        $media->deletionPrimaryDisk = $state->disk;
+        $media->deletionDirectory = $state->getDirectory();
+        $media->deletionFilePath = $state->getPath();
+        $media->deletionVariantDisks = array_values(array_unique(array_merge(
+            $state->getConversionDisks(),
+            [$state->responsiveDisk(), $state->activeResponsiveDisk()],
+            $state->responsiveGenerationDisks(),
+        )));
+        $clearState = $state->getCustomProperty(self::PROPERTY_RESPONSIVE_CLEARING);
+
+        if (! is_array($clearState) || ! ResponsiveImageGenerator::isValidClearState($state, $clearState)) {
+            return;
+        }
+
+        foreach ($clearState['disks'] as $disk) {
+            if (is_string($disk) && $disk !== '' && is_string($clearState['base_path'])) {
+                $media->deletionResponsivePaths[] = [
+                    'disk' => $disk,
+                    'path' => $clearState['base_path'],
+                ];
+            }
+        }
+    }
+
+    private static function deleteCapturedFiles(Media $media, bool $dispatchEvent): void
+    {
+        $primaryDisk = $media->deletionPrimaryDisk ?? $media->disk;
+        $directory = $media->deletionDirectory ?? $media->getDirectory();
+        $filePath = $media->deletionFilePath ?? $media->getPath();
+        $mainDeleted = Storage::disk($primaryDisk)->deleteDirectory($directory);
+        ! $mainDeleted && Storage::disk($primaryDisk)->delete($filePath);
+
+        $variantDisks = $media->deletionVariantDisks !== []
+            ? $media->deletionVariantDisks
+            : array_unique(array_merge(
+                $media->getConversionDisks(),
+                [$media->responsiveDisk(), $media->activeResponsiveDisk()],
+                $media->responsiveGenerationDisks(),
+            ));
+
+        foreach ($variantDisks as $variantDisk) {
+            if ($variantDisk !== $primaryDisk) {
+                Storage::disk($variantDisk)->deleteDirectory($directory);
+            }
+        }
+
+        foreach ($media->deletionResponsivePaths as $responsivePath) {
+            Storage::disk($responsivePath['disk'])->deleteDirectory($responsivePath['path']);
+        }
+
+        if ($dispatchEvent) {
+            event(new MediaDeleted($media));
+        }
     }
 
     /** Obfuscated directory the media's files live in (per the configured resolver). */
@@ -352,6 +464,28 @@ class Media extends Model implements Attachable
     public function responsiveFilesystem(): Filesystem
     {
         return Storage::disk($this->responsiveDisk());
+    }
+
+    /** Resolve the disk of the published responsive generation, with a legacy fallback. */
+    public function activeResponsiveDisk(): string
+    {
+        $disk = $this->getCustomProperty(self::PROPERTY_RESPONSIVE_GENERATION_DISK);
+
+        return is_string($disk) && $disk !== '' ? $disk : $this->responsiveDisk();
+    }
+
+    /**
+     * Return every disk that may contain a retained responsive generation.
+     *
+     * @return string[]
+     */
+    public function responsiveGenerationDisks(): array
+    {
+        $disks = $this->getCustomProperty(self::PROPERTY_RESPONSIVE_GENERATION_DISKS, []);
+
+        return is_array($disks)
+            ? array_values(array_filter($disks, fn ($disk) => is_string($disk) && $disk !== ''))
+            : [];
     }
 
     public function replaceFileExtension(string $fileName, string $newExtension): string
@@ -702,17 +836,22 @@ class Media extends Model implements Attachable
 
     public function hasCustomProperty(string $propertyName): bool
     {
-        return Arr::has($this->custom_properties, $propertyName);
+        return is_array($this->custom_properties)
+            && Arr::has($this->custom_properties, $propertyName);
     }
 
     public function getCustomProperty(string $propertyName, mixed $default = null): mixed
     {
-        return Arr::get($this->custom_properties, $propertyName, $default);
+        return Arr::get(
+            is_array($this->custom_properties) ? $this->custom_properties : [],
+            $propertyName,
+            $default,
+        );
     }
 
     public function setCustomProperty(string $name, mixed $value): self
     {
-        $customProperties = $this->custom_properties;
+        $customProperties = is_array($this->custom_properties) ? $this->custom_properties : [];
 
         Arr::set($customProperties, $name, $value);
 
@@ -812,7 +951,7 @@ class Media extends Model implements Attachable
 
     public function forgetCustomProperty(string $name): self
     {
-        $customProperties = $this->custom_properties;
+        $customProperties = is_array($this->custom_properties) ? $this->custom_properties : [];
 
         Arr::forget($customProperties, $name);
 
@@ -831,20 +970,44 @@ class Media extends Model implements Attachable
             throw InvalidCopyTarget::missingTrait();
         }
 
+        $generation = $this->getCustomProperty(self::PROPERTY_RESPONSIVE_GENERATION);
+
+        if ($generation !== null && (! is_string($generation) || ! ResponsiveGeneration::isManaged($generation))) {
+            throw new RuntimeException('Cannot copy malformed responsive generation metadata.');
+        }
+
         $copy = $this->replicate(['id']);
+        $copyProperties = is_array($copy->custom_properties) ? $copy->custom_properties : [];
+        unset(
+            $copyProperties[self::PROPERTY_RESPONSIVE_IMAGES],
+            $copyProperties[self::PROPERTY_RESPONSIVE_GENERATION],
+            $copyProperties[self::PROPERTY_RESPONSIVE_GENERATION_DISK],
+            $copyProperties[self::PROPERTY_RESPONSIVE_GENERATION_DISKS],
+            $copyProperties[self::PROPERTY_RESPONSIVE_GENERATION_EPOCH],
+            $copyProperties[self::PROPERTY_RESPONSIVE_CLEARING],
+            $copyProperties[self::PROPERTY_RESPONSIVE_PRUNING],
+            $copyProperties[self::PROPERTY_RESPONSIVE_ROTATING],
+        );
+        $copy->custom_properties = $copyProperties;
         $copy->save();
 
         try {
             $this->copyPrimaryFile($copy);
             $this->copyConversions($copy);
             $this->copyResponsiveVariants($copy);
+            $target->attachMedia($copy, $channel);
         } catch (Throwable $e) {
-            $copy->delete();
+            try {
+                $copy->forceDelete();
+            } catch (Throwable $cleanupError) {
+                Log::warning('MediaMan: Failed to roll back copied media', [
+                    'media_id' => $copy->getKey(),
+                    'error' => $cleanupError->getMessage(),
+                ]);
+            }
 
             throw $e;
         }
-
-        $target->attachMedia($copy, $channel);
 
         return $copy;
     }
@@ -864,19 +1027,25 @@ class Media extends Model implements Attachable
     protected function copyPrimaryFile(Media $target): void
     {
         if ($this->disk === $target->disk) {
-            $this->filesystem()->copy($this->getPath(), $target->getPath());
+            if (! $this->filesystem()->copy($this->getPath(), $target->getPath())) {
+                throw new RuntimeException("Failed to copy media file [{$this->getPath()}].");
+            }
 
             return;
         }
 
         $stream = $this->filesystem()->readStream($this->getPath());
 
+        if (! is_resource($stream)) {
+            throw new RuntimeException("Failed to read media file [{$this->getPath()}].");
+        }
+
         try {
-            $target->filesystem()->writeStream($target->getPath(), $stream);
-        } finally {
-            if (is_resource($stream)) {
-                fclose($stream);
+            if (! $target->filesystem()->writeStream($target->getPath(), $stream)) {
+                throw new RuntimeException("Failed to write copied media file [{$target->getPath()}].");
             }
+        } finally {
+            fclose($stream);
         }
     }
 
@@ -902,19 +1071,25 @@ class Media extends Model implements Attachable
                 $targetPath = $targetDir.'/'.$relativePath;
 
                 if ($sameDisk) {
-                    $sourceFs->copy($file, $targetPath);
+                    if (! $sourceFs->copy($file, $targetPath)) {
+                        throw new RuntimeException("Failed to copy conversion file [$file].");
+                    }
 
                     continue;
                 }
 
                 $stream = $sourceFs->readStream($file);
 
+                if (! is_resource($stream)) {
+                    throw new RuntimeException("Failed to read conversion file [$file].");
+                }
+
                 try {
-                    $targetFs->writeStream($targetPath, $stream);
-                } finally {
-                    if (is_resource($stream)) {
-                        fclose($stream);
+                    if (! $targetFs->writeStream($targetPath, $stream)) {
+                        throw new RuntimeException("Failed to write copied conversion file [$targetPath].");
                     }
+                } finally {
+                    fclose($stream);
                 }
             }
         }
@@ -922,33 +1097,162 @@ class Media extends Model implements Attachable
 
     protected function copyResponsiveVariants(Media $target): void
     {
-        $sourceFs = $this->responsiveFilesystem();
-        $responsiveDir = $this->getDirectory().'/'.self::RESPONSIVE_DIR;
+        $manifest = $this->getCustomProperty(self::PROPERTY_RESPONSIVE_IMAGES, []);
 
-        if (! $sourceFs->exists($responsiveDir)) {
+        if (! is_array($manifest) || $manifest === []) {
             return;
         }
 
+        $resolver = app(MediaResolver::class);
+        $sourceDir = rtrim($resolver->pathForResponsive($this), '/');
+        $targetDir = rtrim($resolver->pathForResponsive($target), '/');
+        $generation = $this->getCustomProperty(self::PROPERTY_RESPONSIVE_GENERATION);
+        $sourceDisk = $this->activeResponsiveDisk();
+        $sourceFs = Storage::disk($sourceDisk);
         $targetFs = $target->responsiveFilesystem();
-        $sameDisk = $this->responsiveDisk() === $target->responsiveDisk();
+        $targetDisk = $target->responsiveDisk();
+        $sameDisk = $sourceDisk === $targetDisk;
+        $targetEpoch = (int) $target->getCustomProperty(self::PROPERTY_RESPONSIVE_GENERATION_EPOCH, 0);
+        $rebuiltManifest = [];
+        $markers = [];
 
-        foreach ($sourceFs->allFiles($responsiveDir) as $file) {
-            $relativePath = substr($file, strlen($responsiveDir) + 1);
-            $targetPath = $target->getDirectory().'/'.self::RESPONSIVE_DIR.'/'.$relativePath;
+        /** @var Media|null $freshSource */
+        $freshSource = $this->newQuery()->useWritePdo()->whereKey($this->getKey())->first();
 
-            if ($sameDisk) {
-                $sourceFs->copy($file, $targetPath);
+        if (
+            $freshSource === null
+            || $freshSource->hasCustomProperty(self::PROPERTY_RESPONSIVE_CLEARING)
+            || $freshSource->hasCustomProperty(self::PROPERTY_RESPONSIVE_ROTATING)
+        ) {
+            throw new RuntimeException("Media [{$this->getKey()}] cannot copy responsive files during a lifecycle operation.");
+        }
 
-                continue;
+        if ($generation !== null && (! is_string($generation) || ! ResponsiveGeneration::isManaged($generation))) {
+            throw new RuntimeException('Cannot copy malformed responsive generation metadata.');
+        }
+
+        try {
+            if (is_string($generation)) {
+                $markerId = strtoupper((string) Str::ulid());
+                $markerName = ResponsiveImageGenerator::IN_PROGRESS_MARKER.'-copy-'.$markerId;
+                $sourceMarker = $sourceDir.'/'.$generation.'/'.$markerName;
+                $targetMarker = $targetDir.'/'.$generation.'/'.$markerName;
+                $markerBody = json_encode([
+                    'operation' => 'copy',
+                    'started_at' => now()->toIso8601String(),
+                ], JSON_THROW_ON_ERROR);
+
+                if (! $sourceFs->put($sourceMarker, $markerBody)) {
+                    throw new RuntimeException("Failed to protect responsive source generation [$generation] during copy.");
+                }
+
+                $markers[] = [$sourceFs, $sourceMarker];
+
+                if (! $targetFs->put($targetMarker, $markerBody)) {
+                    throw new RuntimeException("Failed to protect responsive target generation [$generation] during copy.");
+                }
+
+                $markers[] = [$targetFs, $targetMarker];
             }
 
-            $stream = $sourceFs->readStream($file);
+            foreach ($manifest as $item) {
+                if (! is_array($item) || ! isset($item['path']) || ! is_string($item['path'])) {
+                    throw new RuntimeException('Cannot copy malformed responsive image metadata.');
+                }
 
-            try {
-                $targetFs->writeStream($targetPath, $stream);
-            } finally {
-                if (is_resource($stream)) {
-                    fclose($stream);
+                $sourcePath = $item['path'];
+                $prefix = $sourceDir.'/';
+
+                if (! str_starts_with($sourcePath, $prefix)) {
+                    throw new RuntimeException("Responsive path [$sourcePath] is outside [$sourceDir].");
+                }
+
+                $relativePath = substr($sourcePath, strlen($prefix));
+
+                if (is_string($generation) && ! str_starts_with($relativePath, $generation.'/')) {
+                    throw new RuntimeException("Responsive path [$sourcePath] does not belong to active generation [$generation].");
+                }
+
+                $targetPath = $targetDir.'/'.$relativePath;
+
+                if ($sameDisk) {
+                    if (! $sourceFs->copy($sourcePath, $targetPath)) {
+                        throw new RuntimeException("Failed to copy responsive image [$sourcePath].");
+                    }
+                } else {
+                    $stream = $sourceFs->readStream($sourcePath);
+
+                    if (! is_resource($stream)) {
+                        throw new RuntimeException("Failed to read responsive image [$sourcePath].");
+                    }
+
+                    try {
+                        if (! $targetFs->writeStream($targetPath, $stream)) {
+                            throw new RuntimeException("Failed to write copied responsive image [$targetPath].");
+                        }
+                    } finally {
+                        fclose($stream);
+                    }
+                }
+
+                $item['path'] = $targetPath;
+                $item['url'] = $targetFs->url($targetPath);
+                $rebuiltManifest[] = $item;
+            }
+
+            $published = DB::connection($target->getConnectionName())->transaction(function () use (
+                $target,
+                $targetEpoch,
+                $rebuiltManifest,
+                $generation,
+                $targetDisk,
+            ): Media {
+                /** @var Media|null $fresh */
+                $fresh = $target->newQuery()->whereKey($target->getKey())->lockForUpdate()->first();
+
+                if ($fresh === null) {
+                    throw new RuntimeException("Copied media [{$target->getKey()}] no longer exists.");
+                }
+
+                if (
+                    $fresh->hasCustomProperty(self::PROPERTY_RESPONSIVE_CLEARING)
+                    || $fresh->hasCustomProperty(self::PROPERTY_RESPONSIVE_ROTATING)
+                    || (int) $fresh->getCustomProperty(self::PROPERTY_RESPONSIVE_GENERATION_EPOCH, 0) !== $targetEpoch
+                ) {
+                    throw new RuntimeException("Copied media [{$target->getKey()}] changed while responsive files were copied.");
+                }
+
+                $properties = is_array($fresh->custom_properties) ? $fresh->custom_properties : [];
+                $properties[self::PROPERTY_RESPONSIVE_IMAGES] = $rebuiltManifest;
+
+                if (is_string($generation)) {
+                    $pruning = $properties[self::PROPERTY_RESPONSIVE_PRUNING] ?? [];
+
+                    if (is_array($pruning) && array_key_exists($generation, $pruning)) {
+                        throw new RuntimeException("Copied responsive generation [$generation] is being pruned.");
+                    }
+
+                    $properties[self::PROPERTY_RESPONSIVE_GENERATION] = $generation;
+                    $properties[self::PROPERTY_RESPONSIVE_GENERATION_DISK] = $targetDisk;
+                    $properties[self::PROPERTY_RESPONSIVE_GENERATION_DISKS] = [$targetDisk];
+                }
+
+                $fresh->custom_properties = $properties;
+                $fresh->save();
+
+                return $fresh;
+            });
+
+            $target->setRawAttributes($published->getAttributes(), true);
+        } finally {
+            foreach ($markers as [$filesystem, $path]) {
+                try {
+                    $filesystem->delete($path);
+                } catch (Throwable $e) {
+                    Log::warning('MediaMan: Failed to remove responsive copy marker', [
+                        'path' => $path,
+                        'error' => $e->getMessage(),
+                    ]);
                 }
             }
         }

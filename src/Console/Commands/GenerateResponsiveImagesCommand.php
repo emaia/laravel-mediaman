@@ -3,16 +3,18 @@
 namespace Emaia\MediaMan\Console\Commands;
 
 use Emaia\MediaMan\Console\Concerns\CommandOutputStyle;
-use Emaia\MediaMan\Console\Concerns\ParsesMediaIds;
+use Emaia\MediaMan\Console\Concerns\ParsesMediaKeys;
 use Emaia\MediaMan\Jobs\GenerateResponsiveImages;
 use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveGenerationConfig;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveGenerationResult;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Illuminate\Console\Command;
 
 class GenerateResponsiveImagesCommand extends Command
 {
     use CommandOutputStyle;
-    use ParsesMediaIds;
+    use ParsesMediaKeys;
 
     protected $signature = 'mediaman:generate-responsive
                             {--collection= : Generate for specific collection}
@@ -24,10 +26,21 @@ class GenerateResponsiveImagesCommand extends Command
 
     public function handle(): int
     {
-        $query = Media::query()->raster();
+        try {
+            ResponsiveGenerationConfig::fromConfig();
+        } catch (\InvalidArgumentException $e) {
+            $this->error($e->getMessage());
 
-        if ($mediaOption = $this->option('media')) {
-            $ids = $this->parseMediaIds($mediaOption);
+            return self::FAILURE;
+        }
+
+        $modelClass = config('mediaman.models.media', Media::class);
+        /** @var Media $model */
+        $model = new $modelClass;
+        $query = $model->newQuery()->raster();
+
+        if (($mediaOption = $this->option('media')) !== null) {
+            $ids = $this->parseMediaKeys((string) $mediaOption);
 
             if (empty($ids)) {
                 $this->error('Invalid --media value.');
@@ -35,10 +48,16 @@ class GenerateResponsiveImagesCommand extends Command
                 return self::FAILURE;
             }
 
-            $query->whereIn('id', $ids);
+            $query->whereKey($ids);
         }
 
-        if ($collection = $this->option('collection')) {
+        if (($collection = $this->option('collection')) !== null) {
+            if ($collection === '') {
+                $this->error('Invalid --collection value.');
+
+                return self::FAILURE;
+            }
+
             $query->whereHas('collections', function ($q) use ($collection) {
                 $q->where('name', $collection);
             });
@@ -48,15 +67,13 @@ class GenerateResponsiveImagesCommand extends Command
             $query->whereNull('custom_properties->responsive_images');
         }
 
-        $mediaItems = $query->get();
+        $total = (clone $query)->count();
 
-        if ($mediaItems->isEmpty()) {
+        if ($total === 0) {
             $this->info('No media items found to process.');
 
             return self::SUCCESS;
         }
-
-        $total = $mediaItems->count();
 
         if ($this->option('queue')) {
             $this->section('Generate responsive');
@@ -65,7 +82,7 @@ class GenerateResponsiveImagesCommand extends Command
             $this->statusLine('Mode', 'info', 'queue');
             $this->newLine();
 
-            foreach ($mediaItems as $media) {
+            foreach ($query->lazy(100) as $media) {
                 GenerateResponsiveImages::dispatch($media);
             }
 
@@ -81,20 +98,27 @@ class GenerateResponsiveImagesCommand extends Command
         $this->newLine();
 
         $processed = 0;
+        $skipped = 0;
         $failures = [];
         $generator = app(ResponsiveImageGenerator::class);
 
-        foreach ($mediaItems as $media) {
+        foreach ($query->lazy(100) as $media) {
             try {
-                $generator->generateResponsiveImages($media);
-                $processed++;
-            } catch (\Exception $e) {
+                $result = $generator->generateResponsiveImages($media);
+                $result instanceof ResponsiveGenerationResult && ! $result->wasPublished()
+                    ? $skipped++
+                    : $processed++;
+            } catch (\Throwable $e) {
                 $failures[] = ['id' => $media->getKey(), 'name' => $media->name, 'error' => $e->getMessage()];
             }
         }
 
         if ($processed > 0) {
             $this->statusLine('Processed', 'ok', (string) $processed);
+        }
+
+        if ($skipped > 0) {
+            $this->statusLine('Skipped', 'info', (string) $skipped);
         }
 
         if (! empty($failures)) {
@@ -108,10 +132,10 @@ class GenerateResponsiveImagesCommand extends Command
             }
         }
 
-        if ($processed === 0 && empty($failures)) {
+        if ($processed === 0 && $skipped === 0 && empty($failures)) {
             $this->statusLine('Result', 'info', 'nothing to do');
         }
 
-        return self::SUCCESS;
+        return empty($failures) ? self::SUCCESS : self::FAILURE;
     }
 }

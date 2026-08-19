@@ -5,7 +5,10 @@ namespace Emaia\MediaMan\Console\Commands;
 use Emaia\MediaMan\Console\Concerns\CommandOutputStyle;
 use Emaia\MediaMan\ConversionRegistry;
 use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveGenerationConfig;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveMetadataQuery;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Intervention\Image\Format;
@@ -119,6 +122,28 @@ class DoctorCommand extends Command
         } else {
             $this->statusLine('Published', 'info', 'no (using package defaults — run `php artisan mediaman:publish-config` to customize)');
         }
+
+        try {
+            $generationConfig = ResponsiveGenerationConfig::fromConfig();
+
+            $this->statusLine(
+                'Responsive versioning',
+                'info',
+                $generationConfig->isVersioned() ? 'generation' : 'disabled (legacy paths)'
+            );
+            $this->statusLine('Generation retention', 'info', $generationConfig->retentionDays.' day(s)');
+            $this->statusLine('In-progress timeout', 'info', $generationConfig->generationTimeoutMinutes.' minute(s)');
+
+            if ($generationConfig->isVersioned()) {
+                $this->statusLine(
+                    'Generation pruning',
+                    'warn',
+                    'schedule `mediaman:prune-responsive-generations --force` after rollout'
+                );
+            }
+        } catch (\InvalidArgumentException $e) {
+            $this->statusLine('Responsive versioning', 'error', $e->getMessage());
+        }
     }
 
     protected function checkDisk(): void
@@ -157,10 +182,41 @@ class DoctorCommand extends Command
             $this->probeDisk($diskName, "Conversion disk '$diskName'");
         }
 
-        $responsiveDisk = config('mediaman.responsive_images.disk');
+        $responsiveDisks = [];
+        $configuredResponsiveDisk = config('mediaman.responsive_images.disk');
 
-        if ($responsiveDisk !== null && $responsiveDisk !== $main) {
-            $this->probeDisk($responsiveDisk, "Responsive disk '$responsiveDisk'");
+        if (is_string($configuredResponsiveDisk) && $configuredResponsiveDisk !== '') {
+            $responsiveDisks[$configuredResponsiveDisk] = true;
+        }
+
+        try {
+            $query = $this->mediaQuery();
+            $properties = $query->getModel()->qualifyColumn('custom_properties');
+            ResponsiveMetadataQuery::whereHasGenerationDiskMetadata($query)->select($properties);
+
+            foreach ($query->cursor() as $media) {
+                if (! $media instanceof Media) {
+                    continue;
+                }
+
+                $disk = $media->getCustomProperty(Media::PROPERTY_RESPONSIVE_GENERATION_DISK);
+
+                if (is_string($disk) && $disk !== '') {
+                    $responsiveDisks[$disk] = true;
+                }
+
+                foreach ($media->responsiveGenerationDisks() as $generationDisk) {
+                    $responsiveDisks[$generationDisk] = true;
+                }
+            }
+        } catch (Throwable $e) {
+            $this->statusLine('Persisted responsive disks', 'warn', 'query failed: '.$e->getMessage());
+        }
+
+        foreach (array_keys($responsiveDisks) as $responsiveDisk) {
+            if ($responsiveDisk !== $main) {
+                $this->probeDisk($responsiveDisk, "Responsive disk '$responsiveDisk'");
+            }
         }
     }
 
@@ -456,8 +512,8 @@ class DoctorCommand extends Command
         $this->section('Media inventory');
 
         try {
-            $total = Media::query()->count();
-            $bytes = (int) Media::query()->sum('size');
+            $total = $this->mediaQuery()->count();
+            $bytes = (int) $this->mediaQuery()->sum('size');
         } catch (Throwable $e) {
             $this->statusLine('Records', 'error', 'query failed: '.$e->getMessage());
 
@@ -471,23 +527,26 @@ class DoctorCommand extends Command
             return;
         }
 
-        // Count records that have a non-empty responsive_images custom_properties entry.
-        // The custom_properties cast stores JSON; we check via LIKE on the raw column
-        // for cross-driver compatibility (works on sqlite/mysql/pgsql without JSON
-        // path operators).
         try {
-            $withResponsive = Media::query()
-                ->where('custom_properties', 'like', '%"responsive_images":%')
-                ->count();
+            $imageQuery = $this->mediaQuery()->where('mime_type', 'like', 'image/%');
+            $totalImages = (clone $imageQuery)->count();
+            $withResponsive = ResponsiveMetadataQuery::whereHasManifest(clone $imageQuery)->count();
 
-            $pct = (int) round($withResponsive / $total * 100);
+            $pct = $totalImages > 0 ? (int) round($withResponsive / $totalImages * 100) : 0;
             $this->statusLine(
                 'Responsive coverage',
                 'info',
-                number_format($withResponsive).' / '.number_format($total)." ($pct%)"
+                number_format($withResponsive).' / '.number_format($totalImages)." ($pct%)"
             );
         } catch (Throwable $e) {
             $this->statusLine('Responsive coverage', 'warn', 'coverage query failed: '.$e->getMessage());
         }
+    }
+
+    protected function mediaQuery(): Builder
+    {
+        $modelClass = config('mediaman.models.media', Media::class);
+
+        return (new $modelClass)->newQuery();
     }
 }

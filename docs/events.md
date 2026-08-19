@@ -13,15 +13,19 @@ MediaMan dispatches Laravel events at key points in the media lifecycle. Listen 
 | Event                         | Dispatched when                                                                | Payload                                       |
 |-------------------------------|--------------------------------------------------------------------------------|-----------------------------------------------|
 | `MediaUploaded`               | A file is uploaded via `MediaUploader` (after the transaction commits)         | `$event->media`                               |
-| `MediaDeleted`                | A media record is deleted                                                      | `$event->media`                               |
+| `MediaDeleted`                | A media record commits deletion and its files are removed                      | `$event->media`                               |
 | `MediaPrunedFromCollection`   | `enforceMaxItems()` auto-detaches older media from a capped collection         | `$event->collection`, `$event->detachedMediaIds` |
 | `ConversionCompleted`         | At least one image conversion succeeds (queued job, partial-batch)             | `$event->media`, `$event->conversions` (the successful ones) |
 | `ConversionFailed`            | A single image conversion fails — fires once per failure inside a batch        | `$event->media`, `$event->conversion`, `$event->exception` |
-| `ResponsiveImagesGenerated`   | Responsive variants finish (queued job)                                        | `$event->media`, `$event->options`            |
+| `ResponsiveImagesGenerated`   | A queued responsive job publishes a complete or partial manifest                 | `$event->media`, `$event->options`, `$event->result` |
 
 All event classes live under `Emaia\MediaMan\Events`.
 
 `MediaUploaded` is dispatched **after** the upload transaction commits — listeners can safely query the media row, dispatch jobs that touch it, or fan out to other services. Responsive variant generation runs immediately before the event fires; depending on `responsive_images.queue`, the variants may already be on disk (inline mode) or still queued in a worker job (queued mode, the default). Listeners that strictly need the variants to be present should check `$media->hasResponsiveImages()` and react when they appear, or hook into `ResponsiveImagesGenerated` instead.
+
+`MediaDeleted` is emitted after physical cleanup. When deletion is enclosed by an application transaction, cleanup and the event wait for the outer commit; rollback preserves both the row and files. Quiet deletion removes files but suppresses this event.
+
+`ResponsiveImagesGenerated` remains a queued-job event; enabling generation versioning does not start dispatching it for inline calls. Non-raster media, missing sources, and versioned runs with no eligible widths are no-ops and do not emit the event. Its `ResponsiveGenerationResult` identifies complete versus partial publication and includes attempted, published, and skipped variant counts. Hard failures throw and remain eligible for normal queue retries.
 
 ## Register listeners
 

@@ -4,6 +4,34 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Responsive images can opt into immutable-safe generation paths with `MEDIAMAN_RESPONSIVE_VERSIONING=generation`. Every complete generation is written beneath one ULID directory and published through a single locked media save; legacy stable paths remain the default.
+- Added `mediaman:prune-responsive-generations`, a dry-run-first command that removes inactive and abandoned ULID generations after retention while protecting active manifests and in-progress work.
+- `mediaman:doctor` and `mediaman:stats --responsive` now report generation strategy, retention, timeout, and legacy/versioned manifest coverage.
+- Responsive generation returns a structured `ResponsiveGenerationResult` describing no-op, complete, or partial publication outcomes. Hard failures continue to throw so queued retries remain unchanged.
+
+### Changed
+
+- `ResponsiveImagesGenerated` is emitted only after a queued job publishes a manifest; no-op jobs for non-raster or missing source media no longer emit it. The event now exposes the structured result as `$event->result`.
+- Responsive and conversion jobs consistently use the connection configured by `mediaman.queue`, regardless of whether dispatch originates from a command, upload, model helper, or channel attachment.
+- `mediaman:clear-responsive` scans every selected media record rather than only raster images, allowing stale responsive metadata and retry tombstones to be cleared after a record's MIME type changes.
+- `deleteQuietly()` and `forceDeleteQuietly()` now suppress model/package events but still remove physical media files. Hard-delete cleanup and `MediaDeleted` are deferred until an enclosing application transaction commits; rollback preserves both the row and its files.
+
+### Fixed
+
+- Responsive manifest publication now merges into a fresh locked media row instead of allowing stale queued models to overwrite unrelated custom properties.
+- Responsive writes now treat a filesystem `false` result as failure and retain the previous active manifest when a versioned replacement cannot be published.
+- `Media::copy()` rebuilds responsive paths and URLs for the target media, copies only manifest-published variants, validates storage results, and rolls the target back when attachment or file copying fails.
+- Clearing responsive images now unpublishes metadata and increments a generation epoch before storage cleanup, preventing already-running generations from republishing after clear.
+- Clear now keeps a retryable tombstone until storage cleanup succeeds; generation refuses publication while clear is active, and pruning claims a generation in the database before deleting it.
+- Generate, clear, prune, stats, doctor, and path-rotation flows resolve the configured media model; generation backfills stream records in bounded pages and honor `mediaman.queue`.
+- Responsive generation disk history is retained so clear, delete, doctor, and pruning can still discover old generations after multiple disk changes.
+- Clear tombstones are signed to their media record, while transactional hard-delete and path-rotation claims prevent stale workers from publishing or moving responsive files during destructive lifecycle operations.
+- Clear tombstones accept Laravel's `APP_PREVIOUS_KEYS` key ring during `APP_KEY` rotation, and responsive metadata is validated before path derivation.
+- Force-delete coordinates against fresh lifecycle state without firing model update observers; its row lock is released after the database delete and before storage cleanup begins.
+- Responsive doctor/stats counts remain database-driven, pruning isolates malformed markers per generation, and dry-run lifecycle commands no longer acquire write claims.
+
 ## [3.0.2] — 2026-07-30
 
 Restores a working public-disk default for fresh Laravel installations and keeps queued conversion URLs aligned with their canonical output extension.

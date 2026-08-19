@@ -306,6 +306,27 @@ return [
         'disk' => env('MEDIAMAN_RESPONSIVE_DISK'),
 
         /*
+        | Responsive path strategy. `false` preserves stable legacy paths;
+        | `generation` writes each complete run beneath a unique ULID directory.
+        */
+
+        'versioning' => env('MEDIAMAN_RESPONSIVE_VERSIONING', false),
+
+        /*
+        | Inactive generations remain eligible for rollback and cached HTML
+        | until this retention window expires. Pruning is always explicit.
+        */
+
+        'version_retention_days' => env('MEDIAMAN_RESPONSIVE_VERSION_RETENTION_DAYS', 7),
+
+        /*
+        | Fresh in-progress markers protect a generation from pruning. A marker
+        | older than this timeout is treated as abandoned, then retention applies.
+        */
+
+        'generation_timeout_minutes' => env('MEDIAMAN_RESPONSIVE_GENERATION_TIMEOUT_MINUTES', 1440),
+
+        /*
         | Output formats. Supported: webp, avif, jpg, png, heic. Order in
         | this array determines `<source>` precedence in the rendered `<picture>`.
         */

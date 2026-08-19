@@ -3,10 +3,12 @@
 use Emaia\MediaMan\ConversionRegistry;
 use Emaia\MediaMan\Facades\Conversion;
 use Emaia\MediaMan\MediaUploader;
+use Emaia\MediaMan\Models\Media;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Symfony\Component\Console\Output\BufferedOutput;
 
 /**
@@ -34,6 +36,29 @@ it('reports a healthy pipeline on a fresh install', function () {
         ->expectsOutputToContain('Conversions')
         ->expectsOutputToContain('Media inventory')
         ->assertExitCode(0);
+});
+
+it('reports responsive generation configuration', function () {
+    Config::set('mediaman.responsive_images.versioning', 'generation');
+    Config::set('mediaman.responsive_images.version_retention_days', '3');
+    Config::set('mediaman.responsive_images.generation_timeout_minutes', '90');
+
+    $out = captureDoctorOutput();
+
+    expect($out)
+        ->toContain('Responsive versioning')
+        ->toContain('generation')
+        ->toContain('3 day(s)')
+        ->toContain('90 minute(s)')
+        ->toContain('prune-responsive-generations');
+});
+
+it('fails doctor for invalid responsive generation configuration', function () {
+    Config::set('mediaman.responsive_images.versioning', 'timestamp');
+
+    $this->artisan('mediaman:doctor')
+        ->expectsOutputToContain("versioning must be false or 'generation'")
+        ->assertExitCode(1);
 });
 
 it('shows the effective image driver class', function () {
@@ -91,6 +116,49 @@ it('reports the config file as not published on a fresh install', function () {
             file_put_contents($path, $backup);
         }
     }
+});
+
+it('probes disks persisted by active responsive generations', function () {
+    Storage::fake('persisted-responsive');
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+    $media->setCustomProperty('responsive_generation_disk', 'persisted-responsive')
+        ->setCustomProperty('responsive_generation_disks', ['persisted-responsive', 'persisted-responsive'])
+        ->save();
+    MediaUploader::source(UploadedFile::fake()->image('second.jpg'))->upload()
+        ->setCustomProperty('responsive_generation_disks', ['persisted-responsive'])
+        ->save();
+
+    $out = captureDoctorOutput();
+
+    expect($out)
+        ->toContain("Responsive disk 'persisted-responsive'")
+        ->toContain('OK')
+        ->and(substr_count($out, "Responsive disk 'persisted-responsive'"))->toBe(1);
+});
+
+it('hydrates only media rows that can contain persisted responsive disks', function () {
+    Storage::fake('persisted-responsive');
+
+    foreach (range(1, 5) as $index) {
+        MediaUploader::source(UploadedFile::fake()->image("plain-$index.jpg"))->upload();
+    }
+
+    $persisted = MediaUploader::source(UploadedFile::fake()->image('persisted.jpg'))->upload();
+    $persisted->setCustomProperty('responsive_generation_disk', 'persisted-responsive')->save();
+    $eventDispatcher = clone Media::getEventDispatcher();
+    $retrieved = 0;
+
+    try {
+        Media::retrieved(function () use (&$retrieved): void {
+            $retrieved++;
+        });
+
+        captureDoctorOutput();
+    } finally {
+        Media::setEventDispatcher($eventDispatcher);
+    }
+
+    expect($retrieved)->toBe(1);
 });
 
 it('reports the config file as published when config/mediaman.php exists', function () {
@@ -323,8 +391,12 @@ it('emits a successful 1x1 encode probe under any healthy driver', function () {
 it('reports responsive coverage when records have responsive_images persisted', function () {
     $media = MediaUploader::source(UploadedFile::fake()->image('a.jpg'))->upload();
     MediaUploader::source(UploadedFile::fake()->image('b.jpg'))->upload();
+    $empty = MediaUploader::source(UploadedFile::fake()->image('c.jpg'))->upload();
+    $empty->setCustomProperty('responsive_images', [])->save();
+    $malformed = MediaUploader::source(UploadedFile::fake()->image('d.jpg'))->upload();
+    $malformed->setCustomProperty('responsive_images', 'not-an-array')->save();
 
-    // Simulate one of the two records having responsive_images custom property.
+    // Empty manifests do not count as generated coverage.
     $media->setCustomProperty('responsive_images', [
         ['width' => 320, 'height' => 240, 'format' => 'webp', 'path' => 'p', 'url' => '/u', 'size' => 1],
     ]);
@@ -334,7 +406,7 @@ it('reports responsive coverage when records have responsive_images persisted', 
 
     expect($out)
         ->toContain('Responsive coverage')
-        ->toContain('1 / 2 (50%)');
+        ->toContain('1 / 4 (25%)');
 });
 
 // ─── Security section ────────────────────────────────────────────────

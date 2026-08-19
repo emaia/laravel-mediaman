@@ -162,5 +162,5 @@ it('continues processing when an individual clear fails', function () {
 
     $this->artisan('mediaman:clear-responsive', ['--force' => true])
         ->expectsOutputToContain('Failed')
-        ->assertExitCode(0);
+        ->assertExitCode(1);
 });

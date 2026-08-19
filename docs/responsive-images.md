@@ -260,6 +260,60 @@ $media->clearResponsiveImages();
 
 Removes all variant files from storage and clears the metadata from `custom_properties`.
 
+## Immutable-safe generation paths
+
+Legacy responsive files use stable paths and remain the default:
+
+```text
+{media-directory}/responsive/photo_1024w.webp
+```
+
+Enable generation versioning when responsive assets need long-lived immutable caching:
+
+```dotenv
+MEDIAMAN_RESPONSIVE_VERSIONING=generation
+MEDIAMAN_RESPONSIVE_VERSION_RETENTION_DAYS=7
+MEDIAMAN_RESPONSIVE_GENERATION_TIMEOUT_MINUTES=1440
+```
+
+Each run writes all widths and formats beneath one ULID before switching the manifest:
+
+```text
+{media-directory}/responsive/01ARZ3NDEKTSV4RRFFQ69G5FAV/photo_1024w.webp
+```
+
+Concurrent jobs never overwrite each other's files. The last successful publisher becomes active, while previous generations remain readable until explicit pruning. A failed replacement preserves the previous manifest.
+
+The generator returns `ResponsiveGenerationResult`: `published` means every requested variant was stored, `partial` means supported variants were published while known unsupported encoders/formats were skipped, and `no-op` means no manifest was published. Storage and publication failures still throw. `ResponsiveImagesGenerated` is emitted only by queued jobs after `published` or `partial` results.
+
+Legacy stable-path mode preserves its pre-versioning semantics: a run where every format is skipped, or no width remains eligible, can publish an empty manifest and replace the previous one. Generation mode instead preserves the previous manifest when zero variants are produced.
+
+Direct inline calls synchronize the supplied `Media` instance to the row that atomically published the manifest. Save unrelated dirty model attributes before calling the generator service directly; otherwise that synchronization intentionally replaces the in-memory dirty state with the authoritative database row.
+
+The service method has no native return declaration to preserve compatibility with 3.x subclasses that override it as `void`. The built-in implementation returns `ResponsiveGenerationResult`; queued jobs treat a legacy `null` subclass return as the prior successful behavior and expose a `null` event result.
+
+MediaMan also retains the set of disks that have held versioned generations. If the responsive disk changes more than once, clear, force-delete, doctor, and default pruning can still discover older retained files without migrating them during a model save.
+
+Rollout existing media after enabling the setting:
+
+```bash
+php artisan mediaman:doctor
+php artisan mediaman:generate-responsive --force
+php artisan mediaman:stats --responsive
+php artisan mediaman:prune-responsive-generations
+```
+
+Only a path with the ULID segment is immutable-safe. For Caddy, require the canonical 26-character segment rather than matching every file below `/responsive`. Replace `/media` with the URL root produced by your disk or custom resolver (`/storage` is Laravel's usual public-disk default):
+
+```caddyfile
+@responsive path_regexp responsive ^/media/[^/]+/responsive/[0-9A-HJKMNP-TV-Z]{26}/[^/]+$
+header @responsive Cache-Control "public, max-age=31536000, immutable"
+```
+
+Keep originals, conversions, and legacy responsive paths on a revalidating policy. Retention must exceed the longest period in which cached HTML, static pages, queued work, or a deployment rollback can still reference a prior generation.
+
+Pruning is dry-run-first and never scheduled by the package. See [Commands → Prune responsive generations](commands.md#prune-responsive-generations).
+
 ## Width calculators
 
 Two strategies ship out of the box:
@@ -281,6 +335,6 @@ Responsive variants are typically served on every page view (the `<picture>` ele
 ],
 ```
 
-When set, every responsive variant is written to and served from this disk regardless of where the originating media lives. Switching the value does **not** migrate existing files — run `mediaman:clean --disk=old-disk` to find leftovers, or regenerate the variants on the new disk.
+When set, every new responsive variant is written to this disk regardless of where the originating media lives. A versioned active manifest remains pinned to the disk where it was published, so changing the config does not break current rendering. Regenerate to publish on the new disk, then use `mediaman:prune-responsive-generations --disk=old-disk` after retention. Legacy responsive files do not carry disk metadata and should be migrated before changing this setting.
 
-`mediaman:doctor`, `mediaman:clean`, and `mediaman:rotate-paths` all probe/scan/rotate the responsive disk alongside the main and conversion disks.
+`mediaman:doctor`, `mediaman:clean`, and `mediaman:rotate-paths` probe/scan/rotate the currently configured responsive disk alongside the main and conversion disks. Generation pruning can explicitly scan an older disk.

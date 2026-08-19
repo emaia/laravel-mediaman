@@ -4,6 +4,7 @@ namespace Emaia\MediaMan\Jobs;
 
 use Emaia\MediaMan\Events\ResponsiveImagesGenerated;
 use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveGenerationResult;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -23,16 +24,24 @@ class GenerateResponsiveImages implements ShouldQueue
     {
         $this->media = $media;
         $this->options = $options;
+
+        $this->onConnection(config('mediaman.queue'));
     }
 
     public function handle(ResponsiveImageGenerator $generator): void
     {
-        $generator->generateResponsiveImages(
+        $result = $generator->generateResponsiveImages(
             $this->media,
             $this->options
         );
 
-        event(new ResponsiveImagesGenerated($this->media, $this->options));
+        if (! $result instanceof ResponsiveGenerationResult || $result->wasPublished()) {
+            event(new ResponsiveImagesGenerated(
+                $this->media,
+                $this->options,
+                $result instanceof ResponsiveGenerationResult ? $result : null,
+            ));
+        }
     }
 
     public function getMedia(): Media

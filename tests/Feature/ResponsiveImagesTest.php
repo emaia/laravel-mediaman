@@ -3,6 +3,7 @@
 use Emaia\MediaMan\Jobs\GenerateResponsiveImages;
 use Emaia\MediaMan\MediaUploader;
 use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveGenerationResult;
 use Emaia\MediaMan\ResponsiveImages\ResponsiveImageGenerator;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Queue;
@@ -256,7 +257,9 @@ it('generates synchronously when responsive_images.queue is false', function () 
     config(['mediaman.responsive_images.queue' => false]);
 
     $generator = Mockery::mock(ResponsiveImageGenerator::class);
-    $generator->shouldReceive('generateResponsiveImages')->once();
+    $generator->shouldReceive('generateResponsiveImages')
+        ->once()
+        ->andReturn(ResponsiveGenerationResult::noOp('test'));
     app()->instance(ResponsiveImageGenerator::class, $generator);
 
     $file = UploadedFile::fake()->image('test.jpg', 800, 600);

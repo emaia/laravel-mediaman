@@ -6,6 +6,56 @@ For non-breaking additions, see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
+## From v3.0 to v3.1
+
+Responsive generation versioning is opt-in and requires no database migration. Existing manifests, stable responsive paths, and custom `MediaResolver` implementations continue to work unchanged.
+
+Published configs do not receive new nested keys automatically. Add these entries when enabling versioned generations:
+
+```php
+'responsive_images' => [
+    // Existing options...
+    'versioning' => env('MEDIAMAN_RESPONSIVE_VERSIONING', false),
+    'version_retention_days' => env('MEDIAMAN_RESPONSIVE_VERSION_RETENTION_DAYS', 7),
+    'generation_timeout_minutes' => env('MEDIAMAN_RESPONSIVE_GENERATION_TIMEOUT_MINUTES', 1440),
+],
+```
+
+Enable generation paths only after deploying the package, then force-regenerate existing media. Do not apply immutable cache headers to legacy responsive paths, originals, or conversions.
+
+```dotenv
+MEDIAMAN_RESPONSIVE_VERSIONING=generation
+MEDIAMAN_RESPONSIVE_VERSION_RETENTION_DAYS=7
+```
+
+```bash
+php artisan mediaman:doctor
+php artisan mediaman:generate-responsive --force
+php artisan mediaman:prune-responsive-generations
+```
+
+The pruning command is a dry run unless `--force` is present. Schedule it only after retention exceeds the longest HTML/page-cache lifetime, queue delay, and rollback window used by the application.
+
+`mediaman:rotate-paths` refuses to run while responsive generation versioning is enabled or retained lifecycle state remains. Moving those directories would invalidate immutable URLs and race with new generation. Before rotating `APP_KEY`, restore revalidating cache headers, wait for cached HTML to expire, disable responsive versioning, clear responsive variants and retained generations, rotate paths, then re-enable and regenerate them.
+
+Keep the old key in Laravel's `APP_PREVIOUS_KEYS` during this workflow. Retryable responsive-clear tombstones are authenticated against the current and previous key ring, so removing the old key before a failed storage cleanup is retried intentionally causes the retry to fail closed.
+
+Responsive generation and clear commands now return exit code `1` when one or more inline media operations fail, while continuing to process the remaining records. Automation that previously parsed only textual `Failed` output should use the exit code.
+
+`mediaman:rotate-paths` now returns exit code `1` when old and new directories both exist, when responsive lifecycle state blocks rotation, or when a filesystem move fails. Its default dry-run remains strictly read-only. Automation that previously treated a reported path conflict as success must handle the non-zero exit.
+
+Queued `ResponsiveImagesGenerated` listeners now run only after a manifest is actually published. Missing sources, non-raster media, and versioned runs with no eligible widths are reported as no-ops and do not emit the event. Successful events expose `$event->result`; existing `$event->media` and `$event->options` payloads remain unchanged.
+
+The global `mediaman.queue` connection is now applied by both image job constructors. Jobs dispatched from model helpers and channel attachments therefore use the same connection as command-dispatched jobs.
+
+`ResponsiveImageGenerator::generateResponsiveImages()` intentionally omits a native return declaration so existing 3.x subclasses with `void` overrides remain loadable. The built-in generator returns `ResponsiveGenerationResult`; jobs also accept a legacy `null` return and expose `null` as the event result for those custom subclasses.
+
+`Media::deleteQuietly()` and `forceDeleteQuietly()` still suppress Eloquent model events and `MediaDeleted`, but they now perform the same physical file cleanup as their non-quiet counterparts. Applications that used quiet deletion to preserve files must stop deleting the media row and implement an explicit archival workflow instead.
+
+When hard-delete runs inside an application database transaction, physical cleanup and `MediaDeleted` wait for the outer commit. Rolling the transaction back preserves the database row and files. Code that expected files to disappear before commit should move that work after the transaction boundary.
+
+---
+
 ## From v3.0.1 to v3.0.2
 
 MediaMan now defaults new uploads to Laravel's `public` disk so the documented `php artisan storage:link` installation flow produces working `getUrl()` values on a standard Laravel 12/13 application. Laravel's own default disk is `local`, rooted at `storage/app/private`, and is not exposed by that symlink.

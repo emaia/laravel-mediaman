@@ -5,7 +5,10 @@ namespace Emaia\MediaMan\Console\Commands;
 use Emaia\MediaMan\Console\Concerns\CommandOutputStyle;
 use Emaia\MediaMan\ConversionRegistry;
 use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveGenerationConfig;
+use Emaia\MediaMan\ResponsiveImages\ResponsiveMetadataQuery;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Builder;
 
 class StatsCommand extends Command
 {
@@ -19,6 +22,14 @@ class StatsCommand extends Command
 
     public function handle(): int
     {
+        try {
+            ResponsiveGenerationConfig::fromConfig();
+        } catch (\InvalidArgumentException $e) {
+            $this->error($e->getMessage());
+
+            return self::FAILURE;
+        }
+
         $showResponsive = (bool) $this->option('responsive');
         $showConversions = (bool) $this->option('conversions');
 
@@ -31,9 +42,9 @@ class StatsCommand extends Command
 
     protected function showMediaInventory(): void
     {
-        $total = Media::query()->count();
-        $bytes = (int) Media::query()->sum('size');
-        $images = Media::query()->where('mime_type', 'like', 'image/%')->count();
+        $total = $this->mediaQuery()->count();
+        $bytes = (int) $this->mediaQuery()->sum('size');
+        $images = $this->mediaQuery()->where('mime_type', 'like', 'image/%')->count();
 
         $this->section('Media inventory');
 
@@ -74,10 +85,8 @@ class StatsCommand extends Command
 
     protected function showResponsiveSummary(bool $detailed): void
     {
-        $totalImages = Media::where('mime_type', 'like', 'image/%')->count();
-        $withResponsive = Media::where('mime_type', 'like', 'image/%')
-            ->whereNotNull('custom_properties->responsive_images')
-            ->count();
+        $totalImages = $this->mediaQuery()->where('mime_type', 'like', 'image/%')->count();
+        [$withResponsive, $legacy, $versioned, $inconsistent] = $this->responsiveManifestCounts();
 
         $this->section('Responsive images');
 
@@ -102,6 +111,12 @@ class StatsCommand extends Command
         $this->statusLine('Total images', 'info', number_format($totalImages));
         $this->statusLine('With responsive', 'info', number_format($withResponsive));
         $this->statusLine('Without responsive', 'info', number_format($totalImages - $withResponsive));
+        $this->statusLine('Legacy manifests', 'info', number_format($legacy));
+        $this->statusLine('Versioned manifests', 'info', number_format($versioned));
+
+        if ($inconsistent > 0) {
+            $this->statusLine('Inconsistent metadata', 'warn', number_format($inconsistent));
+        }
 
         if ($totalImages > 0) {
             $percentage = (int) round(($withResponsive / $totalImages) * 100);
@@ -121,6 +136,33 @@ class StatsCommand extends Command
         $this->statusLine('Formats', 'info', implode(', ', config('mediaman.responsive_images.formats', ['webp'])));
         $this->statusLine('Breakpoints', 'info', implode(', ', config('mediaman.responsive_images.breakpoints', [])));
         $this->statusLine('Width calculator', 'info', config('mediaman.responsive_images.width_calculator', 'breakpoint'));
+        $generationConfig = ResponsiveGenerationConfig::fromConfig();
+        $this->statusLine('Versioning', 'info', $generationConfig->isVersioned() ? 'generation' : 'disabled (legacy paths)');
+        $this->statusLine('Generation retention', 'info', $generationConfig->retentionDays.' day(s)');
+        $this->statusLine('In-progress timeout', 'info', $generationConfig->generationTimeoutMinutes.' minute(s)');
+    }
+
+    /** Query the configured media model rather than assuming the package default. */
+    protected function mediaQuery(): Builder
+    {
+        $modelClass = config('mediaman.models.media', Media::class);
+
+        return (new $modelClass)->newQuery();
+    }
+
+    /** @return array{int, int, int, int} */
+    protected function responsiveManifestCounts(): array
+    {
+        $generationPath = 'custom_properties->'.Media::PROPERTY_RESPONSIVE_GENERATION;
+        $images = $this->mediaQuery()->where('mime_type', 'like', 'image/%');
+        $manifests = ResponsiveMetadataQuery::whereHasManifest(clone $images);
+        $withResponsive = (clone $manifests)->count();
+        $legacy = (clone $manifests)->whereNull($generationPath)->count();
+        $versioned = ResponsiveMetadataQuery::whereHasManagedGeneration(clone $manifests)->count();
+        $withGeneration = (clone $images)->whereNotNull($generationPath)->count();
+        $inconsistent = max(0, $withGeneration - $versioned);
+
+        return [$withResponsive, $legacy, $versioned, $inconsistent];
     }
 
     /** Stringify a scalar or per-format quality config for the stats line. */
