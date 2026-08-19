@@ -4,6 +4,8 @@ namespace Emaia\MediaMan\Console\Concerns;
 
 trait ParsesMediaKeys
 {
+    use ParsesMediaIds;
+
     /**
      * Parse opaque comma-separated model keys, expanding bounded integer ranges.
      *

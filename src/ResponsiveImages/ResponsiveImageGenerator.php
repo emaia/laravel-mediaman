@@ -8,6 +8,7 @@ use Emaia\MediaMan\Exceptions\ResponsiveFormatNotSupported;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Resolvers\MediaResolver;
 use Emaia\MediaMan\ResponsiveImages\WidthCalculator\WidthCalculator;
+use Emaia\MediaMan\Support\SigningKeys;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -494,7 +495,7 @@ class ResponsiveImageGenerator
             return false;
         }
 
-        foreach (self::clearStateSigningKeys() as $key) {
+        foreach (SigningKeys::all() as $key) {
             if (hash_equals(self::signClearState($media, $state, $key), $state['signature'])) {
                 return true;
             }
@@ -506,7 +507,7 @@ class ResponsiveImageGenerator
     /** @param array{token: string, base_path: string, disks: array, started_at: string, signature?: string} $state */
     protected static function signClearState(Media $media, array $state, ?string $key = null): string
     {
-        $key ??= self::clearStateSigningKeys()[0]
+        $key ??= SigningKeys::all()[0]
             ?? throw new RuntimeException('APP_KEY is required to sign responsive clear state.');
 
         return hash_hmac('sha256', json_encode([
@@ -518,21 +519,6 @@ class ResponsiveImageGenerator
             'disks' => array_values($state['disks']),
             'started_at' => $state['started_at'],
         ], JSON_THROW_ON_ERROR), $key);
-    }
-
-    /** @return string[] */
-    protected static function clearStateSigningKeys(): array
-    {
-        $previous = config('app.previous_keys', []);
-
-        if (is_string($previous)) {
-            $previous = explode(',', $previous);
-        }
-
-        return array_values(array_unique(array_filter([
-            config('app.key'),
-            ...(is_array($previous) ? $previous : []),
-        ], fn ($key) => is_string($key) && $key !== '')));
     }
 
     public function setWidthCalculator(WidthCalculator $calculator): self

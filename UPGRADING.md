@@ -31,7 +31,11 @@ php artisan mediaman:prune-conversion-generations
 
 `mediaman:prune-conversion-generations` is dry-run-only without `--force`. Do not apply immutable cache headers to legacy conversion paths. Path rotation is blocked while conversion versioning or retained conversion lifecycle state is active.
 
+Keep the previous application key in Laravel's `APP_PREVIOUS_KEYS` while any conversion manifest signed by that key remains active. MediaMan validates signed persisted paths against the current and previous key ring, and `mediaman:doctor` reports invalid manifests explicitly.
+
 Filesystem `false` writes and clear failures now produce failures instead of successful conversion outcomes. Queued `generate-conversions --force` now actually regenerates, and completion events fire only after versioned metadata is published.
+
+`ParsesMediaIds` remains available for backward compatibility but is deprecated. Custom commands should migrate to `ParsesMediaKeys`, which supports opaque model keys and bounded ranges.
 
 ---
 

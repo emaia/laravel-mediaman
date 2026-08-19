@@ -4,6 +4,7 @@ namespace Emaia\MediaMan\Conversions;
 
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Resolvers\MediaResolver;
+use Emaia\MediaMan\Support\SigningKeys;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -34,6 +35,15 @@ final class ConversionClearer
 
                 if (! is_array($state) || ! self::isValidClearState($fresh, $conversion, $state)) {
                     $active = $fresh->getConversionFile($conversion);
+                    $basePath = $active !== null
+                        ? substr(
+                            $active['path'],
+                            0,
+                            -strlen('/'.$active['generation'].'/'.$active['file_name']),
+                        )
+                        : ConversionPath::directory(
+                            app(MediaResolver::class)->pathForConversion($fresh, $conversion),
+                        );
                     $disks = array_values(array_unique(array_filter([
                         ...$fresh->getConversionDisks(),
                         $active['disk'] ?? null,
@@ -41,9 +51,7 @@ final class ConversionClearer
                     ], fn ($disk) => is_string($disk) && $disk !== '')));
                     $state = [
                         'token' => strtoupper((string) Str::ulid()),
-                        'base_path' => ConversionPath::directory(
-                            app(MediaResolver::class)->pathForConversion($fresh, $conversion),
-                        ),
+                        'base_path' => ConversionPath::directory($basePath),
                         'disks' => $disks,
                         'started_at' => now()->toIso8601String(),
                     ];
@@ -166,7 +174,7 @@ final class ConversionClearer
             return false;
         }
 
-        foreach (self::signingKeys() as $key) {
+        foreach (SigningKeys::all() as $key) {
             if (hash_equals(self::signClearState($media, $conversion, $state, $key), $state['signature'])) {
                 return true;
             }
@@ -178,7 +186,7 @@ final class ConversionClearer
     /** @param array{token: string, base_path: string, disks: array, started_at: string, signature?: string} $state */
     private static function signClearState(Media $media, string $conversion, array $state, ?string $key = null): string
     {
-        $key ??= self::signingKeys()[0]
+        $key ??= SigningKeys::all()[0]
             ?? throw new RuntimeException('APP_KEY is required to sign conversion clear state.');
 
         return hash_hmac('sha256', json_encode([
@@ -191,20 +199,5 @@ final class ConversionClearer
             'disks' => array_values($state['disks']),
             'started_at' => $state['started_at'],
         ], JSON_THROW_ON_ERROR), $key);
-    }
-
-    /** @return string[] */
-    private static function signingKeys(): array
-    {
-        $previous = config('app.previous_keys', []);
-
-        if (is_string($previous)) {
-            $previous = explode(',', $previous);
-        }
-
-        return array_values(array_unique(array_filter([
-            config('app.key'),
-            ...(is_array($previous) ? $previous : []),
-        ], fn ($key) => is_string($key) && $key !== '')));
     }
 }

@@ -112,3 +112,26 @@ it('fails closed when active conversion metadata is malformed', function () {
     expect(Storage::disk($inactive['disk'])->exists($inactive['path']))->toBeTrue()
         ->and(Storage::disk($active['disk'])->exists($active['path']))->toBeTrue();
 });
+
+it('reports malformed markers as failures instead of protecting them silently', function () {
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+    $generation = Ulid::generate(now()->subDays(10));
+    $directory = $media->getDirectory().'/conversions/thumb/'.$generation;
+    Storage::disk($media->disk)->put($directory.'/'.ImageManipulator::IN_PROGRESS_MARKER, '{invalid');
+
+    $this->artisan('mediaman:prune-conversion-generations', [
+        '--older-than' => '0',
+        '--force' => true,
+    ])
+        ->expectsOutputToContain('Malformed conversion generation marker')
+        ->assertExitCode(1);
+
+    expect(Storage::disk($media->disk)->exists($directory))->toBeTrue();
+});
+
+it('ignores unsafe legacy registrations during implicit discovery', function () {
+    Conversion::register('../legacy-thumb', fn (Image $image) => $image);
+
+    $this->artisan('mediaman:prune-conversion-generations', ['--older-than' => '0'])
+        ->assertExitCode(0);
+});

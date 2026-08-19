@@ -19,6 +19,7 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 - Responsive and conversion jobs consistently use the connection configured by `mediaman.queue`, regardless of whether dispatch originates from a command, upload, model helper, or channel attachment.
 - `mediaman:clear-responsive` scans every selected media record rather than only raster images, allowing stale responsive metadata and retry tombstones to be cleared after a record's MIME type changes.
 - Conversion completion now follows successful manifest publication, queued `--force` requests preserve force semantics, and versioned skips emit no completion event.
+- `mediaman:clear-conversions` now scans all selected media records, including records whose MIME type changed after conversions were created. Legacy skips retain their existing completion-event behavior; versioned skips do not emit completion events.
 - `deleteQuietly()` and `forceDeleteQuietly()` now suppress model/package events but still remove physical media files. Hard-delete cleanup and `MediaDeleted` are deferred until an enclosing application transaction commits; rollback preserves both the row and its files.
 
 ### Fixed
@@ -36,6 +37,7 @@ All notable changes to `emaia/laravel-mediaman` will be documented in this file.
 - Responsive doctor/stats counts remain database-driven, pruning isolates malformed markers per generation, and dry-run lifecycle commands no longer acquire write claims.
 - Conversion reads remain pinned to persisted active paths and disks after registration/configuration changes; generation, clear, pruning, copy, delete, and path rotation now coordinate around versioned conversion state.
 - Conversion writes treat filesystem `false` results as failures, merge manifests through a fresh locked row, and preserve the previous active generation until replacement publication succeeds.
+- Invalid conversion manifest signatures now emit warnings and are reported by doctor/stats instead of degrading silently. `ParsesMediaIds` remains as a deprecated compatibility alias while package commands use opaque media keys.
 
 ## [3.0.2] — 2026-07-30
 

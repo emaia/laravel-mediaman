@@ -3,13 +3,14 @@
 namespace Emaia\MediaMan\Conversions;
 
 use Emaia\MediaMan\Models\Media;
+use Emaia\MediaMan\Support\SigningKeys;
 use RuntimeException;
 
 final class ConversionManifest
 {
     public static function sign(Media $media, array $files, array $disks, ?string $key = null): string
     {
-        $key ??= self::signingKeys()[0]
+        $key ??= SigningKeys::all()[0]
             ?? throw new RuntimeException('APP_KEY is required to sign conversion metadata.');
 
         return hash_hmac('sha256', json_encode(self::canonicalize([
@@ -27,7 +28,7 @@ final class ConversionManifest
             return false;
         }
 
-        foreach (self::signingKeys() as $key) {
+        foreach (SigningKeys::all() as $key) {
             if (hash_equals(self::sign($media, $files, $disks, $key), $signature)) {
                 return true;
             }
@@ -45,20 +46,5 @@ final class ConversionManifest
         ksort($value);
 
         return array_map(fn ($item) => is_array($item) ? self::canonicalize($item) : $item, $value);
-    }
-
-    /** @return string[] */
-    private static function signingKeys(): array
-    {
-        $previous = config('app.previous_keys', []);
-
-        if (is_string($previous)) {
-            $previous = explode(',', $previous);
-        }
-
-        return array_values(array_unique(array_filter([
-            config('app.key'),
-            ...(is_array($previous) ? $previous : []),
-        ], fn ($key) => is_string($key) && $key !== '')));
     }
 }

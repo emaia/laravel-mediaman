@@ -104,6 +104,8 @@ class Media extends Model implements Attachable
 
     protected array $conversionFormatCache = [];
 
+    protected ?bool $conversionManifestValidityCache = null;
+
     /** @var string[] */
     protected array $deletionVariantDisks = [];
 
@@ -773,6 +775,7 @@ class Media extends Model implements Attachable
     public function clearConversionFormatCache(): void
     {
         $this->conversionFormatCache = [];
+        $this->conversionManifestValidityCache = null;
     }
 
     /** Return the validated active metadata for a conversion, or null for legacy/unsafe data. */
@@ -790,6 +793,12 @@ class Media extends Model implements Attachable
         if (! is_array($entry) || ! $this->conversionManifestIsValid()) {
             return null;
         }
+
+        return $this->validateConversionFile($conversion, $entry);
+    }
+
+    private function validateConversionFile(string $conversion, array $entry): ?array
+    {
 
         foreach (['generation', 'disk', 'path', 'format', 'file_name', 'mime_type'] as $key) {
             if (! isset($entry[$key]) || ! is_string($entry[$key]) || $entry[$key] === '') {
@@ -819,14 +828,18 @@ class Media extends Model implements Attachable
 
         try {
             $fileName = ConversionPath::fileName($entry['file_name']);
-            $base = ConversionPath::directory(app(MediaResolver::class)->pathForConversion($this, $conversion));
+            $suffix = '/'.$entry['generation'].'/'.$fileName;
+
+            if (! str_ends_with($entry['path'], $suffix)) {
+                return null;
+            }
+
+            ConversionPath::directory(substr($entry['path'], 0, -strlen($suffix)));
         } catch (InvalidArgumentException) {
             return null;
         }
 
-        $expectedPath = $base.'/'.$entry['generation'].'/'.$fileName;
-
-        return $entry['path'] === $expectedPath ? $entry : null;
+        return $entry;
     }
 
     /** Return every valid active conversion manifest entry keyed by conversion name. */
@@ -834,7 +847,7 @@ class Media extends Model implements Attachable
     {
         $files = $this->getCustomProperty(self::PROPERTY_CONVERSION_FILES, []);
 
-        if (! is_array($files)) {
+        if (! is_array($files) || ! $this->conversionManifestIsValid()) {
             return [];
         }
 
@@ -845,7 +858,9 @@ class Media extends Model implements Attachable
                 continue;
             }
 
-            $entry = $this->getConversionFile($conversion);
+            $entry = is_array($files[$conversion] ?? null)
+                ? $this->validateConversionFile($conversion, $files[$conversion])
+                : null;
 
             if ($entry !== null) {
                 $valid[$conversion] = $entry;
@@ -858,19 +873,47 @@ class Media extends Model implements Attachable
     /** Verify that package-owned conversion paths and disk history were published together. */
     public function conversionManifestIsValid(): bool
     {
+        if ($this->conversionManifestValidityCache !== null) {
+            return $this->conversionManifestValidityCache;
+        }
+
         $files = $this->getCustomProperty(self::PROPERTY_CONVERSION_FILES, []);
         $disks = $this->getCustomProperty(self::PROPERTY_CONVERSION_GENERATION_DISKS, []);
 
         if (! is_array($files) || ! is_array($disks)) {
-            return false;
+            return $this->conversionManifestValidityCache = false;
         }
 
-        return ConversionManifest::isValid(
+        $valid = ConversionManifest::isValid(
             $this,
             $files,
             $disks,
             $this->getCustomProperty(self::PROPERTY_CONVERSION_MANIFEST_SIGNATURE),
         );
+
+        if (! $valid && $files !== []) {
+            Log::warning('MediaMan: Conversion manifest signature is invalid', [
+                'mediaId' => $this->getKey(),
+            ]);
+        }
+
+        return $this->conversionManifestValidityCache = $valid;
+    }
+
+    public function setRawAttributes(array $attributes, $sync = false)
+    {
+        $this->conversionManifestValidityCache = null;
+
+        return parent::setRawAttributes($attributes, $sync);
+    }
+
+    public function setAttribute($key, $value)
+    {
+        if ($key === 'custom_properties') {
+            $this->conversionManifestValidityCache = null;
+        }
+
+        return parent::setAttribute($key, $value);
     }
 
     /** Replace the media's collection associations (set `$detaching=false` to add only). */
@@ -1045,6 +1088,7 @@ class Media extends Model implements Attachable
         Arr::set($customProperties, $name, $value);
 
         $this->custom_properties = $customProperties;
+        $this->conversionManifestValidityCache = null;
 
         return $this;
     }
@@ -1157,6 +1201,7 @@ class Media extends Model implements Attachable
         Arr::forget($customProperties, $name);
 
         $this->custom_properties = $customProperties;
+        $this->conversionManifestValidityCache = null;
 
         return $this;
     }

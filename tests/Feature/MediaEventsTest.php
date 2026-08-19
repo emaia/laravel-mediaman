@@ -58,6 +58,40 @@ it('dispatches ConversionCompleted event with the conversions that succeeded', f
     });
 });
 
+it('defaults force to false when hydrating a job payload created before the property existed', function () {
+    $job = (new ReflectionClass(PerformConversions::class))->newInstanceWithoutConstructor();
+
+    expect($job->isForced())->toBeFalse();
+});
+
+it('preserves queued force and non-force conversion semantics', function () {
+    Event::fake(ConversionCompleted::class);
+    config(['mediaman.conversions.versioning' => 'generation']);
+    $invocations = 0;
+    Conversion::register('thumb', function ($image) use (&$invocations) {
+        $invocations++;
+
+        return $image->resize(100, 100);
+    });
+    $media = MediaUploader::source(UploadedFile::fake()->image('photo.jpg'))->upload();
+    $forced = new PerformConversions($media, ['thumb'], force: true);
+    app()->call([$forced, 'handle']);
+    $first = $media->getConversionFile('thumb');
+
+    $nonForced = new PerformConversions($media, ['thumb']);
+    app()->call([$nonForced, 'handle']);
+
+    expect($nonForced->isForced())->toBeFalse()
+        ->and($invocations)->toBe(1)
+        ->and($media->getConversionFile('thumb'))->toBe($first);
+
+    app()->call([$forced, 'handle']);
+
+    expect($forced->isForced())->toBeTrue()
+        ->and($invocations)->toBe(2)
+        ->and($media->getConversionFile('thumb')['generation'])->not->toBe($first['generation']);
+});
+
 it('logs and rethrows on all-failed but defers ConversionFailed until retries exhaust', function () {
     Event::fake([ConversionCompleted::class, ConversionFailed::class]);
     Log::spy();

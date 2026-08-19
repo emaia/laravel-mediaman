@@ -85,11 +85,13 @@ class StatsCommand extends Command
             }
         }
 
-        $this->statusLine(
-            'Versioned media',
-            'info',
-            number_format(ConversionMetadataQuery::whereHasManifest($this->mediaQuery())->count()),
-        );
+        [$versionedMedia, $invalidManifests] = $this->conversionManifestCounts();
+        $this->statusLine('Versioned media', 'info', number_format($versionedMedia));
+
+        if ($invalidManifests > 0) {
+            $this->statusLine('Invalid manifests', 'warn', number_format($invalidManifests));
+        }
+
         $this->statusLine('Generation retention', 'info', $config->retentionDays.' day(s)');
         $this->statusLine('In-progress timeout', 'info', $config->generationTimeoutMinutes.' minute(s)');
     }
@@ -174,6 +176,22 @@ class StatsCommand extends Command
         $inconsistent = max(0, $withGeneration - $versioned);
 
         return [$withResponsive, $legacy, $versioned, $inconsistent];
+    }
+
+    /** @return array{int, int} */
+    protected function conversionManifestCounts(): array
+    {
+        $query = ConversionMetadataQuery::whereHasManifest($this->mediaQuery());
+        $total = (clone $query)->count();
+        $invalid = 0;
+
+        foreach ($query->cursor() as $media) {
+            if ($media instanceof Media && ! $media->conversionManifestIsValid()) {
+                $invalid++;
+            }
+        }
+
+        return [$total, $invalid];
     }
 
     /** Stringify a scalar or per-format quality config for the stats line. */

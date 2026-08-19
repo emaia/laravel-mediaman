@@ -2,7 +2,7 @@
 
 namespace Emaia\MediaMan\Conversions;
 
-use InvalidArgumentException;
+use Emaia\MediaMan\Support\GenerationConfig;
 
 final readonly class ConversionGenerationConfig
 {
@@ -14,52 +14,17 @@ final readonly class ConversionGenerationConfig
 
     public static function fromConfig(): self
     {
-        $versioning = config('mediaman.conversions.versioning', false);
-
-        if ($versioning !== false && $versioning !== 'generation') {
-            throw new InvalidArgumentException(
-                "mediaman.conversions.versioning must be false or 'generation'."
-            );
-        }
+        $values = GenerationConfig::values('mediaman.conversions');
 
         return new self(
-            $versioning,
-            self::normalizeInteger(
-                'mediaman.conversions.version_retention_days',
-                config('mediaman.conversions.version_retention_days', 7),
-                allowZero: true,
-            ),
-            self::normalizeInteger(
-                'mediaman.conversions.generation_timeout_minutes',
-                config('mediaman.conversions.generation_timeout_minutes', 1440),
-                allowZero: false,
-            ),
+            $values['versioning'],
+            $values['retention_days'],
+            $values['timeout_minutes'],
         );
     }
 
     public function isVersioned(): bool
     {
         return $this->versioning === 'generation';
-    }
-
-    private static function normalizeInteger(string $key, mixed $value, bool $allowZero): int
-    {
-        if (is_string($value)) {
-            if (! preg_match('/^(0|[1-9][0-9]*)$/', $value)) {
-                throw new InvalidArgumentException("$key must be an integer.");
-            }
-
-            $value = filter_var($value, FILTER_VALIDATE_INT, [
-                'options' => ['min_range' => $allowZero ? 0 : 1],
-            ]);
-        }
-
-        if (! is_int($value) || $value < ($allowZero ? 0 : 1)) {
-            $constraint = $allowZero ? 'greater than or equal to zero' : 'greater than zero';
-
-            throw new InvalidArgumentException("$key must be an integer $constraint.");
-        }
-
-        return $value;
     }
 }

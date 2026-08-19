@@ -526,8 +526,21 @@ class DoctorCommand extends Command
         }
 
         try {
-            $active = ConversionMetadataQuery::whereHasManifest($this->mediaQuery())->count();
+            $manifestQuery = ConversionMetadataQuery::whereHasManifest($this->mediaQuery());
+            $active = (clone $manifestQuery)->count();
+            $invalid = 0;
+
+            foreach ($manifestQuery->cursor() as $media) {
+                if ($media instanceof Media && ! $media->conversionManifestIsValid()) {
+                    $invalid++;
+                }
+            }
+
             $this->statusLine('Versioned media', 'info', number_format($active));
+
+            if ($invalid > 0) {
+                $this->statusLine('Invalid conversion manifests', 'error', number_format($invalid).' media');
+            }
         } catch (Throwable $e) {
             $this->statusLine('Versioned media', 'warn', 'query failed: '.$e->getMessage());
         }

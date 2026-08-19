@@ -120,6 +120,19 @@ Forced regeneration writes a new directory and atomically switches persisted act
 
 Reads remain pinned to the published path and disk even if a registration is removed or its write disk changes. New generations use the current registration/configuration disk. Disable versioning and regenerate successfully before expecting legacy stable paths again.
 
+Match the canonical ULID segment before sending immutable cache headers. Do not mark the complete `/conversions/*` subtree immutable because legacy conversion URLs remain stable:
+
+```caddyfile
+@versioned_conversions path_regexp conversions ^/media/[^/]+/conversions/[^/]+/[0-9A-HJKMNP-TV-Z]{26}/[^/]+$
+header @versioned_conversions Cache-Control "public, max-age=31536000, immutable"
+```
+
+```nginx
+location ~ ^/media/[^/]+/conversions/[^/]+/[0-9A-HJKMNP-TV-Z]{26}/[^/]+$ {
+    add_header Cache-Control "public, max-age=31536000, immutable" always;
+}
+```
+
 ## Conversion disk
 
 Conversions can opt into a different filesystem disk than the original — useful for hot/cold storage tiering (originals on S3, hot variants served from local). Resolution chain, most specific wins:

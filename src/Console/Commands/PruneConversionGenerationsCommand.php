@@ -86,6 +86,7 @@ class PruneConversionGenerationsCommand extends Command
         $cutoff = now()->subDays($olderThan)->toDateTimeImmutable();
         $candidates = 0;
         $deleted = 0;
+        $protected = 0;
         $failures = 0;
         $this->section('Prune conversion generations');
         $this->statusLine('Mode', $force ? 'warn' : 'info', $force ? 'delete' : 'dry run');
@@ -99,6 +100,7 @@ class PruneConversionGenerationsCommand extends Command
             $force,
             &$candidates,
             &$deleted,
+            &$protected,
             &$failures,
         ): void {
             $disks = $diskOverride !== null
@@ -159,6 +161,7 @@ class PruneConversionGenerationsCommand extends Command
 
                         if ($generatedAt > now()->toDateTimeImmutable()) {
                             $this->warn("  Media {$media->getKey()} [$conversion]: future generation $generation retained.");
+                            $protected++;
 
                             continue;
                         }
@@ -169,6 +172,8 @@ class PruneConversionGenerationsCommand extends Command
 
                         try {
                             if ($this->markerProtects($filesystem, $directory, $config)) {
+                                $protected++;
+
                                 continue;
                             }
                         } catch (Throwable $e) {
@@ -179,6 +184,8 @@ class PruneConversionGenerationsCommand extends Command
                         }
 
                         if (($active['generation'] ?? null) === $generation) {
+                            $protected++;
+
                             continue;
                         }
 
@@ -190,7 +197,7 @@ class PruneConversionGenerationsCommand extends Command
                         }
 
                         try {
-                            $token = $this->claim($media, $conversion, $generation, $config);
+                            $token = $this->claim($media, $conversion, $generation, $base, $config);
                         } catch (Throwable $e) {
                             $this->error("  Media {$media->getKey()} [$conversion/$disk]: claim failed: {$e->getMessage()}");
                             $failures++;
@@ -225,6 +232,7 @@ class PruneConversionGenerationsCommand extends Command
         });
 
         $this->statusLine('Candidates', 'info', (string) $candidates);
+        $this->statusLine('Protected', 'info', (string) $protected);
 
         if ($force) {
             $this->statusLine('Deleted', $failures === 0 ? 'ok' : 'warn', (string) $deleted);
@@ -280,10 +288,11 @@ class PruneConversionGenerationsCommand extends Command
             return $filter;
         }
 
-        $names = [
-            ...array_keys(app(ConversionRegistry::class)->all()),
-            ...array_keys($media->conversionFiles()),
-        ];
+        $registered = array_filter(
+            array_keys(app(ConversionRegistry::class)->all()),
+            fn (string $name) => preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/', $name) === 1,
+        );
+        $names = [...$registered, ...array_keys($media->conversionFiles())];
         $legacyRoot = $media->getDirectory().'/'.Media::CONVERSIONS_DIR;
 
         foreach ($disks as $disk) {
@@ -321,8 +330,8 @@ class PruneConversionGenerationsCommand extends Command
                 if ($startedAt > now()->subMinutes($config->generationTimeoutMinutes)->toDateTimeImmutable()) {
                     return true;
                 }
-            } catch (Throwable) {
-                return true;
+            } catch (Throwable $e) {
+                throw new \RuntimeException("Malformed conversion generation marker [$path].", previous: $e);
             }
         }
 
@@ -333,22 +342,34 @@ class PruneConversionGenerationsCommand extends Command
         Media $media,
         string $conversion,
         string $generation,
+        string $expectedBase,
         ConversionGenerationConfig $config,
     ): ?string {
         return DB::connection($media->getConnectionName())->transaction(function () use (
             $media,
             $conversion,
             $generation,
+            $expectedBase,
             $config,
         ): ?string {
             /** @var Media|null $fresh */
             $fresh = $media->newQuery()->whereKey($media->getKey())->lockForUpdate()->first();
 
-            if (
-                $fresh === null
-                || $fresh->hasCustomProperty(Media::PROPERTY_CONVERSION_CLEARING)
-                || $fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_ROTATING)
-            ) {
+            if ($fresh === null || $fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_ROTATING)) {
+                return null;
+            }
+
+            $clearing = $fresh->getCustomProperty(Media::PROPERTY_CONVERSION_CLEARING, []);
+
+            if (is_array($clearing) && isset($clearing[$conversion])) {
+                return null;
+            }
+
+            $currentBase = ConversionPath::directory(
+                app(MediaResolver::class)->pathForConversion($fresh, $conversion),
+            );
+
+            if ($currentBase !== $expectedBase) {
                 return null;
             }
 
@@ -365,8 +386,10 @@ class PruneConversionGenerationsCommand extends Command
             $properties = is_array($fresh->custom_properties) ? $fresh->custom_properties : [];
             $pruning = $properties[Media::PROPERTY_CONVERSION_PRUNING] ?? [];
             $pruning = is_array($pruning) ? $pruning : [];
+            $conversionPruning = $pruning[$conversion] ?? [];
+            $conversionPruning = is_array($conversionPruning) ? $conversionPruning : [];
 
-            $existing = $pruning[$conversion][$generation] ?? null;
+            $existing = $conversionPruning[$generation] ?? null;
 
             if (is_array($existing) && isset($existing['started_at'])) {
                 try {
@@ -381,10 +404,11 @@ class PruneConversionGenerationsCommand extends Command
             }
 
             $token = strtoupper((string) new Ulid);
-            $pruning[$conversion][$generation] = [
+            $conversionPruning[$generation] = [
                 'token' => $token,
                 'started_at' => now()->toIso8601String(),
             ];
+            $pruning[$conversion] = $conversionPruning;
             $properties[Media::PROPERTY_CONVERSION_PRUNING] = $pruning;
             $fresh->custom_properties = $properties;
             $fresh->save();
@@ -411,13 +435,17 @@ class PruneConversionGenerationsCommand extends Command
             $properties = is_array($fresh->custom_properties) ? $fresh->custom_properties : [];
             $pruning = $properties[Media::PROPERTY_CONVERSION_PRUNING] ?? [];
             $pruning = is_array($pruning) ? $pruning : [];
+            $conversionPruning = $pruning[$conversion] ?? [];
+            $conversionPruning = is_array($conversionPruning) ? $conversionPruning : [];
 
-            if (($pruning[$conversion][$generation]['token'] ?? null) === $token) {
-                unset($pruning[$conversion][$generation]);
+            if (($conversionPruning[$generation]['token'] ?? null) === $token) {
+                unset($conversionPruning[$generation]);
             }
 
-            if (($pruning[$conversion] ?? []) === []) {
+            if ($conversionPruning === []) {
                 unset($pruning[$conversion]);
+            } else {
+                $pruning[$conversion] = $conversionPruning;
             }
 
             if ($pruning === []) {

@@ -23,7 +23,7 @@ class PerformConversions implements ShouldQueue
 
     protected array $conversions;
 
-    protected bool $force;
+    protected bool $force = false;
 
     /**
      * Failures from the most recent `handle()` invocation that triggered an

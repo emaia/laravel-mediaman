@@ -2,6 +2,7 @@
 
 use Emaia\MediaMan\ConversionRegistry;
 use Emaia\MediaMan\Conversions\ConversionClearer;
+use Emaia\MediaMan\Exceptions\ConversionFormatNotSupported;
 use Emaia\MediaMan\Facades\Conversion;
 use Emaia\MediaMan\ImageManipulator;
 use Emaia\MediaMan\MediaUploader;
@@ -9,7 +10,9 @@ use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Tests\Models\Subject;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Intervention\Image\EncodedImage;
 use Intervention\Image\Encoders\WebpEncoder;
 use Intervention\Image\Image;
 
@@ -230,8 +233,10 @@ it('copies and deletes active conversion files after registration removal', func
 });
 
 it('prevents a legacy writer started before clear from recreating the conversion', function () {
-    Config::set('mediaman.conversions.versioning', false);
+    Conversion::register('thumb', fn (Image $image) => $image->cover(320, 240));
     $media = uploadVersionedConversionMedia();
+    app(ImageManipulator::class)->manipulate($media, ['thumb'], onlyIfMissing: false);
+    Config::set('mediaman.conversions.versioning', false);
     Conversion::register('thumb', function (Image $image) use ($media) {
         app(ConversionClearer::class)->clear($media, 'thumb');
 
@@ -244,6 +249,44 @@ it('prevents a legacy writer started before clear from recreating the conversion
     expect(Storage::disk($media->disk)->exists(
         $media->getDirectory().'/conversions/thumb/photo.jpg'
     ))->toBeFalse();
+});
+
+it('keeps concurrent clear authoritative when a stale legacy writer recreates a pre-existing file', function () {
+    Conversion::register('thumb', fn (Image $image) => $image->cover(320, 240));
+    $media = uploadVersionedConversionMedia();
+    app(ImageManipulator::class)->manipulate($media, ['thumb'], onlyIfMissing: false);
+    Config::set('mediaman.conversions.versioning', false);
+    $legacyPath = $media->getDirectory().'/conversions/thumb/photo.jpg';
+    Storage::disk($media->disk)->put($legacyPath, 'existing');
+    Conversion::register('thumb', function (Image $image) use ($media) {
+        app(ConversionClearer::class)->clear($media, 'thumb');
+
+        return $image->cover(320, 240);
+    });
+
+    expect(fn () => app(ImageManipulator::class)->manipulate($media, ['thumb'], onlyIfMissing: false))
+        ->toThrow(RuntimeException::class, 'changed while conversion [thumb] was being generated');
+
+    expect(Storage::disk($media->disk)->exists($legacyPath))->toBeFalse();
+});
+
+it('preserves a pre-existing legacy file when publication fails without a clear', function () {
+    Conversion::register('thumb', fn (Image $image) => $image->cover(320, 240));
+    $media = uploadVersionedConversionMedia();
+    app(ImageManipulator::class)->manipulate($media, ['thumb'], onlyIfMissing: false);
+    Config::set('mediaman.conversions.versioning', false);
+    $legacyPath = $media->getDirectory().'/conversions/thumb/photo.jpg';
+    Storage::disk($media->disk)->put($legacyPath, 'existing');
+    Conversion::register('thumb', function (Image $image) use ($media) {
+        $media->newQuery()->whereKey($media->getKey())->update(['file_name' => 'renamed.jpg']);
+
+        return $image->cover(320, 240);
+    });
+
+    expect(fn () => app(ImageManipulator::class)->manipulate($media, ['thumb'], onlyIfMissing: false))
+        ->toThrow(RuntimeException::class, 'changed while conversion [thumb] was being generated');
+
+    expect(Storage::disk($media->disk)->exists($legacyPath))->toBeTrue();
 });
 
 it('rejects tampered conversion metadata before using its path or disk', function () {
@@ -298,4 +341,184 @@ it('reports unsafe conversion names as failures only in versioned mode', functio
     expect($report['completed'])->toBe([])
         ->and($report['failed'])->toHaveCount(1)
         ->and($report['failed'][0]['exception'])->toBeInstanceOf(InvalidArgumentException::class);
+});
+
+it('keeps unsafe legacy conversion names working with a deprecation warning', function () {
+    Config::set('mediaman.conversions.versioning', false);
+    app(ConversionRegistry::class)->register('thumb large', fn (Image $image) => $image->cover(320, 240));
+    $media = uploadVersionedConversionMedia();
+    Log::spy();
+
+    $report = app(ImageManipulator::class)->manipulate($media, ['thumb large'], onlyIfMissing: false);
+
+    expect($report['completed'])->toBe(['thumb large'])
+        ->and($media->hasConversion('thumb large'))->toBeTrue();
+    Log::shouldHaveReceived('warning')->once()->with(
+        'MediaMan: Unsafe legacy conversion name is deprecated',
+        ['conversion' => 'thumb large'],
+    );
+});
+
+it('keeps failed active entries while publishing successful conversions in a partial batch', function () {
+    registerVersionedThumb();
+    Conversion::register('cover', fn (Image $image) => $image->cover(640, 320));
+    $media = uploadVersionedConversionMedia();
+    $manipulator = app(ImageManipulator::class);
+    $manipulator->manipulate($media, ['thumb', 'cover'], onlyIfMissing: false);
+    $oldThumb = $media->getConversionFile('thumb');
+    $oldCover = $media->getConversionFile('cover');
+    registerVersionedThumb();
+    Conversion::register('cover', fn () => throw new RuntimeException('cover failed'));
+
+    $report = $manipulator->manipulate($media, ['thumb', 'cover'], onlyIfMissing: false);
+
+    expect($report['completed'])->toBe(['thumb'])
+        ->and($report['failed'])->toHaveCount(1)
+        ->and($media->getConversionFile('thumb')['generation'])->not->toBe($oldThumb['generation'])
+        ->and($media->getConversionFile('cover'))->toBe($oldCover);
+});
+
+it('merges different conversion names generated from stale model instances', function () {
+    registerVersionedThumb();
+    Conversion::register('cover', fn (Image $image) => $image->cover(640, 320));
+    $media = uploadVersionedConversionMedia();
+    $thumbWorker = $media->fresh();
+    $coverWorker = $media->fresh();
+
+    app(ImageManipulator::class)->manipulate($thumbWorker, ['thumb'], onlyIfMissing: false);
+    app(ImageManipulator::class)->manipulate($coverWorker, ['cover'], onlyIfMissing: false);
+
+    expect($media->fresh()->conversionFiles())->toHaveKeys(['thumb', 'cover']);
+});
+
+it('publishes one complete active entry when stale workers generate the same conversion', function () {
+    registerVersionedThumb();
+    $media = uploadVersionedConversionMedia();
+    $workerA = $media->fresh();
+    $workerB = $media->fresh();
+    $manipulator = app(ImageManipulator::class);
+    $manipulator->manipulate($workerA, ['thumb'], onlyIfMissing: false);
+    $generationA = $workerA->getConversionFile('thumb');
+    $manipulator->manipulate($workerB, ['thumb'], onlyIfMissing: false);
+    $active = $media->fresh()->getConversionFile('thumb');
+
+    expect($active['generation'])->not->toBe($generationA['generation'])
+        ->and(Storage::disk($active['disk'])->exists($active['path']))->toBeTrue()
+        ->and(dirname($active['path']))->toEndWith($active['generation']);
+});
+
+it('scopes conversion clearing guards to the selected conversion name', function () {
+    registerVersionedThumb();
+    Conversion::register('cover', fn (Image $image) => $image->cover(640, 320));
+    $media = uploadVersionedConversionMedia();
+    $media->setCustomProperty(Media::PROPERTY_CONVERSION_CLEARING, [
+        'thumb' => ['token' => 'blocked'],
+    ])->save();
+
+    $report = app(ImageManipulator::class)->manipulate($media, ['cover'], onlyIfMissing: false);
+
+    expect($report['completed'])->toBe(['cover'])
+        ->and($media->getConversionFile('cover'))->not->toBeNull();
+});
+
+it('keeps signed conversion paths readable across app key rotation', function () {
+    $oldKey = config('app.key');
+    registerVersionedThumb();
+    $media = uploadVersionedConversionMedia();
+    app(ImageManipulator::class)->manipulate($media, ['thumb'], onlyIfMissing: false);
+    $active = $media->getConversionFile('thumb');
+    Config::set('app.key', 'base64:bmV3LWtleS1mb3ItY29udmVyc2lvbi10ZXN0');
+    Config::set('app.previous_keys', [$oldKey]);
+    $rotated = $media->fresh();
+
+    expect($rotated->getConversionFile('thumb'))->toBe($active)
+        ->and($rotated->getPath('thumb'))->toBe($active['path'])
+        ->and($rotated->hasConversion('thumb'))->toBeTrue();
+});
+
+it('clears the signed active path after app key rotation', function () {
+    $oldKey = config('app.key');
+    registerVersionedThumb();
+    $media = uploadVersionedConversionMedia();
+    app(ImageManipulator::class)->manipulate($media, ['thumb'], onlyIfMissing: false);
+    $active = $media->getConversionFile('thumb');
+    Config::set('app.key', 'base64:bmV3LWtleS1mb3ItY29udmVyc2lvbi10ZXN0');
+    Config::set('app.previous_keys', [$oldKey]);
+    $rotated = $media->fresh();
+
+    expect(app(ConversionClearer::class)->clear($rotated, 'thumb'))->toBeTrue()
+        ->and(Storage::disk($active['disk'])->exists($active['path']))->toBeFalse()
+        ->and($rotated->getConversionFile('thumb'))->toBeNull();
+});
+
+it('warns once per model state when a non-empty manifest signature is invalid', function () {
+    registerVersionedThumb();
+    $media = uploadVersionedConversionMedia();
+    app(ImageManipulator::class)->manipulate($media, ['thumb'], onlyIfMissing: false);
+    $properties = $media->custom_properties;
+    $properties[Media::PROPERTY_CONVERSION_MANIFEST_SIGNATURE] = 'invalid';
+    $media->custom_properties = $properties;
+    Log::spy();
+
+    expect($media->getConversionFile('thumb'))->toBeNull()
+        ->and($media->getConversionFile('thumb'))->toBeNull();
+
+    Log::shouldHaveReceived('warning')
+        ->once()
+        ->with('MediaMan: Conversion manifest signature is invalid', ['mediaId' => $media->getKey()]);
+});
+
+it('reports invalid conversion manifest signatures in doctor and stats', function () {
+    registerVersionedThumb();
+    $media = uploadVersionedConversionMedia();
+    app(ImageManipulator::class)->manipulate($media, ['thumb'], onlyIfMissing: false);
+    $properties = $media->custom_properties;
+    $properties[Media::PROPERTY_CONVERSION_MANIFEST_SIGNATURE] = 'invalid';
+    $media->custom_properties = $properties;
+    $media->save();
+
+    $this->artisan('mediaman:doctor')
+        ->expectsOutputToContain('Invalid conversion manifests')
+        ->assertExitCode(1);
+
+    $this->artisan('mediaman:stats', ['--conversions' => true])
+        ->expectsOutputToContain('Invalid manifests')
+        ->assertExitCode(0);
+});
+
+it('uses active conversion disk filename and mime metadata across read APIs', function () {
+    Storage::fake('conversion-read');
+    Storage::disk('conversion-read')->buildTemporaryUrlsUsing(
+        fn (string $path) => 'https://temporary.test/'.$path,
+    );
+    registerVersionedThumb('conversion-read');
+    $media = uploadVersionedConversionMedia();
+    app(ImageManipulator::class)->manipulate($media, ['thumb'], onlyIfMissing: false);
+    $active = $media->getConversionFile('thumb');
+
+    $stream = $media->getStream('thumb');
+    $bytes = stream_get_contents($stream);
+    fclose($stream);
+    $attachment = $media->mailAttachment('thumb');
+    $download = $media->toResponse('thumb');
+    $inline = $media->toInlineResponse('thumb');
+
+    expect($media->getFullPath('thumb'))->toBe(Storage::disk('conversion-read')->path($active['path']))
+        ->and($bytes)->toBe(Storage::disk('conversion-read')->get($active['path']))
+        ->and($media->getTemporaryUrl(conversion: 'thumb'))->toBe('https://temporary.test/'.$active['path'])
+        ->and($download->headers->get('content-disposition'))->toContain($active['file_name'])
+        ->and($inline->headers->get('content-disposition'))->toContain($active['file_name'])
+        ->and($attachment->as)->toBe($active['file_name'])
+        ->and($attachment->mime)->toBe($active['mime_type']);
+});
+
+it('reports zero-byte encoded conversions as unsupported instead of storage failures', function () {
+    Conversion::register('empty', fn () => new EncodedImage('', 'image/webp'));
+    $media = uploadVersionedConversionMedia();
+
+    $report = app(ImageManipulator::class)->manipulate($media, ['empty'], onlyIfMissing: false);
+
+    expect($report['completed'])->toBe([])
+        ->and($report['failed'])->toHaveCount(1)
+        ->and($report['failed'][0]['exception'])->toBeInstanceOf(ConversionFormatNotSupported::class);
 });

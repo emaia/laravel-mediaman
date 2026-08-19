@@ -6,6 +6,7 @@ use Emaia\MediaMan\Conversions\ConversionGenerationConfig;
 use Emaia\MediaMan\Conversions\ConversionManifest;
 use Emaia\MediaMan\Conversions\ConversionPath;
 use Emaia\MediaMan\Enums\MediaFormat;
+use Emaia\MediaMan\Exceptions\ConversionFormatNotSupported;
 use Emaia\MediaMan\Exceptions\MediaFileWriteFailed;
 use Emaia\MediaMan\Models\Media;
 use Emaia\MediaMan\Resolvers\MediaResolver;
@@ -24,6 +25,8 @@ use Throwable;
 
 class ImageManipulator
 {
+    public const string IN_PROGRESS_MARKER = '.mediaman-in-progress';
+
     protected ConversionRegistry $conversionRegistry;
 
     protected ImageManager $imageManager;
@@ -54,13 +57,31 @@ class ImageManipulator
 
         if (! $generationConfig->isVersioned()) {
             $transitions = [];
+            $coordinateLifecycle = $media->hasCustomProperty(Media::PROPERTY_CONVERSION_FILES)
+                || $media->hasCustomProperty(Media::PROPERTY_CONVERSION_GENERATION_EPOCHS)
+                || $media->hasCustomProperty(Media::PROPERTY_CONVERSION_CLEARING);
 
             foreach ($conversions as $conversion) {
                 try {
-                    $snapshot = $this->runLegacyConversion($media, $conversion, $onlyIfMissing);
+                    try {
+                        ConversionPath::name($conversion);
+                    } catch (\InvalidArgumentException) {
+                        Log::warning('MediaMan: Unsafe legacy conversion name is deprecated', [
+                            'conversion' => $conversion,
+                        ]);
+                    }
+
+                    $snapshot = $this->runLegacyConversion(
+                        $media,
+                        $conversion,
+                        $onlyIfMissing,
+                        trackExisting: $coordinateLifecycle,
+                    );
                     $report['completed'][] = $conversion;
 
-                    $transitions[$conversion] = $snapshot;
+                    if ($coordinateLifecycle) {
+                        $transitions[$conversion] = $snapshot;
+                    }
                 } catch (Throwable $e) {
                     $report['failed'][] = [
                         'conversion' => $conversion,
@@ -73,8 +94,14 @@ class ImageManipulator
                 try {
                     $published = $this->publishLegacyTransitions($media, $transitions);
                 } catch (Throwable $e) {
-                    foreach ($transitions as $transition) {
-                        if (($transition['wrote'] ?? false) === true) {
+                    foreach ($transitions as $conversion => $transition) {
+                        if (
+                            $transition['wrote']
+                            && (
+                                ! $transition['existed_before']
+                                || $this->conversionEpochChanged($media, $conversion, $transition['epoch'])
+                            )
+                        ) {
                             Storage::disk($transition['write_disk'])->delete($transition['path']);
                         }
                     }
@@ -138,6 +165,24 @@ class ImageManipulator
         return $report;
     }
 
+    protected function conversionEpochChanged(Media $media, string $conversion, int $expectedEpoch): bool
+    {
+        try {
+            $fresh = $media->newQuery()->useWritePdo()->whereKey($media->getKey())->first();
+            $epochs = $fresh?->getCustomProperty(Media::PROPERTY_CONVERSION_GENERATION_EPOCHS, []);
+
+            return is_array($epochs) && (int) ($epochs[$conversion] ?? 0) !== $expectedEpoch;
+        } catch (Throwable $e) {
+            Log::warning('MediaMan: Could not verify legacy conversion rollback epoch', [
+                'mediaId' => $media->getKey(),
+                'conversion' => $conversion,
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
+
     /**
      * Encode and persist a single conversion. Extracted so the per-iteration
      * try/catch in `manipulate()` covers every step (registry lookup, decode,
@@ -146,24 +191,33 @@ class ImageManipulator
      * @throws StreamException
      * @throws EncoderException
      */
-    protected function runLegacyConversion(Media $media, string $conversion, bool $onlyIfMissing): array
-    {
+    protected function runLegacyConversion(
+        Media $media,
+        string $conversion,
+        bool $onlyIfMissing,
+        bool $trackExisting,
+    ): array {
         $snapshot = $this->snapshot($media, $conversion);
+        $filesystem = $media->conversionWriteFilesystem($conversion);
+        $existingPaths = $trackExisting && $filesystem->exists($snapshot['base_directory'])
+            ? $filesystem->allFiles($snapshot['base_directory'])
+            : [];
         $converter = $this->conversionRegistry->get($conversion);
 
         $image = $converter($this->imageManager->decode(
             $media->filesystem()->readStream($media->getOriginalPath())
         ));
 
-        $filesystem = $media->conversionWriteFilesystem($conversion);
         $snapshot['wrote'] = false;
 
         if ($image instanceof EncodedImage) {
             $extension = $this->getExtensionFromMimeType($image->mediaType());
             $path = $this->getConversionPathWithExtension($media, $conversion, $extension);
             $snapshot['path'] = $path;
+            $existsNow = $filesystem->exists($path);
+            $snapshot['existed_before'] = in_array($path, $existingPaths, true);
 
-            if ($onlyIfMissing && $filesystem->exists($path)) {
+            if ($onlyIfMissing && $existsNow) {
                 return $snapshot;
             }
 
@@ -187,8 +241,10 @@ class ImageManipulator
             $extension = $this->getExtensionFromMimeType($encoded->mediaType());
             $path = $this->getConversionPathWithExtension($media, $conversion, $extension);
             $snapshot['path'] = $path;
+            $existsNow = $filesystem->exists($path);
+            $snapshot['existed_before'] = in_array($path, $existingPaths, true);
 
-            if ($onlyIfMissing && $filesystem->exists($path)) {
+            if ($onlyIfMissing && $existsNow) {
                 return $snapshot;
             }
 
@@ -252,7 +308,11 @@ class ImageManipulator
             $path = $directory.'/'.$fileName;
             $size = strlen((string) $encoded);
 
-            if ($size === 0 || ! $filesystem->put($path, $encoded->toStream())) {
+            if ($size === 0) {
+                throw new ConversionFormatNotSupported("Conversion [$conversion] produced zero bytes.");
+            }
+
+            if (! $filesystem->put($path, $encoded->toStream())) {
                 throw MediaFileWriteFailed::forPath($path, $snapshot['write_disk']);
             }
 
@@ -310,7 +370,6 @@ class ImageManipulator
 
             if (
                 $fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_ROTATING)
-                || $fresh->hasCustomProperty(Media::PROPERTY_CONVERSION_CLEARING)
             ) {
                 throw new RuntimeException("Media [{$media->getKey()}] has a conflicting conversion lifecycle operation.");
             }
@@ -320,12 +379,15 @@ class ImageManipulator
             $epochs = is_array($epochs) ? $epochs : [];
             $pruning = $fresh->getCustomProperty(Media::PROPERTY_CONVERSION_PRUNING, []);
             $pruning = is_array($pruning) ? $pruning : [];
+            $clearing = $fresh->getCustomProperty(Media::PROPERTY_CONVERSION_CLEARING, []);
+            $clearing = is_array($clearing) ? $clearing : [];
 
             foreach ($candidates as $conversion => $candidate) {
                 $snapshot = $candidate['_snapshot'];
 
                 if (
-                    $fresh->file_name !== $snapshot['file_name']
+                    isset($clearing[$conversion])
+                    || $fresh->file_name !== $snapshot['file_name']
                     || $fresh->disk !== $snapshot['disk']
                     || $fresh->getConversionWriteDisk($conversion) !== $snapshot['write_disk']
                     || ConversionPath::directory($resolver->pathForConversion($fresh, $conversion)) !== $snapshot['base_directory']
@@ -350,9 +412,15 @@ class ImageManipulator
             $knownDisks = is_array($knownDisks) ? $knownDisks : [];
 
             foreach ($candidates as $conversion => $candidate) {
-                $files[$conversion] = array_diff_key($candidate, array_flip([
-                    '_directory', '_marker', '_snapshot',
-                ]));
+                $files[$conversion] = [
+                    'generation' => $candidate['generation'],
+                    'disk' => $candidate['disk'],
+                    'path' => $candidate['path'],
+                    'format' => $candidate['format'],
+                    'file_name' => $candidate['file_name'],
+                    'mime_type' => $candidate['mime_type'],
+                    'size' => $candidate['size'],
+                ];
                 $knownDisks[] = $candidate['disk'];
             }
 
@@ -373,7 +441,7 @@ class ImageManipulator
         });
     }
 
-    /** @param array<string, array{file_name: string, disk: string, write_disk: string, base_directory: string, epoch: int, path: string, wrote: bool}> $transitions */
+    /** @param array<string, array{file_name: string, disk: string, write_disk: string, base_directory: string, epoch: int, path: string, wrote: bool, existed_before: bool}> $transitions */
     protected function publishLegacyTransitions(Media $media, array $transitions): Media
     {
         return DB::connection($media->getConnectionName())->transaction(function () use ($media, $transitions): Media {
@@ -390,11 +458,13 @@ class ImageManipulator
             $resolver = app(MediaResolver::class);
             $epochs = $properties[Media::PROPERTY_CONVERSION_GENERATION_EPOCHS] ?? [];
             $epochs = is_array($epochs) ? $epochs : [];
+            $clearing = $properties[Media::PROPERTY_CONVERSION_CLEARING] ?? [];
+            $clearing = is_array($clearing) ? $clearing : [];
             $changed = false;
 
             foreach ($transitions as $conversion => $snapshot) {
                 if (
-                    $fresh->hasCustomProperty(Media::PROPERTY_CONVERSION_CLEARING)
+                    isset($clearing[$conversion])
                     || $fresh->hasCustomProperty(Media::PROPERTY_RESPONSIVE_ROTATING)
                     || $fresh->file_name !== $snapshot['file_name']
                     || $fresh->disk !== $snapshot['disk']
@@ -502,8 +572,6 @@ class ImageManipulator
             ]);
         }
     }
-
-    public const string IN_PROGRESS_MARKER = '.mediaman-in-progress';
 
     protected function getConversionPathWithExtension(Media $media, string $conversion, string $extension): string
     {
